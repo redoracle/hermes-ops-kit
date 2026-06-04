@@ -1,0 +1,51 @@
+# Hermes Ops Kit — Plugin Manifest
+# Portable Hermes plugin for AI provider routing, remote assistants,
+# usage metrics, key rotation, and Vaultwarden-backed secrets.
+
+name: hermes-ops-kit
+version: "0.1.0"
+description: >
+  Multi-provider AI orchestration with key rotation,
+  usage metrics, and remote assistant delegation — backed by
+  a self-hosted Vaultwarden secret store.
+
+provides_tools:
+  - ai_provider_invoke
+  - ai_bridge_invoke
+  - ai_image_generate
+  - ai_assistant_delegate
+  - ai_usage_metrics
+  - ai_key_rotate
+  - ai_secret_backend_status
+
+provides_hooks:
+  - post_tool_call
+  - startup
+
+provides_commands:
+  - ops-kit
+
+requires_env:
+  - name: HERMES_SECRET_BACKEND
+    description: Secret backend type. Use vaultwarden for this deployment.
+    secret: false
+
+  - name: VAULTWARDEN_SERVER_URL
+    description: Self-hosted Vaultwarden/Bitwarden-compatible server URL.
+    secret: false
+
+  - name: VAULTWARDEN_USER
+    description: Vaultwarden bootstrap user.
+    secret: false
+
+  - name: VAULTWARDEN_PASSWORD
+    description: Vaultwarden bootstrap password. Prefer API-key or session mode.
+    secret: true
+
+  - name: ASSISTANT_API_BASE
+    description: Remote Hermes assistant API base URL (optional).
+    secret: false
+
+  - name: ASSISTANT_API_KEY
+    description: Assistant assistant bearer token (optional).
+    secret: true

@@ -1,0 +1,59 @@
+# Hermes Ops Kit — Budget Configuration
+# Daily/monthly spend limits, thresholds, provider classes, and enforcement mode.
+
+version: 1
+
+currency: "USD"
+
+budgets:
+  daily_usd: 5.00
+  monthly_usd: 100.00
+
+thresholds:
+  warn_percent: 70
+  throttle_percent: 85
+  restrict_percent: 95
+  block_percent: 100
+
+enforcement_mode: "advisory"
+
+provider_classes:
+  free_or_included:
+    - github
+    - gemini
+
+  paid_low:
+    - deepseek
+
+  paid_standard:
+    - openai
+
+  paid_premium:
+    - anthropic
+
+actions:
+  warn:
+    enabled: true
+
+  throttle:
+    enabled: true
+    max_parallel_paid_requests: 1
+
+  reroute:
+    enabled: true
+    prefer:
+      - github
+      - gemini
+      - deepseek
+    avoid:
+      - anthropic
+      - openai
+
+  block:
+    enabled: true
+    block_classes:
+      - paid_premium
+      - paid_standard
+    allow_classes:
+      - free_or_included
+      - paid_low

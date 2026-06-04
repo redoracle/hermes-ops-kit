@@ -1,0 +1,151 @@
+# Hermes Ops Kit — Route Display Configuration
+# Display labels, cost classes, and usage purposes for the usage_metrics view.
+# Does NOT control the actual model routing — that's in ~/.hermes/config.yaml.
+#
+# Source of truth for routing:
+#   ~/.hermes/config.yaml  → model, auxiliary, fallback_providers
+#   ~/.hermes/ops-kit/routes.yaml → display labels (this file, when deployed)
+
+version: 1
+
+routes:
+  primary:
+    source: "hermes.model"
+    label: "coding/default"
+
+  utility:
+    label: "cheap utility · 1M ctx"
+    cost_class: "free-tier"
+
+  aux:
+    vision:
+      source: "hermes.auxiliary.vision"
+      label: "image/screenshot analysis"
+    web:
+      source: "hermes.auxiliary.web_extract"
+      label: "web extraction"
+    compression:
+      source: "hermes.auxiliary.compression"
+      label: "context compression"
+    approval:
+      source: "hermes.auxiliary.approval"
+      label: "command risk scoring"
+    skills:
+      source: "hermes.auxiliary.skills_hub"
+      label: "skill discovery"
+    mcp:
+      source: "hermes.auxiliary.mcp"
+      label: "MCP helper"
+    title:
+      source: "hermes.auxiliary.title_generation"
+      label: "session naming"
+    triage:
+      source: "hermes.auxiliary.triage_specifier"
+      label: "task/spec expansion"
+
+  fallbacks:
+    source: "hermes.fallback_providers"
+
+display:
+  group_order:
+    - ROUTE
+    - AUX ROUTES
+    - FALLBACKS
+    - ASSISTANTS
+  show_latency: true
+  show_cost_class: true
+  show_purpose: true
+
+profiles:
+  cheap:
+    primary:
+      provider: "copilot"
+      model: "gpt-5.4-mini"
+      label: "coding/default"
+    utility:
+      provider: "gemini"
+      model: "gemini-2.5-flash"
+      label: "cheap utility · 1M ctx"
+    aux:
+      vision: { provider: "gemini", model: "gemini-2.5-flash" }
+      web: { provider: "gemini", model: "gemini-2.5-flash" }
+      compression: { provider: "gemini", model: "gemini-2.5-flash" }
+      approval: { provider: "gemini", model: "gemini-2.5-flash" }
+      skills: { provider: "gemini", model: "gemini-2.5-flash" }
+      mcp: { provider: "gemini", model: "gemini-2.5-flash" }
+      title: { provider: "gemini", model: "gemini-2.5-flash" }
+      triage: { provider: "gemini", model: "gemini-2.5-flash" }
+    fallbacks:
+      - { provider: "openai", model: "gpt-5.4-mini", label: "structured/API" }
+      - {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          label: "deep reasoning",
+        }
+      - {
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          label: "cheap reasoning",
+        }
+
+  balanced:
+    primary:
+      provider: "anthropic"
+      model: "claude-sonnet-4-6"
+      label: "deep reasoning"
+    utility:
+      provider: "gemini"
+      model: "gemini-2.5-flash"
+      label: "1M ctx utility"
+    aux:
+      vision: { provider: "gemini", model: "gemini-2.5-flash" }
+      web: { provider: "gemini", model: "gemini-2.5-flash" }
+      compression: { provider: "gemini", model: "gemini-2.5-flash" }
+      approval: { provider: "openai", model: "gpt-5.4-nano" }
+      skills: { provider: "gemini", model: "gemini-2.5-flash" }
+      mcp: { provider: "gemini", model: "gemini-2.5-flash" }
+      title: { provider: "gemini", model: "gemini-2.5-flash" }
+      triage: { provider: "openai", model: "gpt-5.4-mini" }
+    fallbacks:
+      - { provider: "openai", model: "gpt-5.4-mini", label: "structured/API" }
+      - {
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          label: "cheap reasoning",
+        }
+
+  max-quality:
+    primary:
+      provider: "anthropic"
+      model: "claude-opus-4-8"
+      label: "maximum reasoning"
+    utility:
+      provider: "anthropic"
+      model: "claude-sonnet-4-6"
+      label: "deep reasoning utility"
+    aux:
+      vision: { provider: "openai", model: "gpt-5.4" }
+      web: { provider: "openai", model: "gpt-5.4" }
+      compression: { provider: "openai", model: "gpt-5.4" }
+      approval: { provider: "anthropic", model: "claude-opus-4-8" }
+      skills: { provider: "anthropic", model: "claude-sonnet-4-6" }
+      mcp: { provider: "anthropic", model: "claude-sonnet-4-6" }
+      title: { provider: "openai", model: "gpt-5.4-mini" }
+      triage: { provider: "anthropic", model: "claude-opus-4-8" }
+    fallbacks:
+      - { provider: "openai", model: "gpt-5.4", label: "high quality API" }
+      - {
+          provider: "deepseek",
+          model: "deepseek-v4-pro",
+          label: "reasoning backup",
+        }
+
+aux_route_map:
+  vision: "auxiliary.vision"
+  web: "auxiliary.web_extract"
+  compression: "auxiliary.compression"
+  approval: "auxiliary.approval"
+  skills: "auxiliary.skills_hub"
+  mcp: "auxiliary.mcp"
+  title: "auxiliary.title_generation"
+  triage: "auxiliary.triage_specifier"

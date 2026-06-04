@@ -1,0 +1,35 @@
+[project]
+name = "hermes-ops-kit"
+version = "0.2.0"
+description = "Operational toolkit for Hermes Agent: routes, assistants, secrets, usage, audit, MCP risk checks, budget governance, and diagnostics."
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31",
+  "PyYAML>=6.0",
+  "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+hermes-ops-kit = "bridge:main"
+hermes-usage = "usage_metrics_v2:main"
+hermes-key-rotate = "hermes_key_rotate:main"
+hermes-assistant-manager = "hermes_assistant_manager:main"
+hermes-route-manager = "hermes_route_manager:main"
+hermes-export = "hermes_export:main"
+hermes-skill-factory = "hermes_skill_factory:main"
+
+[project.entry-points."hermes_agent.plugins"]
+hermes-ops-kit = "."
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

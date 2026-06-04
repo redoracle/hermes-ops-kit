@@ -1,0 +1,71 @@
+# Hermes Ops Kit — Assistant Registry
+# Remote Hermes agent runtimes available for task delegation.
+# Assistants are NOT providers — they are agent runtimes with tools,
+# memory, policy, filesystem, and execution context.
+
+assistants:
+  example-assistant:
+    enabled: true
+    display_name: "Example Assistant ☁️"
+    short_name: "example"
+    type: "remote_hermes"
+    role: "security_profiler"
+    description: >
+      Example Assistant is a specialized Hermes assistant running on a
+      remote server. Primary mission: maintain an always-updated intelligence
+      database about workspace, people, companies, organizations, projects,
+      relationships, and operational context. Uses the configured LLM backend.
+      Responds via Telegram (configure your @bot_username). NOT a coding agent.
+    environment: "lan"
+    transport: "openai_chat_completions"
+    future_transport: "a2a"
+    language: "en"
+    persona_signoff: "[Assistant ☁️]"
+
+    # ── Delegation aliases ──
+    alias: "example, ex"
+
+    # ── Capabilities ──
+    capabilities:
+      - id: "profile_update"
+        description: "Create or update a person/contact/company profile in the vault"
+        safe_by_default: true
+      - id: "security_profile"
+        description: "Create or update a security profile in the vault"
+        safe_by_default: true
+      - id: "relationship_mapping"
+        description: "Map relationships between entities in the vault"
+        safe_by_default: true
+      - id: "vault_maintenance"
+        description: "General vault maintenance, indexing, cleanup"
+        safe_by_default: true
+      - id: "briefing_prep"
+        description: "Prepare a briefing or summary from vault data"
+        safe_by_default: true
+      - id: "entity_resolution"
+        description: "Resolve and deduplicate entities in the vault"
+        safe_by_default: true
+      - id: "review"
+        description: "General review of content or data"
+        safe_by_default: true
+
+    # ── Endpoint ──
+    # Uses EXAMPLE_ASSISTANT_* env vars set in the assistant's Hermes gateway environment.
+    # These are distinct from generic ASSISTANT_* vars which map to Vaultwarden projection.
+    endpoint:
+      base_url_env: "EXAMPLE_ASSISTANT_API_BASE"
+      api_key_env: "EXAMPLE_ASSISTANT_API_KEY"
+      model_env: "EXAMPLE_ASSISTANT_MODEL"
+      default_model: "hermes-agent"
+
+    # ── Security policy ──
+    security:
+      allow_file_mutation: true
+      allow_shell_execution: false
+
+    # ── Vault paths (on assistant host) ──
+    vault_root: "<vault-root-path>"
+    contacts_dir: "<vault-root-path>/contacts"
+    people_dir: "<vault-root-path>/contacts/people"
+    companies_dir: "<vault-root-path>/contacts/companies"
+    security_dir: "<vault-root-path>/security-profiles"

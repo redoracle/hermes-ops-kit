@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/tesla/GIT/INFRA -maxdepth 3 -iname \"CLAUDE.md\" -not -path \"*/node_modules/*\" 2>/dev/null)",
+      "Read(//Users/tesla/GIT/INFRA/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/tesla/GIT/INFRA/Hermes",
+      "/Users/tesla/GIT/INFRA"
+    ]
+  }
+}
