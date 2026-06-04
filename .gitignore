@@ -1,0 +1,33 @@
+# Hermes Ops Kit — gitignore
+.DS_Store
+
+# Secrets
+.env
+.env.*
+*.secret
+*.secrets
+*.key
+*.pem
+*.jsonl
+
+# Allow .env.example template (shipped as documentation)
+!examples/.env.example
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Stray literal-path artifacts (unexpanded $HOME / ~ from a misconfigured env var)
+/$HOME/
+/~/
+_templates
+.claude
+CLAUDE.md
+.local
+.ruff_cache
+.venv/

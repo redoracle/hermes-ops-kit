@@ -1,0 +1,63 @@
+# Hermes Ops Kit — Image Generation Route Configuration
+# Dedicated routing for image generation backends.
+# Separate from routes.yaml (AUX ROUTES) — image generation is NOT an LLM text task.
+#
+# Deployed to: ~/.hermes/ops-kit/image_routes.yaml
+# Source of truth for image generation routing.
+
+version: 1
+
+default_route: local
+
+routes:
+  local:
+    provider: local-comfyui
+    model: flux-local
+    label: "local private generation"
+    endpoint: "http://127.0.0.1:8188"
+    workflow: "~/.hermes/ops-kit/workflows/flux-text2image.json"
+    cost_class: local
+    priority: 10
+
+  fast:
+    provider: gemini
+    model: gemini-2.5-flash-image
+    label: "fast cloud generation"
+    cost_class: paid-low
+    priority: 20
+
+  quality:
+    provider: openai
+    model: gpt-image-2
+    label: "high quality generation"
+    cost_class: paid
+    priority: 30
+
+  fallback:
+    provider: fal
+    model: fal-ai/flux-2-pro
+    label: "cloud fallback"
+    cost_class: paid
+    priority: 40
+
+policies:
+  prefer_local: true
+  allow_cloud_fallback: true
+  require_confirmation_for_paid: false
+  max_generation_seconds: 180
+  output_dir: "~/.hermes/cache/images"
+
+aspect_ratios:
+  landscape: "16:9"
+  square: "1:1"
+  portrait: "9:16"
+
+display:
+  group_order:
+    - ROUTE
+    - AUX ROUTES
+    - IMAGE ROUTES
+    - FALLBACKS
+    - ASSISTANTS
+  show_latency: true
+  show_cost_class: true

@@ -1,0 +1,115 @@
+# Hermes Ops Kit — Policy Rules
+# Declarative security rules evaluated by the policy engine.
+# Every rule produces: allow | deny | require_approval
+
+version: 1
+
+rules:
+  assistant_delegate:
+    description: "Rules for delegating tasks to remote assistants"
+    deny_if_contains:
+      - raw_secret
+      - env_block
+      - private_key
+      - bearer_token
+      - vaultwarden_credential
+    require_approval_for:
+      - restricted_serving
+      - file_write
+      - shell_execute
+      - network_scan
+      - repo_mutation
+      - credential_access
+
+  key_rotation:
+    description: "Rules for provider key rotation"
+    require_approval_for:
+      - apply
+      - revoke_old_key
+      - restore_backup
+    allow:
+      - dry_run
+      - status
+      - doctor
+      - render_env
+
+  obsidian_write:
+    description: "Rules for writing to Obsidian via mcp-vault"
+    deny_if_contains:
+      - api_key
+      - bearer_token
+      - vaultwarden_password
+      - bw_session
+      - private_key
+      - env_file_content
+      - authorization_header
+
+  secret_backend:
+    description: "Rules for Vaultwarden/secret backend access"
+    deny_if:
+      - http_transport
+      - tls_verification_failed
+      - hostname_mismatch
+    require_approval_for:
+      - serve_restricted
+      - export_vault
+      - rotate_master_password
+
+  tool_invocation:
+    description: "Rules for tool execution safety"
+    deny_if_tool_matches:
+      - destructive_shell
+      - env_dump
+      - credential_dump
+      - unauthorized_network_probe
+
+secrets:
+  patterns:
+    - name: anthropic_key
+      regex: "sk-ant-[A-Za-z0-9-_]{15,}"
+    - name: openai_key
+      regex: "sk-[A-Za-z0-9-_]{15,}"
+    - name: gemini_key
+      regex: "AIza[0-9A-Za-z_-]{30,}"
+    - name: github_token
+      regex: "ghp_[A-Za-z0-9]{30,}"
+    - name: bearer_token
+      regex: "Bearer\\s+[A-Za-z0-9_\\-\\.]{10,}"
+    - name: private_key
+      regex: "-----BEGIN\\s+(?:RSA\\s+)?PRIVATE\\s+KEY-----"
+    - name: bw_session
+      regex: "BW_SESSION="
+    - name: vaultwarden_password
+      regex: "VAULTWARDEN_PASSWORD="
+
+  suspicious_key_names:
+    - api_key
+    - token
+    - password
+    - secret
+    - authorization
+    - bearer
+    - private_key
+    - client_secret
+    - session
+    - cookie
+
+risk_levels:
+  low:
+    description: "Informational — no action required"
+    auto_allow: true
+  medium:
+    description: "Requires operator attention"
+    auto_allow: false
+    require_approval: true
+  high:
+    description: "Potentially dangerous or sensitive"
+    auto_allow: false
+    require_approval: true
+    audit: true
+  critical:
+    description: "Blocked by default — secrets, destructive actions"
+    auto_allow: false
+    require_approval: true
+    audit: true
+    block_by_default: true

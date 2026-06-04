@@ -1,0 +1,19 @@
+# Gitleaks configuration for Hermes Ops Kit
+# Allows known false positives: test fixtures and documentation examples.
+
+[allowlist]
+  description = "Known false positives"
+  paths = [
+    '''tests/.*''',
+    '''security/redaction\.py''',
+    '''security/secret_scanner\.py''',
+    '''assistants/policy\.py''',
+    '''policy/rules\.yaml''',
+  ]
+  regexes = [
+    '''sk-abc123testsecretnotreal''',
+    '''sk-proj-abc123xyz789def456ghi012jkl345mno678pqr''',
+    '''sk-ant-api03-abc123xyz789def456ghi012jkl345mno678pqr901stu234vwx''',
+    '''AIzaSyDabc123xyz789def456ghi012jkl345mno''',
+    '''ghp_abc123xyz789def456ghi012jkl345mno678''',
+  ]

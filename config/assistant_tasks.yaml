@@ -1,0 +1,54 @@
+# Hermes Ops Kit — Vault Scheduler Configuration
+# Generic maintenance profiles for remote assistant obsidian contacts maintenance.
+# Delegates to Hermes cron — does NOT implement a separate scheduler.
+
+version: 1
+
+defaults:
+  timezone: "UTC"
+  delivery: "file"
+  audit: true
+  dry_run: false
+  max_runtime_seconds: 900
+
+profiles:
+  generic-obsidian-daily:
+    enabled: true
+    assistant_id: "<assistant-id>"
+    schedule: "daily at 06:30"
+    capability: "vault_maintenance"
+    task_template: "generic_vault_maintenance"
+    operations:
+      - update_indexes
+      - find_stale_notes
+      - find_broken_links
+      - find_missing_metadata
+      - find_low_confidence_notes
+    constraints:
+      no_secret_storage: true
+      preserve_existing_notes: true
+      patch_only: true
+      require_source_metadata: true
+    output:
+      mode: "summary"
+      write_report: true
+
+  weekly-index-audit:
+    enabled: true
+    assistant_id: "<assistant-id>"
+    schedule: "weekly Monday at 07:00"
+    capability: "vault_maintenance"
+    task_template: "weekly_vault_audit"
+    operations:
+      - update_indexes
+      - find_duplicate_notes
+      - find_missing_backlinks
+      - find_conflicting_claims
+      - validate_frontmatter
+      - generate_followups
+    constraints:
+      no_secret_storage: true
+      patch_only: true
+    output:
+      mode: "summary"
+      write_report: true

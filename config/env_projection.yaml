@@ -1,0 +1,51 @@
+# Hermes Key Rotation — Environment Projection Mapping
+# Maps environment variable names to Hermes internal secret refs.
+# Used by env/render_env.py when generating ~/.hermes/.env.generated.
+#
+# See spec section 14.
+
+# ── Deny-render list ────────────────────────────────────────────────────
+# Ref paths listed here are HARD-BLOCKED from .env.generated regardless of
+# the env_projection mapping below.  Use this for admin credentials that
+# must never leak into runtime environment files.
+#
+# The renderer also blocks any secret with renderable_to_env=False in its
+# Vaultwarden metadata, providing a second layer of defense.
+
+deny_render:
+  - hermes/openai/admin_key
+  - hermes/anthropic/admin_key
+  - hermes/google/admin_key
+
+env_projection:
+  # ── OpenAI ──
+  OPENAI_API_KEY: hermes/openai/api_key
+  OPENAI_PROJECT_ID: hermes/openai/project_id
+
+  # ── Anthropic ──
+  ANTHROPIC_API_KEY: hermes/anthropic/api_key
+
+  # ── Google / Gemini ──
+  GEMINI_API_KEY: hermes/google/gemini_api_key
+  # If you need GOOGLE_API_KEY for other Google tools, add it here
+  # with the same secret ref: GOOGLE_API_KEY: hermes/google/gemini_api_key
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: hermes/google/application_credentials_json
+
+  # ── DeepSeek ──
+  DEEPSEEK_API_KEY: hermes/deepseek/api_key
+  DEEPSEEK_BASE_URL: hermes/deepseek/base_url
+  DEEPSEEK_ANTHROPIC_BASE_URL: hermes/deepseek/anthropic_base_url
+  DEEPSEEK_DEFAULT_MODEL: hermes/deepseek/default_model
+  DEEPSEEK_REASONING_MODEL: hermes/deepseek/reasoning_model
+
+  # ── GitHub ──
+  GITHUB_APP_ID: hermes/github/app_id
+  GITHUB_INSTALLATION_ID: hermes/github/installation_id
+  GITHUB_TOKEN: hermes/github/token
+  GH_TOKEN: hermes/github/token
+
+  # ── Assistants — Assistant ──
+  ASSISTANT_API_BASE: hermes/assistants/assistant-id/api_base
+  ASSISTANT_API_KEY: hermes/assistants/assistant-id/api_key
+  ASSISTANT_MODEL: hermes/assistants/assistant-id/model
+  ASSISTANT_TIMEOUT_SECONDS: hermes/assistants/assistant-id/timeout_seconds

@@ -1,0 +1,45 @@
+[project]
+name = "hermes-ops-kit"
+version = "0.2.0"
+description = "Operational toolkit for Hermes Agent: routes, assistants, secrets, usage, audit, MCP risk checks, budget governance, and diagnostics."
+requires-python = ">=3.11"
+dependencies = [
+  # Core
+  "requests>=2.31",       # Google validation, admin API calls, GitHub curl fallback
+  "PyYAML>=6.0",          # Config parsing (assistants.yaml, routes.yaml, env_projection)
+  "ruamel.yaml>=0.18",    # YAML round-trip with comment preservation (assistant manager)
+  # Provider SDKs — all 5 providers, full validation + smoke test coverage
+  "openai>=2.0",          # OpenAI + DeepSeek validation (DeepSeek is OpenAI-compatible)
+  "anthropic>=0.40",      # Anthropic validation + smoke test
+  "google-auth>=2.0",     # Google auto-creation via API Keys API (ADC)
+  "google-genai>=1.0",    # Gemini image generation (Nano Banana, image-to-image)
+  "PyJWT>=2.8",           # GitHub App RS256 JWT token minting
+  # Image generation
+  "Pillow>=10.0",         # Image metadata and format handling
+  "fal-client>=0.6",      # FAL.ai Flux/Stable Diffusion (cloud fallback)
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+hermes-ops-kit = "bridge:main"
+hermes-usage = "usage_metrics_v2:main"
+hermes-key-rotate = "hermes_key_rotate:main"
+hermes-assistant-manager = "hermes_assistant_manager:main"
+hermes-route-manager = "hermes_route_manager:main"
+hermes-export = "hermes_export:main"
+hermes-skill-factory = "hermes_skill_factory:main"
+
+[project.entry-points."hermes_agent.plugins"]
+hermes-ops-kit = "."
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
