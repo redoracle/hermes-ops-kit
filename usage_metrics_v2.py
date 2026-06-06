@@ -16,6 +16,8 @@ Usage:
     hermes-usage -p github            # Single provider (openai|anthropic|github|gemini|deepseek)
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -963,17 +965,141 @@ def check_all_assistants() -> dict[str, dict]:
 
 
 def _load_hermes_config() -> dict:
-    """Load ~/.hermes/config.yaml for model/auxiliary/fallback data."""
+    """Load ~/.hermes/config.yaml for model/auxiliary/fallback data.
+
+    Tries PyYAML first, then ruamel.yaml, then a built-in tokeniser
+    that handles the subset of YAML used by Hermes config files
+    (scalars, nested mappings, and flow-style lists of mappings).
+    """
     config_path = os.path.expanduser("~/.hermes/config.yaml")
     if not os.path.exists(config_path):
         return {}
+
+    # 1. PyYAML
     try:
         import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
 
         with open(config_path) as f:
             return _yaml.safe_load(f) or {}
     except Exception:
-        return {}
+        pass
+
+    # 2. ruamel.yaml
+    try:
+        from ruamel.yaml import YAML  # pyright: ignore[reportMissingImports]
+
+        yml = YAML(typ="safe")
+        with open(config_path) as f:
+            return yml.load(f) or {}
+    except Exception:
+        pass
+
+    # 3. Built-in tokeniser (no YAML dependency)
+    return _parse_yaml_strict(config_path)
+
+
+def _parse_yaml_strict(path: str) -> dict:
+    """Minimal YAML parser for Hermes config files.
+
+    Handles: scalars, nested mappings, list-of-dicts (fallback_providers).
+    Does NOT handle: anchors, aliases, multi-line strings, tags.
+    """
+    with open(path) as f:
+        lines = f.readlines()
+
+    root: dict = {}
+    stack: list[tuple[int, dict | list, str | int | None]] = [(0, root, None)]
+    # stack entries: (indent, container, key)
+    # container can be a dict or list; key is the dict key or list index
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip("\n")
+        stripped = line.strip()
+
+        if not stripped or stripped.startswith("#"):
+            i += 1
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        # Pop stack until we find a container at a shallower indent
+        while len(stack) > 1 and stack[-1][0] >= indent:
+            stack.pop()
+
+        parent_indent, container, parent_key = stack[-1]
+
+        # ── simple key: value ──
+        if ":" in stripped and not stripped.startswith("-"):
+            key, _, val = stripped.partition(":")
+            key = key.strip()
+            val = val.strip()
+
+            if isinstance(container, dict):
+                if val == "":
+                    # Peek ahead: if the next non-comment line starts with "- "
+                    # this is a list, otherwise a nested mapping.
+                    j = i + 1
+                    while j < len(lines):
+                        ns = lines[j].strip()
+                        if ns and not ns.startswith("#"):
+                            break
+                        j += 1
+                    if j < len(lines) and lines[j].strip().startswith("- "):
+                        child: list[dict] = []
+                        container[key] = child
+                    else:
+                        child_dict: dict = {}
+                        container[key] = child_dict
+                        child = child_dict  # type: ignore[assignment]
+                    stack.append((indent, child, key))
+                elif val.startswith("[") and val.endswith("]"):
+                    # Empty list
+                    container[key] = []
+                else:
+                    # Strip quotes
+                    val = val.strip("\"'")
+                    container[key] = val
+            i += 1
+            continue
+
+        # ── list item: "- key: value" or "- value" ──
+        if stripped.startswith("- "):
+            item = stripped[2:].strip()
+            if isinstance(container, list):
+                if ":" in item:
+                    k, _, v = item.partition(":")
+                    k = k.strip()
+                    v = v.strip().strip("\"'")
+                    list_entry: dict = {k: v}
+                    # Check next lines for more keys at same or deeper indent
+                    j = i + 1
+                    while j < len(lines):
+                        nl = lines[j].rstrip("\n")
+                        ns = nl.strip()
+                        if not ns or ns.startswith("#"):
+                            j += 1
+                            continue
+                        nindent = len(nl) - len(nl.lstrip())
+                        if nindent <= indent:
+                            break
+                        if ":" in ns and not ns.startswith("-"):
+                            nk, _, nv = ns.partition(":")
+                            nk = nk.strip()
+                            nv = nv.strip().strip("\"'")
+                            list_entry[nk] = nv
+                        j += 1
+                    container.append(list_entry)
+                    i = j
+                    continue
+                else:
+                    container.append(item.strip("\"'"))
+            i += 1
+            continue
+
+        i += 1
+
+    return root
 
 
 def _load_routes_config() -> dict:
@@ -1585,8 +1711,8 @@ def fmt_rich(results: dict) -> str:
         for alias_name, alias_cfg in aliases.items():
             if not isinstance(alias_cfg, dict):
                 continue
-            ap = alias_cfg.get("provider", "?")
-            am = alias_cfg.get("model", "?")
+            ap = str(alias_cfg.get("provider") or "?")
+            am = str(alias_cfg.get("model") or "?")
             route = f"{ap}:{am}"
             pdata = results.get(_PROVIDER_NORMALIZE.get(ap, ap), {})
             ms = _ms(pdata)

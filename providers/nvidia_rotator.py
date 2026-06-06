@@ -144,6 +144,26 @@ class NvidiaRotator(BaseRotator):
                 http_status=403,
                 retry_recommended=False,
             )
+        except getattr(openai, "APIError", Exception) as e:
+            # Map billing/quota HTTP responses (402) or billing-related messages
+            # to QUOTA_OR_BILLING so callers (rotate) can treat them specially.
+            status = getattr(e, "http_status", 0) or 0
+            msg = str(e)
+            if status == 402 or "billing" in msg.lower() or "payment" in msg.lower():
+                return ValidationResult(
+                    valid=False,
+                    reason_class=ValidationReason.QUOTA_OR_BILLING,
+                    detail=msg,
+                    http_status=status or 402,
+                    retry_recommended=False,
+                )
+            # Fall through to a generic unknown for other API errors
+            return ValidationResult(
+                valid=False,
+                reason_class=ValidationReason.UNKNOWN,
+                detail=msg,
+                http_status=status,
+            )
         except Exception as e:
             return ValidationResult(
                 valid=False,

@@ -31,3 +31,5 @@ CLAUDE.md
 .local
 .ruff_cache
 .venv/
+
+docs/ROUND_BALANCING.md

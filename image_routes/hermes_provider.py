@@ -20,7 +20,6 @@ Configure in ``~/.hermes/config.yaml``::
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
@@ -40,11 +39,21 @@ try:
     )
 except ImportError:
     # Outside Hermes — stub the types so the module can be imported for tests.
-    ImageGenProvider = object  # type: ignore
+
+    class ImageGenProvider:  # pyright: ignore[reportGeneralTypeIssues]
+        """Stub base class when outside Hermes runtime."""
+
     DEFAULT_ASPECT_RATIO = "landscape"
-    resolve_aspect_ratio = lambda x: x  # noqa: E731
-    success_response = None  # type: ignore
-    error_response = None  # type: ignore
+
+    def resolve_aspect_ratio(x: str) -> str:  # noqa: E731
+        return x
+
+    def success_response(**_: Any) -> dict:  # pyright: ignore[reportMissingLambdaType]
+        return {"ok": False, "error": "stub (not inside Hermes)"}
+
+    def error_response(**_: Any) -> dict:  # pyright: ignore[reportMissingLambdaType]
+        return {"ok": False, "error": "stub (not inside Hermes)"}
+
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +117,7 @@ def _is_background_edit_request(prompt: str, kwargs: Dict[str, Any]) -> bool:
 # ── Provider ───────────────────────────────────────────────────────────
 
 
-class OpsKitRouterProvider(ImageGenProvider):
+class OpsKitRouterProvider(ImageGenProvider):  # pyright: ignore[reportGeneralTypeIssues]
     """Hermes image_gen provider that dispatches through ops-kit's image router."""
 
     @property
@@ -232,7 +241,7 @@ class OpsKitRouterProvider(ImageGenProvider):
         3. None → use default from image_routes.yaml
         """
         try:
-            from hermes_cli.config import load_config
+            from hermes_cli.config import load_config  # pyright: ignore[reportMissingImports]
 
             cfg = load_config()
             section = cfg.get("image_gen") if isinstance(cfg, dict) else {}
@@ -252,18 +261,6 @@ class OpsKitRouterProvider(ImageGenProvider):
         if model and model in _MODELS and model != "auto":
             return model
 
-        return None
-
-    @staticmethod
-    def _extract_json(text: str) -> Optional[dict]:
-        """Try to extract a JSON object from mixed output."""
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                pass
         return None
 
     @staticmethod

@@ -200,12 +200,21 @@ class VaultwardenSecretBackend(SecretBackend):
         self.verify_tls = verify_tls
         self.allow_insecure_http = allow_insecure_http
 
+        _bw_timeout_raw = os.environ.get("BW_TIMEOUT")
+        if _bw_timeout_raw is not None:
+            try:
+                bw_timeout = int(_bw_timeout_raw)
+            except ValueError:
+                raise ValueError(
+                    f"BW_TIMEOUT must be an integer, got {_bw_timeout_raw!r}"
+                )
+        else:
+            bw_timeout = timeout_seconds
         self._client = BitwardenCLIClient(
             bw_bin="bw",
             server_url=server_url,
             appdata_dir=appdata_dir or os.environ.get("BITWARDENCLI_APPDATA_DIR"),
-            # Let bw use its default data dir unless explicitly configured
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=bw_timeout,
         )
         self._session: str | None = bw_session
         self._authenticated: bool = False
@@ -280,8 +289,11 @@ class VaultwardenSecretBackend(SecretBackend):
                         "bitwarden_cli_password mode requires VAULTWARDEN_USER and VAULTWARDEN_PASSWORD"
                     )
                 self._client.config_server()
-                result = self._client.login_password(self.user, self.password)
-                self._session = result.get("session")
+                if self._client.is_authenticated():
+                    self._session = None  # already logged in; will unlock later
+                else:
+                    result = self._client.login_password(self.user, self.password)
+                    self._session = result.get("session")
             else:
                 raise VaultwardenAuthError(f"unknown auth mode: {self.mode}")
 
@@ -325,6 +337,7 @@ class VaultwardenSecretBackend(SecretBackend):
         """Sync vault data from the server."""
         try:
             self._client.sync()
+            self._invalidate_cache()  # items may have changed
         except BitwardenCLIError as e:
             raise VaultwardenUnavailable(redact(str(e))) from e
 

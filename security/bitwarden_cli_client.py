@@ -80,11 +80,14 @@ class BitwardenCLIClient:
         self.server_url = server_url
         self.appdata_dir = appdata_dir
         self.timeout = timeout_seconds
+        self._bw_session: str | None = None  # set after unlock
 
     # ── Helpers ──────────────────────────────────────────────────
 
     def _env(self) -> dict[str, str]:
         env = os.environ.copy()
+        if self._bw_session:
+            env["BW_SESSION"] = self._bw_session
         if self.appdata_dir:
             # Normalize to an absolute path. A value like "$HOME/..." or "~/..."
             # left unexpanded is a *relative* path, so bw would create it under
@@ -107,6 +110,9 @@ class BitwardenCLIClient:
         """Execute `bw <args>` and return parsed JSON stdout.
 
         Raises BitwardenCLIError on non-zero exit or invalid JSON.
+
+        Advisory file lock serialises all bw CLI operations — the Bitwarden
+        CLI does not support concurrent access to the same vault data file.
         """
         # Safety gate: reject forbidden commands
         cmd_name = args[0] if args else ""
@@ -124,23 +130,79 @@ class BitwardenCLIClient:
         full_args = [self.bw_bin] + args
         timeout_s = timeout or self.timeout
 
+        # Advisory lock — prevents concurrent bw processes from
+        # corrupting the vault data file or hogging memory.
+        # Prefer cross-platform `filelock.FileLock` when available;
+        # fall back to fcntl on Unix, or no-op on platforms where
+        # neither is available (bw typically not used natively on Windows).
+        lock_dir = os.path.expanduser("~/.hermes/locks")
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_path = os.path.join(lock_dir, "bw_cli.lock")
+
         try:
-            result = subprocess.run(
-                full_args,
-                capture_output=True,
-                text=True,
-                timeout=timeout_s,
-                env=self._env(),
-                input=stdin,
-            )
-        except subprocess.TimeoutExpired:
-            raise BitwardenCLITimeoutError(
-                f"bw {' '.join(args[:3])} timed out after {timeout_s}s"
-            )
-        except FileNotFoundError:
-            raise BitwardenCLIError(
-                f"bw CLI not found at {self.bw_bin}. Install: brew install bitwarden-cli"
-            )
+            from filelock import FileLock  # type: ignore
+
+            _HAS_FILELOCK = True
+        except Exception:
+            _HAS_FILELOCK = False
+
+        if _HAS_FILELOCK:
+            lock = FileLock(lock_path)  # pyright: ignore[reportPossiblyUnboundVariable]
+            try:
+                with lock:
+                    try:
+                        result = subprocess.run(
+                            full_args,
+                            capture_output=True,
+                            text=True,
+                            timeout=timeout_s,
+                            env=self._env(),
+                            input=stdin,
+                        )
+                    except subprocess.TimeoutExpired:
+                        raise BitwardenCLITimeoutError(
+                            f"bw {' '.join(args[:3])} timed out after {timeout_s}s"
+                        )
+                    except FileNotFoundError:
+                        raise BitwardenCLIError(
+                            f"bw CLI not found at {self.bw_bin}. Install: brew install bitwarden-cli"
+                        )
+            finally:
+                # FileLock context handles release
+                pass
+        else:
+            # Fallback: try fcntl on Unix; otherwise proceed without advisory lock.
+            try:
+                import fcntl
+
+                _HAS_FCNTL = True
+            except ImportError:
+                _HAS_FCNTL = False
+
+            lock_fh = open(lock_path, "w") if _HAS_FCNTL else None  # pyright: ignore[reportPossiblyUnboundVariable]
+            try:
+                if _HAS_FCNTL:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)  # pyright: ignore[reportPossiblyUnboundVariable,reportOptionalMemberAccess]
+                try:
+                    result = subprocess.run(
+                        full_args,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout_s,
+                        env=self._env(),
+                        input=stdin,
+                    )
+                except subprocess.TimeoutExpired:
+                    raise BitwardenCLITimeoutError(
+                        f"bw {' '.join(args[:3])} timed out after {timeout_s}s"
+                    )
+                except FileNotFoundError:
+                    raise BitwardenCLIError(
+                        f"bw CLI not found at {self.bw_bin}. Install: brew install bitwarden-cli"
+                    )
+            finally:
+                if lock_fh is not None:
+                    lock_fh.close()
 
         stderr = redact(result.stderr.strip())
         stdout = result.stdout.strip()
@@ -162,11 +224,31 @@ class BitwardenCLIClient:
     # ── Server Config ────────────────────────────────────────────
 
     def config_server(self) -> dict[str, Any]:
-        """Set the Bitwarden server URL."""
+        """Set the Bitwarden server URL — skips if already configured."""
         if not self.server_url:
             raise BitwardenCLIError("server_url is not configured")
-        # First check what's already configured
-        self._run(["config", "server", self.server_url])
+        # Check current server config — skip if already correct.
+        try:
+            st = self._run(["status"])
+            current = st.get("serverUrl", "").rstrip("/")
+            desired = self.server_url.rstrip("/")
+            if current == desired:
+                return {
+                    "server_url": self.server_url,
+                    "configured": True,
+                    "skipped": True,
+                }
+        except BitwardenCLIError:
+            pass  # status failed — try config anyway
+        try:
+            self._run(["config", "server", self.server_url])
+        except BitwardenCLIError:
+            # If a session exists, logout first then retry
+            try:
+                self._run(["logout"])
+            except Exception:
+                pass
+            self._run(["config", "server", self.server_url])
         return {"server_url": self.server_url, "configured": True}
 
     # ── Status ────────────────────────────────────────────────────
@@ -224,10 +306,12 @@ class BitwardenCLIClient:
         # Parse BW_SESSION from output
         output = result.stdout.strip()
         if "BW_SESSION" in output:
-            # Extract the session key line
+            # Extract the session key line — must be a long base64 string
             for line in output.split("\n"):
-                if "BW_SESSION" in line:
-                    return {"session": line.split("=")[-1].strip('"')}
+                if line.startswith('BW_SESSION="') or line.startswith("BW_SESSION="):
+                    self._bw_session = line.split("=", 1)[-1].strip('"')
+                    if len(self._bw_session) > 40:
+                        return {"session": self._bw_session}
         return {"logged_in": True}
 
     def login_apikey(
@@ -261,8 +345,10 @@ class BitwardenCLIClient:
 
         output = result.stdout.strip()
         for line in output.split("\n"):
-            if "BW_SESSION" in line:
-                return {"session": line.split("=")[-1].strip('"')}
+            if line.startswith('BW_SESSION="') or line.startswith("BW_SESSION="):
+                self._bw_session = line.split("=", 1)[-1].strip('"')
+                if len(self._bw_session) > 40:
+                    return {"session": self._bw_session}
         return {"logged_in": True}
 
     def login_session(self, session: str) -> dict[str, Any]:
@@ -289,9 +375,9 @@ class BitwardenCLIClient:
         env = self._env()
         if password:
             env["BW_PASSWORD"] = password
-            args = [self.bw_bin, "unlock", "--passwordenv", "BW_PASSWORD"]
+            args = [self.bw_bin, "unlock", "--passwordenv", "BW_PASSWORD", "--raw"]
         else:
-            args = [self.bw_bin, "unlock"]
+            args = [self.bw_bin, "unlock", "--raw"]
 
         try:
             result = subprocess.run(
@@ -309,9 +395,16 @@ class BitwardenCLIClient:
             raise BitwardenCLIAuthError(f"bw unlock failed: {stderr}")
 
         output = result.stdout.strip()
+        # --raw mode: output is the session key directly (no prefix)
+        if output and len(output) > 40 and " " not in output:
+            self._bw_session = output
+            return self._bw_session
+        # Legacy: parse BW_SESSION="..." from multi-line output
         for line in output.split("\n"):
-            if "BW_SESSION" in line:
-                return line.split("=")[-1].strip('"')
+            if line.startswith('BW_SESSION="') or line.startswith("BW_SESSION="):
+                self._bw_session = line.split("=", 1)[-1].strip('"')
+                if len(self._bw_session) > 40:
+                    return self._bw_session
         raise BitwardenCLIAuthError("unlock did not return BW_SESSION")
 
     def lock(self) -> None:
@@ -342,7 +435,7 @@ class BitwardenCLIClient:
         if search:
             args.extend(["--search", search])
 
-        result = self._run(args)
+        result = self._run(args, timeout=self.timeout)
         if isinstance(result, list):
             return result
         # bw may return {"_raw": ...} for empty results
