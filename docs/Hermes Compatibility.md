@@ -15,7 +15,7 @@ Hermes — it does NOT replace any core functionality.
 
 | Capability           | How it works                                                                                  |
 | -------------------- | --------------------------------------------------------------------------------------------- |
-| Secret projection    | Reads from Bitwarden/Vaultwarden, renders `~/.hermes/.env.generated` (3-layer admin denylist) |
+| Secret projection    | Reads from Bitwarden/Vaultwarden, renders `~/.hermes/.env.generated` (3-layer denylist + `--merge`) |
 | Key rotation         | 14-phase state machine with retry, rollback, per-provider locking, orphan cleanup             |
 | Key validation       | Structured `ValidationResult` with `reason_class`, `http_status`, `retry_recommended`         |
 | Emergency rotation   | Immediate revoke + replace on key compromise via `emergency` subcommand                       |
@@ -85,7 +85,7 @@ HashiCorp Vault and AWS Secrets Manager:
         ▼
 Bitwarden/Vaultwarden    (API keys encrypted at rest, AES-256)
         │
-        │ hermes-key-rotate render-env (3-layer admin denylist)
+        │ hermes-key-rotate render-env [--merge] (sync + 3-layer denylist)
         ▼
 ~/.hermes/.env.generated (runtime keys only, chmod 600, atomic write)
         │

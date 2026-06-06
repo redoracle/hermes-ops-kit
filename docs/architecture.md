@@ -2,7 +2,7 @@
 title: Architecture
 tags: [hermes, ops-kit, architecture]
 created: 2026-06-04
-modified: 2026-06-06
+modified: 2026-06-07
 ---
 
 # Architecture
@@ -16,6 +16,7 @@ compatible with the Hermes Agent plugin system.
 bridge.py                  # Main CLI — subcommand dispatcher
 commands.py                # Plugin CLI commands (doctor, mcp, audit, budget, image, …)
 hermes_key_rotate.py       # Key rotation CLI (rotate, validate, seed, emergency, backup, restore, diff, migrate, render, status)
+                        #   --render-env --merge: syncs .env.generated keys into .env
 usage_metrics_v2.py        # Health / limits / usage / costs (concurrent provider probes)
 hermes_skill_factory.py    # SKILL.md generator from commands + runbooks
 hermes_assistant_manager.py# Assistant CRUD + ping + discover + validation
@@ -47,6 +48,7 @@ security/                  # Secret backend, redaction, fingerprints, locking, c
 env/                       # Environment rendering pipeline (3-layer denylist gate)
   env_loader.py            #   Loads ~/.hermes/.env, validates bootstrap vars
   render_env.py            #   Renders .env.generated with deny_render + classification check
+                        #   --merge flag: syncs new/updated keys from .generated into .env
   atomic_write.py          #   temp → chmod 600 → fsync → rename
 
 providers/                 # Provider adapters + rotators + state machine (LLM text only)
@@ -142,6 +144,9 @@ hermes-key-rotate rotate --provider openai [--manual-new-key-stdin]
   │      └─ Verify read-after-write (compare fingerprints)
   │
   ├─ 8. render_env() — generate .env.generated
+      │      ├─ Runs bw sync to catch manual Vaultwarden web UI edits
+      │      └─ If --merge: syncs new/updated keys from .generated into .env
+
   │      ├─ Gate 1: deny_render list from env_projection.yaml
   │      ├─ Gate 2: path-segment admin classification
   │      ├─ Gate 3: Bitwarden/Vaultwarden metadata renderable_to_env flag
@@ -157,6 +162,8 @@ hermes-key-rotate rotate --provider openai [--manual-new-key-stdin]
   │       └─ Anthropic: POST /v1/api_keys/{id}/archive
   │       └─ Google: DELETE (google-auth ADC)
   │       └─ DeepSeek/GitHub: manual action required (return False)
+      │       └─ NVIDIA: manual action required (return False)
+
   │       └─ On failure: mark MANUAL_ACTION_REQUIRED, emit console instructions
   │
   ├─ 12. write_rotation_phase_event() — structured JSONL audit

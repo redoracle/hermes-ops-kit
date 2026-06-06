@@ -44,14 +44,13 @@ ALLOWED_MODELS = [
     # NVIDIA Nemotron family (confirmed working on this account)
     "nvidia/nemotron-3-ultra-550b-a55b",  # most capable reasoning model
     "nvidia/nemotron-3-super-120b-a12b",  # super tier — balanced
-    "nvidia/nemotron-3-nano-30b-a3b",  # nano — fast/cheap
+    "nvidia/nemotron-3-nano-30b-a3b",  # nano — fast/cheap (default)
     "nvidia/llama-3.3-nemotron-super-49b-v1.5",  # super v1.5
+    "nvidia/nvidia-nemotron-nano-9b-v2",  # nano v2 — ultra-fast
+    "nvidia/nemotron-nano-12b-v2-vl",  # vision-language model
     # Other providers on NIM
     "meta/llama-4-maverick-17b-128e-instruct",  # Meta Llama 4 via NIM
     "mistralai/mistral-nemotron",  # Mistral Nemotron via NIM
-    # Note: nvidia/llama-3.1-nemotron-70b-instruct and
-    # nvidia/llama-3.1-nemotron-ultra-253b-v1 appear in /v1/models
-    # but return 404 for this account — likely require NVIDIA Build registration.
 ]
 
 

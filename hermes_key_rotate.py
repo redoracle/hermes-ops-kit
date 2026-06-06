@@ -170,9 +170,22 @@ def cmd_doctor_secrets(backend: VaultwardenSecretBackend) -> dict:
     return result
 
 
-def cmd_render_env(backend: VaultwardenSecretBackend, dry_run: bool = False) -> dict:
-    """--render-env: generate ~/.hermes/.env.generated from Vaultwarden."""
+def cmd_render_env(
+    backend: VaultwardenSecretBackend, dry_run: bool = False, merge: bool = False
+) -> dict:
+    """--render-env: generate ~/.hermes/.env.generated from Vaultwarden.
+
+    When *merge* is True, also syncs new keys from .env.generated into
+    ~/.hermes/.env without duplicating existing keys.
+    """
     from env.render_env import render_env, render_env_content  # pyright: ignore[reportMissingImports]
+
+    # Sync vault data from server — catches manual edits made via
+    # the Bitwarden/Vaultwarden web UI that the local bw cache doesn't see.
+    try:
+        backend.sync()
+    except Exception:
+        pass  # sync is best-effort; stale data beats no data
 
     if dry_run:
         content = render_env_content(backend)
@@ -180,7 +193,86 @@ def cmd_render_env(backend: VaultwardenSecretBackend, dry_run: bool = False) -> 
         return {"ok": True, "dry_run": True}
 
     path = render_env(backend)
-    return {"ok": True, "output": path, "rendered": True}
+    result: dict = {"ok": True, "output": path, "rendered": True}
+
+    if merge:
+        result["merged"] = _merge_generated_into_env(path)
+
+    return result
+
+
+def _merge_generated_into_env(generated_path: str) -> dict:
+    """Sync keys from .env.generated into ~/.hermes/.env.
+
+    - Keys in .env.generated but NOT in .env → appended.
+    - Keys in BOTH but with different values → updated in-place.
+    - Keys only in .env → left untouched (bootstrap / user-managed).
+    """
+    env_path = os.path.expanduser("~/.hermes/.env")
+
+    # Parse existing .env into {key: (line_number, full_line)}
+    existing: dict[str, tuple[int, str]] = {}
+    lines: list[str] = []
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for i, raw in enumerate(f):
+                line = raw.rstrip("\n")
+                lines.append(line)
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    key = stripped.split("=", 1)[0].strip()
+                    existing[key] = (i, line)
+
+    # Collect updates and additions from .env.generated
+    gen_entries: dict[str, str] = {}
+    with open(generated_path) as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" not in stripped:
+                continue
+            key = stripped.split("=", 1)[0].strip()
+            gen_entries[key] = stripped
+
+    updated: list[str] = []
+    added: list[str] = []
+
+    for key, gen_line in gen_entries.items():
+        if key in existing:
+            _, old_line = existing[key]
+            if old_line != gen_line:
+                idx = existing[key][0]
+                lines[idx] = gen_line
+                updated.append(key)
+        else:
+            added.append(key)
+            if added:
+                # First addition: add a marker comment
+                if not any("Merged from .env.generated" in ln for ln in lines):
+                    lines.append("# Merged from .env.generated — 0 new key(s)")
+
+    if added:
+        # Update the marker comment count
+        for i, ln in enumerate(lines):
+            if ln.startswith("# Merged from .env.generated"):
+                total = len(added)
+                lines[i] = f"# Merged from .env.generated — {total} new key(s)"
+                break
+        else:
+            lines.append(f"# Merged from .env.generated — {len(added)} new key(s)")
+        for gen_line in [gen_entries[k] for k in added]:
+            lines.append(gen_line)
+
+    if updated or added:
+        with open(env_path, "w") as f:
+            f.write("\n".join(lines) + "\n")
+
+    return {
+        "merged_count": len(updated) + len(added),
+        "updated": updated,
+        "added": added,
+    }
 
 
 # ─── Rotation ────────────────────────────────────────────────────────
@@ -1047,6 +1139,11 @@ def main() -> None:
         action="store_true",
         help="Generate ~/.hermes/.env.generated from Vaultwarden secrets",
     )
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="When used with --render-env, also sync new keys into ~/.hermes/.env",
+    )
 
     # Provider
     parser.add_argument(
@@ -1124,6 +1221,11 @@ def main() -> None:
 
     render_p = sub.add_parser("render-env", help="Generate .env.generated")
     render_p.add_argument("--dry-run", action="store_true")
+    render_p.add_argument(
+        "--merge",
+        action="store_true",
+        help="Sync new keys into ~/.hermes/.env without duplicates",
+    )
     render_p.add_argument(
         "--verify", action="store_true", help="Run health check against generated env"
     )
@@ -1269,7 +1371,9 @@ def main() -> None:
             sys.exit(0)
 
         elif args.subcommand == "render-env":
-            result = cmd_render_env(backend, dry_run=args.dry_run)
+            result = cmd_render_env(
+                backend, dry_run=args.dry_run, merge=getattr(args, "merge", False)
+            )
             if getattr(args, "verify", False) and not args.dry_run and result.get("ok"):
                 verify = _verify_rendered_env(result.get("output", ""))
                 result["verify"] = verify
@@ -1327,7 +1431,7 @@ def main() -> None:
             refs = backend.list_secret_refs()
             _print_json({"ok": True, "refs": refs, "count": len(refs)})
         elif args.render_env:
-            result = cmd_render_env(backend, dry_run=args.dry_run)
+            result = cmd_render_env(backend, dry_run=args.dry_run, merge=args.merge)
             _print_json(result)
         elif args.doctor_secrets:
             result = cmd_doctor_secrets(backend)

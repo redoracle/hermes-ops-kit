@@ -68,8 +68,8 @@ hermes-key-rotate --status
 ### 4. Render Runtime Env
 
 ```bash
-hermes-key-rotate --render-env
-# → Generates ~/.hermes/.env.generated with runtime keys only (no admin keys)
+hermes-key-rotate --render-env --merge
+# → Syncs vault → .env.generated, then merges new keys into .env (no duplicates)
 ```
 
 ### 5. Seed Remaining Providers
