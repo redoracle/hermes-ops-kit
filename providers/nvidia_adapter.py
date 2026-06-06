@@ -229,14 +229,26 @@ def op_review(
 
 
 def op_models() -> dict:
-    """List available models (from local allowlist, no API call)."""
+    """List available models from NVIDIA NIM API (dynamic, not allowlist).
+
+    Queries GET /v1/models so the full catalog is visible (like OpenWebUI).
+    Falls back to ALLOWED_MODELS if the API call fails.
+    """
+    model_ids = list(ALLOWED_MODELS)
+    try:
+        client = _client()
+        models = client.models.list()
+        model_ids = sorted(m.id for m in models.data)
+    except Exception:
+        pass  # fall back to allowlist
+
     return {
         "ok": True,
         "provider": "nvidia",
         "operation": "models",
         "result": {
-            "text": f"Available models: {', '.join(ALLOWED_MODELS)}",
-            "structured": {"models": ALLOWED_MODELS},
+            "text": f"Available models: {', '.join(model_ids)}",
+            "structured": {"models": model_ids},
         },
         "usage": {"input_tokens": 0, "output_tokens": 0},
         "warnings": [],
