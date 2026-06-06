@@ -237,8 +237,10 @@ def op_models() -> dict:
     model_ids = list(ALLOWED_MODELS)
     try:
         client = _client()
-        models = client.models.list()
-        model_ids = sorted(m.id for m in models.data)
+        # Iterate over the SyncPage directly — auto-paginates through
+        # every page. Using .data would only return the first page
+        # (default 50 items), hiding most models from the catalog.
+        model_ids = sorted(m.id for m in client.models.list())
     except Exception:
         pass  # fall back to allowlist
 
