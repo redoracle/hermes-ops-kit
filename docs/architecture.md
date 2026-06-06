@@ -2,7 +2,7 @@
 title: Architecture
 tags: [hermes, ops-kit, architecture]
 created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-06-06
 ---
 
 # Architecture
@@ -25,6 +25,7 @@ hermes_export.py           # Structured export: usage, security, audit, briefing
 image_routes/              # Image generation routing (NOT LLM text — separate layer)
   manager.py               #   CLI: routes, doctor, test, set-default, set-route
   router.py                #   Dispatch: config→adapter, local-first, fallback on any generate() failure
+  hermes_provider.py       #   OpsKitRouterProvider — registered by __init__.py (no separate plugin)
   background_edit.py       #   Subject-preserving background replacement
   adapters/
     base.py                #     Abstract BaseImageAdapter + load_dotenv() + envelope
@@ -49,8 +50,10 @@ env/                       # Environment rendering pipeline (3-layer denylist ga
   atomic_write.py          #   temp → chmod 600 → fsync → rename
 
 providers/                 # Provider adapters + rotators + state machine (LLM text only)
-  *_adapter.py (5)         #   API/CLI adapters (invoked by bridge.py as subprocesses)
-  *_rotator.py  (5)        #   Key rotators with structured ValidationResult + retry + rollback
+  *_adapter.py (6)         #   API/CLI adapters (invoked by bridge.py as subprocesses)
+  *_rotator.py  (6)        #   Key rotators with structured ValidationResult + retry + rollback
+  nvidia_adapter.py        #     NVIDIA NIM adapter (OpenAI-compatible, reasoning_budget, enable_thinking)
+  nvidia_rotator.py        #     NVIDIA NIM rotator (manual-new-key, PermissionDeniedError→QUOTA)
   base.py                  #   Abstract BaseRotator (validate_with_retry, revoke_key, cleanup_orphaned_key)
   rotation_state_machine.py#   14-phase RotationPhase + RotationState + RotationRunner
 

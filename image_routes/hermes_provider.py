@@ -1,6 +1,6 @@
 """Hermes Ops Kit — Image Generation Router Provider.
 
-Bridges the Hermes ``image_generate`` tool to hermes-ops-kit's image routing.
+Bridges the Hermes ``image_generate`` tool to ops-kit's image routing.
 Reads ``image_routes.yaml`` and dispatches to the configured backend:
 
   - local-comfyui   (local ComfyUI instance)
@@ -8,14 +8,14 @@ Reads ``image_routes.yaml`` and dispatches to the configured backend:
   - openai          (DALL-E 3 or gpt-image-2)
   - fal             (FAL.ai Flux/Stable Diffusion)
 
+This provider is registered directly by hermes-ops-kit's ``register()``
+— no separate plugin needed.
+
 Configure in ``~/.hermes/config.yaml``::
 
     image_gen:
       provider: ops-kit-router
       model: auto
-
-The provider calls ``hermes-ops-kit image test`` as a subprocess and parses
-the JSON result into Hermes's native image_gen response format.
 """
 
 from __future__ import annotations
@@ -26,13 +26,25 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-from agent.image_gen_provider import (
-    DEFAULT_ASPECT_RATIO,
-    ImageGenProvider,
-    error_response,
-    resolve_aspect_ratio,
-    success_response,
-)
+# ── Ops-kit self-location (no disk search — we live inside ops-kit) ──
+_OPS_KIT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ── Hermes-core imports (only available inside Hermes runtime) ──
+try:
+    from agent.image_gen_provider import (  # pyright: ignore[reportMissingImports]
+        DEFAULT_ASPECT_RATIO,
+        ImageGenProvider,
+        error_response,
+        resolve_aspect_ratio,
+        success_response,
+    )
+except ImportError:
+    # Outside Hermes — stub the types so the module can be imported for tests.
+    ImageGenProvider = object  # type: ignore
+    DEFAULT_ASPECT_RATIO = "landscape"
+    resolve_aspect_ratio = lambda x: x  # noqa: E731
+    success_response = None  # type: ignore
+    error_response = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -67,41 +79,6 @@ _MODELS: Dict[str, Dict[str, Any]] = {
 }
 
 DEFAULT_MODEL = "auto"
-
-
-def _find_ops_kit_bridge() -> Optional[str]:
-    """Locate the hermes-ops-kit bridge.py script."""
-    candidates = [
-        os.path.expanduser("~/.hermes/plugins/hermes-ops-kit/bridge.py"),
-        os.path.expanduser("~/GIT/INFRA/tools/hermes-ops-kit/bridge.py"),
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return None
-
-
-def _find_ops_kit_manager() -> Optional[str]:
-    """Locate the hermes-ops-kit image_routes/manager.py script."""
-    candidates = [
-        os.path.expanduser("~/.hermes/plugins/hermes-ops-kit/image_routes/manager.py"),
-        os.path.expanduser("~/GIT/INFRA/tools/hermes-ops-kit/image_routes/manager.py"),
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return None
-
-
-def _find_ops_kit_dir() -> Optional[str]:
-    """Locate the hermes-ops-kit package directory."""
-    manager = _find_ops_kit_manager()
-    if manager:
-        return os.path.dirname(os.path.dirname(manager))
-    bridge = _find_ops_kit_bridge()
-    if bridge:
-        return os.path.dirname(bridge)
-    return None
 
 
 def _is_background_edit_request(prompt: str, kwargs: Dict[str, Any]) -> bool:
@@ -143,8 +120,8 @@ class OpsKitRouterProvider(ImageGenProvider):
         return "Ops Kit Router"
 
     def is_available(self) -> bool:
-        """Check that ops-kit bridge or manager is available."""
-        return _find_ops_kit_bridge() is not None or _find_ops_kit_manager() is not None
+        """Check that ops-kit image_routes/router.py is reachable."""
+        return os.path.exists(os.path.join(_OPS_KIT_DIR, "image_routes", "router.py"))
 
     def list_models(self) -> List[Dict[str, Any]]:
         return [
@@ -202,20 +179,6 @@ class OpsKitRouterProvider(ImageGenProvider):
                 aspect_ratio=aspect,
             )
 
-        ops_kit_dir = _find_ops_kit_dir()
-        if not ops_kit_dir:
-            return error_response(
-                error=(
-                    "hermes-ops-kit image router not found. "
-                    "Ensure hermes-ops-kit is installed in ~/.hermes/plugins/ "
-                    "or ~/GIT/INFRA/tools/hermes-ops-kit/"
-                ),
-                error_type="missing_dependency",
-                provider="ops-kit-router",
-                prompt=prompt,
-                aspect_ratio=aspect,
-            )
-
         # Resolve the route name from config
         route_name = self._resolve_route_name()
 
@@ -233,8 +196,8 @@ class OpsKitRouterProvider(ImageGenProvider):
             reference_image and _is_background_edit_request(prompt, kwargs)
         )
 
-        if ops_kit_dir not in sys.path:
-            sys.path.insert(0, ops_kit_dir)
+        if _OPS_KIT_DIR not in sys.path:
+            sys.path.insert(0, _OPS_KIT_DIR)
 
         try:
             from image_routes.router import generate as ops_generate
@@ -279,14 +242,12 @@ class OpsKitRouterProvider(ImageGenProvider):
         if not isinstance(section, dict):
             return None
 
-        # Check provider-specific config
         router_cfg = section.get("ops_kit_router")
         if isinstance(router_cfg, dict):
             route = router_cfg.get("route")
             if route:
                 return route
 
-        # Check if the top-level model matches a known route
         model = section.get("model")
         if model and model in _MODELS and model != "auto":
             return model
@@ -296,7 +257,6 @@ class OpsKitRouterProvider(ImageGenProvider):
     @staticmethod
     def _extract_json(text: str) -> Optional[dict]:
         """Try to extract a JSON object from mixed output."""
-        # Find the first { and last }
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
@@ -329,7 +289,6 @@ class OpsKitRouterProvider(ImageGenProvider):
                     aspect_ratio=aspect_ratio,
                 )
 
-            _caption = data.get("caption", f"Generated via {provider}:{model}")
             extra = data.get("extra", {})
             extra["route_provider"] = provider
             extra["route_model"] = model
@@ -351,11 +310,3 @@ class OpsKitRouterProvider(ImageGenProvider):
                 prompt=prompt,
                 aspect_ratio=aspect_ratio,
             )
-
-
-# ── Plugin entry point ─────────────────────────────────────────────────
-
-
-def register(ctx) -> None:
-    """Wire ``OpsKitRouterProvider`` into the Hermes image_gen registry."""
-    ctx.register_image_gen_provider(OpsKitRouterProvider())

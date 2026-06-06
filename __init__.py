@@ -67,6 +67,14 @@ def register(ctx):
     except Exception:
         pass
 
+    # ── Image Gen Provider ──
+    try:
+        from .image_routes.hermes_provider import OpsKitRouterProvider
+
+        ctx.register_image_gen_provider(OpsKitRouterProvider())
+    except Exception:
+        pass  # not inside Hermes runtime, or provider API changed
+
     # ── Skill ──
     skills_dir = Path(__file__).parent / "skills" / "hermes-ops-kit"
     skill_path = skills_dir / "SKILL.md"

@@ -85,6 +85,17 @@ See: [[Architecture]] (Data Flow: Env Rendering Safety section), [[Threat Model]
 **Rotation:** `manual-new-key` only — no admin API. User must provide key via stdin.
 **Revocation:** Manual action required — log into DeepSeek dashboard and delete the old key.
 
+### NVIDIA NIM
+
+| Secret Ref                  | Class   | Vaultwarden Item          | Env Var              | Rotatable | Revocable |
+| --------------------------- | ------- | ------------------------- | -------------------- | --------- | --------- |
+| `hermes/nvidia/api_key`     | runtime | `Hermes/NVIDIA/API_KEY`   | `NVIDIA_API_KEY`     | ✅        | ❌ Manual |
+| `hermes/nvidia/base_url`    | config  | `Hermes/NVIDIA/BASE_URL`  | `NVIDIA_BASE_URL`    | —         | Manual    |
+
+**Rotation:** `manual-new-key` only — no admin API. User must provide key via stdin.
+**Revocation:** Manual action required — log into NVIDIA Build console (https://build.nvidia.com) and delete the old key.
+**Rate limits:** Captured from `x-ratelimit-*` response headers on `/v1/models` probe.
+
 ### GitHub
 
 | Secret Ref                      | Class   | Vaultwarden Item                | Env Var                    | Rotatable | Revocable |
@@ -126,6 +137,7 @@ See: [[Architecture]] (Data Flow: Env Rendering Safety section), [[Threat Model]
 | Anthropic | ✅ Admin API    | ✅ Live API call | ✅ `POST .../archive`         | ✅             |
 | Google    | ✅ API Keys API | ✅ Live API call | ✅ `DELETE` via ADC           | ✅             |
 | DeepSeek  | ❌ Manual only  | ✅ Live API call | ❌ Dashboard                  | ❌             |
+| NVIDIA    | ❌ Manual only  | ✅ Live API call | ❌ NVIDIA Build console       | ❌             |
 | GitHub    | ❌ Manual only  | ✅ Live API call | ❌ Dashboard                  | ❌             |
 
 ---

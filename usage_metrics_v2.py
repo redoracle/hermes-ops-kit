@@ -50,19 +50,34 @@ PROVIDER_NAMES = {
 # cost_default:    fallback label when no billing/entitlement signal is detected
 #                   (PAID only when proven by balance/entitlement, else UNKNOWN).
 PROVIDER_META = {
-    "openai":    {"preferred_models": ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
-                  "cost_default": "UNKN"},
-    "anthropic": {"preferred_models": ["claude-sonnet-4-6", "claude-haiku-4-5"],
-                  "cost_default": "UNKN"},
-    "github":    {"preferred_models": ["gpt-5.4-mini", "claude-sonnet-4-6", "gpt-5.4"],
-                  "cost_default": "UNKN"},
-    "gemini":    {"preferred_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
-                  "cost_default": "UNKN"},
-    "deepseek":  {"preferred_models": ["deepseek-v4-flash", "deepseek-v4-pro"],
-                  "cost_default": "UNKN"},
-    "nvidia":    {"preferred_models": ["nemotron-3-nano-30b-a3b", "nemotron-3-super-120b-a12b",
-                                       "nemotron-3-ultra-550b-a55b"],
-                  "cost_default": "DEV"},
+    "openai": {
+        "preferred_models": ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+        "cost_default": "UNKN",
+    },
+    "anthropic": {
+        "preferred_models": ["claude-sonnet-4-6", "claude-haiku-4-5"],
+        "cost_default": "UNKN",
+    },
+    "github": {
+        "preferred_models": ["gpt-5.4-mini", "claude-sonnet-4-6", "gpt-5.4"],
+        "cost_default": "UNKN",
+    },
+    "gemini": {
+        "preferred_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        "cost_default": "UNKN",
+    },
+    "deepseek": {
+        "preferred_models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "cost_default": "UNKN",
+    },
+    "nvidia": {
+        "preferred_models": [
+            "nemotron-3-nano-30b-a3b",
+            "nemotron-3-super-120b-a12b",
+            "nemotron-3-ultra-550b-a55b",
+        ],
+        "cost_default": "DEV",
+    },
 }
 
 # ─── Assistants (remote agent runtimes, not model providers) ─────
@@ -1126,10 +1141,17 @@ def build_routes(results: dict) -> dict:
     primary_data = results.get(primary_provider, {})
 
     if primary_data.get("status") == "online":
+        # Only prefix with provider_raw when it differs from normalized
+        # (e.g. "github/copilot:model" vs "nvidia:nemotron-...").
+        _route = (
+            f"{primary_provider}/{primary_provider_raw}:{primary_model}"
+            if primary_provider_raw != primary_provider
+            else f"{primary_provider}:{primary_model}"
+        )
         routes.append(
             {
                 "role": "primary",
-                "route": f"{primary_provider}/{primary_provider_raw}:{primary_model}",
+                "route": _route,
                 "reason": routes_cfg.get("routes", {})
                 .get("primary", {})
                 .get("label", "coding/default"),
@@ -1555,6 +1577,23 @@ def fmt_rich(results: dict) -> str:
                 f"  {r['role']:<10s} {r['route']:<36s} {ms:>6s}  {cost:<9s} {r['reason']}"
             )
 
+    # MODEL ALIASES — named shortcuts from ~/.hermes/config.yaml model_aliases
+    aliases = _get_hermes_config().get("model_aliases", {})
+    if aliases:
+        lines.append("")
+        lines.append("MODEL ALIASES")
+        for alias_name, alias_cfg in aliases.items():
+            if not isinstance(alias_cfg, dict):
+                continue
+            ap = alias_cfg.get("provider", "?")
+            am = alias_cfg.get("model", "?")
+            route = f"{ap}:{am}"
+            pdata = results.get(_PROVIDER_NORMALIZE.get(ap, ap), {})
+            ms = _ms(pdata)
+            lines.append(
+                f"  {alias_name:<12s} {route:<36s} {ms:>6s}  --model {alias_name}"
+            )
+
     # ASSISTANTS
     assistants = results.get("_assistants", {})
     if assistants:
@@ -1697,6 +1736,18 @@ def fmt_rich(results: dict) -> str:
         lines.append(
             f"  DeepSeek   {_ds_balance_str(ds)} · no hard rate limits (dynamic)"
         )
+
+    # NVIDIA NIM — rate limit headers captured from /v1/models probe
+    nv = results.get("nvidia", {})
+    if nv.get("status") == "online":
+        rl = nv.get("rate_limits", {})
+        if rl:
+            parts = [f"{k} {v}" for k, v in sorted(rl.items())]
+            lines.append(f"  NVIDIA     {' · '.join(parts)}")
+        else:
+            lines.append(
+                f"  NVIDIA     {nv.get('model_count', '?')} models · quota → {nv.get('quota_url', 'build.nvidia.com')}"
+            )
 
     # WARNINGS
     warns = _collect_warnings(results)

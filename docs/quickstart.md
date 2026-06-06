@@ -86,7 +86,6 @@ Add to `~/.hermes/config.yaml`:
 plugins:
   enabled:
     - hermes-ops-kit
-    - ops-kit-router
 
 image_gen:
   provider: ops-kit-router

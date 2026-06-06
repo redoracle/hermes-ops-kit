@@ -48,8 +48,7 @@ In `~/.hermes/config.yaml`:
 ```yaml
 plugins:
   enabled:
-    - hermes-ops-kit # Ops kit plugin
-    - ops-kit-router # Image generation bridge
+    - hermes-ops-kit # Ops kit + image_gen provider (self-registers)
 
 image_gen:
   provider: ops-kit-router
