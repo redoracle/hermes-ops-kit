@@ -55,6 +55,12 @@ def test_redacts_github_token():
     )
 
 
+def test_redacts_nvidia_key():
+    assert "<NVIDIA_KEY_REDACTED>" in redact(
+        "nvapi-abc123xyz789def456ghi012jkl345mno678pqr901stu234vwx567"
+    )
+
+
 def test_redacts_bearer_token():
     result = redact("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.xyz")
     assert "Bearer" not in result or "TOKEN_REDACTED" in result

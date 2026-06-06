@@ -44,6 +44,10 @@ env_projection:
   GITHUB_TOKEN: hermes/github/token
   GH_TOKEN: hermes/github/token
 
+  # ── NVIDIA NIM ──
+  NVIDIA_API_KEY: hermes/nvidia/api_key
+  NVIDIA_BASE_URL: hermes/nvidia/base_url
+
   # ── Assistants — Assistant ──
   ASSISTANT_API_BASE: hermes/assistants/assistant-id/api_base
   ASSISTANT_API_KEY: hermes/assistants/assistant-id/api_key

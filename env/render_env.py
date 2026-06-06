@@ -103,6 +103,9 @@ DEFAULT_PROJECTION: dict[str, str] = {
     "GITHUB_INSTALLATION_ID": "hermes/github/installation_id",
     "GITHUB_TOKEN": "hermes/github/token",
     "GH_TOKEN": "hermes/github/token",
+    # NVIDIA NIM
+    "NVIDIA_API_KEY": "hermes/nvidia/api_key",
+    "NVIDIA_BASE_URL": "hermes/nvidia/base_url",
 }
 
 

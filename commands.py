@@ -336,6 +336,7 @@ _CREDENTIAL_CHECKS: list[tuple[str, str, str | None]] = [
     ("openai", "OPENAI_API_KEY", "sk-"),
     ("anthropic", "ANTHROPIC_API_KEY", "sk-ant-"),
     ("deepseek", "DEEPSEEK_API_KEY", "sk-"),
+    ("nvidia", "NVIDIA_API_KEY", "nvapi-"),
     ("openrouter", "OPENROUTER_API_KEY", "sk-or-"),
     ("github", "GITHUB_TOKEN", None),
     ("github", "GH_TOKEN", None),

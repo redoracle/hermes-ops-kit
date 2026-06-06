@@ -33,15 +33,36 @@ from typing import List
 # Every "which providers exist" decision derives from here so a new provider
 # can't silently vanish from one view while showing in another.
 
-PROVIDERS = ["openai", "anthropic", "github", "gemini", "deepseek"]
+PROVIDERS = ["openai", "anthropic", "github", "gemini", "deepseek", "nvidia"]
 # Display order: free/included first, then paid.
-DISPLAY_ORDER = ["github", "gemini", "openai", "anthropic", "deepseek"]
+DISPLAY_ORDER = ["github", "gemini", "nvidia", "openai", "anthropic", "deepseek"]
 PROVIDER_NAMES = {
     "openai": "OPENAI",
     "anthropic": "ANTHROPIC",
     "github": "GITHUB",
     "gemini": "GEMINI",
     "deepseek": "DEEPSEEK",
+    "nvidia": "NVIDIA",
+}
+
+# Per-provider display metadata: curated model ranking + honest cost fallback.
+# preferred_models: ranked list — first one found in the live API response wins.
+# cost_default:    fallback label when no billing/entitlement signal is detected
+#                   (PAID only when proven by balance/entitlement, else UNKNOWN).
+PROVIDER_META = {
+    "openai":    {"preferred_models": ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+                  "cost_default": "UNKN"},
+    "anthropic": {"preferred_models": ["claude-sonnet-4-6", "claude-haiku-4-5"],
+                  "cost_default": "UNKN"},
+    "github":    {"preferred_models": ["gpt-5.4-mini", "claude-sonnet-4-6", "gpt-5.4"],
+                  "cost_default": "UNKN"},
+    "gemini":    {"preferred_models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+                  "cost_default": "UNKN"},
+    "deepseek":  {"preferred_models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+                  "cost_default": "UNKN"},
+    "nvidia":    {"preferred_models": ["nemotron-3-nano-30b-a3b", "nemotron-3-super-120b-a12b",
+                                       "nemotron-3-ultra-550b-a55b"],
+                  "cost_default": "DEV"},
 }
 
 # ─── Assistants (remote agent runtimes, not model providers) ─────
@@ -618,6 +639,74 @@ def check_deepseek(api_key: str | None = None) -> dict:
         return result
 
 
+def check_nvidia(api_key: str | None = None) -> dict:
+    """Check NVIDIA NIM API health via the OpenAI-compatible /v1/models endpoint.
+
+    NVIDIA NIM does not expose a /v1/usage or /v1/rate_limits endpoint,
+    so quota/credits must be checked via the NVIDIA Build UI.
+    Rate limit headers (x-ratelimit-*) are captured from the /v1/models
+    response when available.
+    """
+    key = api_key or os.environ.get("NVIDIA_API_KEY", "")
+    if not key:
+        return {
+            "provider": "nvidia",
+            "status": "offline",
+            "error": "NVIDIA_API_KEY not set",
+        }
+    base_url = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        resp = _urlopen(req)
+        data = json.loads(resp.read().decode())
+
+        # Capture rate-limit headers if present
+        rate_limits: dict[str, str] = {}
+        for k, v in resp.headers.items():
+            lk = k.lower()
+            if "ratelimit" in lk or lk == "retry-after":
+                rate_limits[k] = v
+
+        models = [
+            {"id": m.get("id", ""), "owned_by": m.get("owned_by", "nvidia")}
+            for m in data.get("data", [])
+            if m.get("id")
+        ]
+        result = {
+            "provider": "nvidia",
+            "status": "online",
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "models": models,
+            "model_count": len(models),
+            "has_cost_api": False,  # NVIDIA has no usage/cost API endpoint
+            "has_quota_api": False,  # quota/credits via NVIDIA Build UI only
+            "quota_url": "build.nvidia.com/ngc/keys",
+        }
+        if rate_limits:
+            result["rate_limits"] = rate_limits
+        return result
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300] if e.fp else ""
+        return {
+            "provider": "nvidia",
+            "status": "error",
+            "http_status": e.code,
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "error": redact(body),
+        }
+    except Exception as e:
+        return {
+            "provider": "nvidia",
+            "status": "error",
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "error": str(e),
+        }
+
+
 # ─── Bridge health ──────────────────────────────────────────────
 
 
@@ -630,6 +719,7 @@ def check_bridge_health() -> dict:
         ("github", "github_adapter.py"),
         ("gemini", "gemini_adapter.py"),
         ("deepseek", "deepseek_adapter.py"),
+        ("nvidia", "nvidia_adapter.py"),
     ]:
         fp = os.path.join(d, f)
         adapters[p] = os.path.exists(fp) and os.access(fp, os.X_OK)
@@ -1003,6 +1093,7 @@ _PROVIDER_NORMALIZE = {
     "anthropic": "anthropic",
     "anthropic-api": "anthropic",
     "deepseek": "deepseek",
+    "nvidia": "nvidia",
 }
 
 from config.route_map import aux_display_triples  # noqa: E402
@@ -1182,13 +1273,90 @@ def _quota_str(data: dict, provider: str) -> str:
 
 
 def _rec(data: dict, provider: str) -> str:
-    return {
-        "openai": "gpt-5.4-mini",
-        "anthropic": "claude-sonnet-4-6",
-        "github": "gpt-5.4-mini",
-        "gemini": "gemini-2.5-flash",
-        "deepseek": "deepseek-v4-flash",
-    }.get(provider, "?")
+    """Recommended model for display — curated ranking ∩ live API.
+
+    1. preferred_models ∩ live_models (first match wins).
+    2. First live model (fallback — order is provider-specific, not ranked).
+    3. "?" if nothing is available.
+
+    Strips the provider/ prefix (e.g. "nvidia/foo" → "foo") since the
+    provider name is already shown in the left column.
+    """
+    meta = PROVIDER_META.get(provider, {})
+    preferred = meta.get("preferred_models", [])
+    # Models may be dicts ({"id": "…", …}) or bare strings ("gpt-5.4-mini").
+    _raw = data.get("models", [])
+    live_ids: set[str] = set()
+    for m in _raw:
+        if isinstance(m, dict):
+            mid = m.get("id", "")
+        else:
+            mid = str(m)
+        if mid:
+            live_ids.add(mid)
+
+    # ── 1. Curated ∩ live ──
+    if preferred and live_ids:
+        for candidate in preferred:
+            # Match both "provider/candidate" and bare "candidate"
+            if candidate in live_ids or f"{provider}/{candidate}" in live_ids:
+                return candidate
+
+    # ── 2. Curated but no live data (offline / pre-flight) ──
+    if preferred:
+        return preferred[0]
+
+    # ── 3. First live model as last resort ──
+    models = data.get("models", [])
+    if models:
+        first_raw = models[0]
+        first = (
+            first_raw.get("id") if isinstance(first_raw, dict) else str(first_raw or "")
+        )
+        if first and first.startswith(f"{provider}/"):  # pyright: ignore[reportOptionalMemberAccess]
+            first = first[len(provider) + 1 :]
+        return first or "?"
+    return "?"
+
+
+def _cost_label(data: dict, provider: str) -> str:
+    """Account tier label — honest, only claims PAID when proven.
+
+    Priority:
+      1. Official billing/balance/entitlement signal → PAID
+      2. Free-tier / dev-program signal → FREE*
+      3. Quota exhausted → EXHSTD
+      4. No signal → PROVIDER_META cost_default (or UNKNOWN)
+    """
+    if provider == "github":
+        if data.get("copilot_version"):
+            return "PAID"  # Copilot subscription = paid entitlement
+        if data.get("has_github_token") and int(data.get("core_limit", 0) or 0) > 60:
+            return "PAID"  # authenticated GitHub (5000 req/hr)
+        return "FREE"  # unauthenticated (60 req/hr)
+
+    if provider == "deepseek":
+        bal = data.get("balance", {})
+        if isinstance(bal, dict):
+            if not bal.get("is_available", True):
+                return "EXHSTD"  # balance exhausted
+            if float(bal.get("topped_up", 0) or 0) > 0:
+                return "PAID"  # prepaid credits loaded
+            if float(bal.get("granted", 0) or 0) > 0:
+                return "FREE*"  # trial/granted credits
+        return "FREE*"
+
+    if provider == "gemini":
+        if data.get("free_tier_rpd_flash"):
+            return "FREE*"  # free-tier rate limits reported
+        return "UNKN"  # could be paid, but no billing signal
+
+    if provider == "nvidia":
+        # NVIDIA Developer Program = free prototyping, not production
+        return "DEV" if data.get("status") == "online" else "UNKN"
+
+    # ── no signal — honest fallback ──
+    return PROVIDER_META.get(provider, {}).get("cost_default", "UNKN")
 
 
 def _collect_warnings(results: dict) -> List[str]:
@@ -1428,18 +1596,17 @@ def fmt_rich(results: dict) -> str:
                 mc_str = f"{cpm:>3d}"
                 copilot_ver = d.get("copilot_version", "")
                 quota = f"v{copilot_ver}" if copilot_ver else "included"
-                cost_label = "FREE"
+                cost_label = _cost_label(d, p)
             else:
                 mc = d.get("model_count", d.get("chat_models", 0))
                 mc_str = f"{mc:>3d}"
                 quota = _quota_str(d, p)
-                cost_label = {
-                    "gemini": "FREE*",
-                    "openai": "PAID",
-                    "anthropic": "PAID",
-                    "deepseek": "PAID",
-                }.get(p, "")
+                cost_label = _cost_label(d, p)
             rec = _rec(d, p)
+            # Ellipsize long model names (e.g. NVIDIA NIM prefixes) so the
+            # column stays aligned — 22 chars is the fixed rec column width.
+            if len(rec) > 22:
+                rec = rec[:19] + "..."
             lines.append(
                 f"  {icon} {name:<12s} {ms:>6s}  {mc_str} models  {cost_label:<6s} rec: {rec:<22s} {quota}"
             )
@@ -2038,6 +2205,7 @@ def main():
         "github": check_github,
         "gemini": check_gemini,
         "deepseek": check_deepseek,
+        "nvidia": check_nvidia,
     }
     # Run all probes concurrently — total wall time ≈ slowest single probe
     # instead of the sum (providers + bridge + hermes are independent).

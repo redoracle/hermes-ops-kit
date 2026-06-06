@@ -932,8 +932,13 @@ def resolve_config_path(args: argparse.Namespace) -> str:
 
 
 def _add_global_flags(p: argparse.ArgumentParser) -> None:
-    """Add global flags to a (sub)parser."""
-    p.add_argument("--config", help="Path to assistants.yaml")
+    """Add global flags to a (sub)parser (--json, --quiet, …).
+
+    NOTE: --config is intentionally NOT here — it is added only to the main
+    parser so it always works when placed before the subcommand.  argparse
+    cannot resolve the same store-value flag at both levels (the subparser's
+    copy shadows the parent value back to None).
+    """
     p.add_argument("--json", action="store_true", help="Machine-readable output")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--verbose", action="store_true")
@@ -944,6 +949,12 @@ def _add_global_flags(p: argparse.ArgumentParser) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hermes Ops Kit — Assistant Manager")
+    # --config is added ONLY to the main parser (not via _add_global_flags and
+    # not on subparsers) so that it always works when placed before the
+    # subcommand.  argparse cannot resolve the same store-value flag at both
+    # the parent and subparser level — the subparser's copy shadows the parent
+    # value back to None.
+    parser.add_argument("--config", help="Path to assistants.yaml")
     _add_global_flags(parser)
 
     sub = parser.add_subparsers(dest="command", help="Command")

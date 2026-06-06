@@ -192,6 +192,7 @@ PROVIDER_ROTATORS: dict[str, str] = {
     "google": "providers.google_rotator.GoogleRotator",
     "github": "providers.github_rotator.GitHubRotator",
     "deepseek": "providers.deepseek_rotator.DeepSeekRotator",
+    "nvidia": "providers.nvidia_rotator.NvidiaRotator",
 }
 PROVIDER_CHOICES: list[str] = list(PROVIDER_ROTATORS.keys()) + ["all"]
 

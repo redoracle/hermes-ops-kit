@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """
-Hermes Ops Kit — DeepSeek Provider Adapter
+Hermes Ops Kit — NVIDIA NIM Provider Adapter
 
-Safe, vault-backed wrapper for DeepSeek API calls from Hermes Agent.
-DeepSeek is OpenAI-compatible, so this uses the `openai` SDK pointed at
-https://api.deepseek.com. Never exposes raw API keys. Enforces timeouts,
-redacts secrets, gates mutations.
+Safe, vault-backed wrapper for NVIDIA NIM API calls from Hermes Agent.
+NVIDIA NIM is OpenAI-compatible, so this uses the `openai` SDK pointed at
+https://integrate.api.nvidia.com/v1. Never exposes raw API keys. Enforces
+timeouts, redacts secrets, gates mutations.
+
+NVIDIA NIM specifics:
+- Reasoning models (Nemotron Ultra) support `reasoning_budget` and
+  `chat_template_kwargs.enable_thinking` via `extra_body`.
+- Rate limit info is available in response headers (x-ratelimit-*).
+- Model list is available via the OpenAI-compatible GET /v1/models.
 
 Usage:
-    python3 deepseek_adapter.py --operation chat --prompt "..." [--model deepseek-chat]
-    python3 deepseek_adapter.py --operation extract --prompt "..." --schema '{"type":"object",...}'
-    python3 deepseek_adapter.py --operation review --prompt "..." --files '[{"path":"src/auth.py","content":"..."}]'
+    python3 nvidia_adapter.py --operation chat --prompt "..." [--model nvidia/nemotron-3-ultra-550b-a55b]
+    python3 nvidia_adapter.py --operation extract --prompt "..." --schema '{"type":"object",...}'
+    python3 nvidia_adapter.py --operation review --prompt "..." --files '[{"path":"src/auth.py","content":"..."}]'
+    python3 nvidia_adapter.py --operation models
 """
 
 import argparse
@@ -25,19 +32,26 @@ from security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
 from datetime import datetime
 
-# ─── DeepSeek API config ─────────────────────────────────────────
+# ─── NVIDIA NIM API config ────────────────────────────────────────
 
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # ─── Allowed Models ──────────────────────────────────────────────
-# Stable aliases that always point at DeepSeek's current production models,
-# regardless of the underlying versioned id returned by GET /models.
+# Models available through the NVIDIA NIM serverless API.
+# See https://build.nvidia.com/models for the full catalog.
 
 ALLOWED_MODELS = [
-    "deepseek-v4-flash",  # fast/cheap general chat (current); temperature + JSON output
-    "deepseek-v4-pro",  # most capable (current)
-    "deepseek-chat",  # legacy stable alias — kept for backward-compat
-    "deepseek-reasoner",  # legacy reasoning alias; no temperature / JSON mode
+    # NVIDIA Nemotron family (confirmed working on this account)
+    "nvidia/nemotron-3-ultra-550b-a55b",  # most capable reasoning model
+    "nvidia/nemotron-3-super-120b-a12b",  # super tier — balanced
+    "nvidia/nemotron-3-nano-30b-a3b",  # nano — fast/cheap
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",  # super v1.5
+    # Other providers on NIM
+    "meta/llama-4-maverick-17b-128e-instruct",  # Meta Llama 4 via NIM
+    "mistralai/mistral-nemotron",  # Mistral Nemotron via NIM
+    # Note: nvidia/llama-3.1-nemotron-70b-instruct and
+    # nvidia/llama-3.1-nemotron-ultra-253b-v1 appear in /v1/models
+    # but return 404 for this account — likely require NVIDIA Build registration.
 ]
 
 
@@ -58,15 +72,35 @@ def validate_model(model: str) -> str:
 
 
 def _client():
-    """Build an OpenAI client pointed at the DeepSeek endpoint."""
+    """Build an OpenAI client pointed at the NVIDIA NIM endpoint."""
     import openai  # pyright: ignore[reportMissingImports]
 
-    timeout = int(os.environ.get("DEEPSEEK_TIMEOUT", "60"))
+    timeout = int(os.environ.get("NVIDIA_TIMEOUT", "60"))
     return openai.OpenAI(
-        api_key=os.environ.get("DEEPSEEK_API_KEY"),
-        base_url=DEEPSEEK_BASE_URL,
+        api_key=os.environ.get("NVIDIA_API_KEY"),
+        base_url=os.environ.get("NVIDIA_BASE_URL", NVIDIA_DEFAULT_BASE_URL),
         timeout=timeout,
     )
+
+
+def _nvidia_extra_body(model: str) -> dict:
+    """Build NIM-specific extra_body params for reasoning models.
+
+    Nemotron Ultra supports `reasoning_budget` and
+    `chat_template_kwargs.enable_thinking`. Lighter models (70b) don't
+    need these — they just add overhead.
+    """
+    if "ultra" in model.lower():
+        return {
+            "reasoning_budget": int(os.environ.get("NVIDIA_REASONING_BUDGET", "4096")),
+            "chat_template_kwargs": {
+                "enable_thinking": os.environ.get(
+                    "NVIDIA_ENABLE_THINKING", "true"
+                ).lower()
+                == "true"
+            },
+        }
+    return {}
 
 
 # ─── Operations ──────────────────────────────────────────────────
@@ -75,29 +109,32 @@ def _client():
 def op_chat(
     prompt: str, model: str, max_tokens: int, system: str | None = None
 ) -> dict:
-    """DeepSeek Chat Completions API call (OpenAI-compatible)."""
+    """NVIDIA NIM Chat Completions API call (OpenAI-compatible)."""
     client = _client()
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    # deepseek-reasoner ignores/rejects temperature — only send it for chat models.
-    extra = {} if "reasoner" in model else {"temperature": 0.3}
+    # Reasoning models (ultra) don't accept temperature — only send it for non-reasoning models.
+    create_kwargs: dict = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+    if "ultra" not in model.lower():
+        create_kwargs["temperature"] = 0.3
+    # Add NIM-specific extra_body (reasoning_budget, enable_thinking)
+    create_kwargs["extra_body"] = _nvidia_extra_body(model)
 
     start = time.time()
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=max_tokens,
-        **extra,
-    )
+    response = client.chat.completions.create(**create_kwargs)  # pyright: ignore[reportArgumentType]
     duration_ms = int((time.time() - start) * 1000)
 
     usage = response.usage
     return {
         "ok": True,
-        "provider": "deepseek",
+        "provider": "nvidia",
         "operation": "chat",
         "result": {
             "text": response.choices[0].message.content,
@@ -114,15 +151,15 @@ def op_chat(
 
 
 def op_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) -> dict:
-    """Structured extraction via DeepSeek JSON Output mode.
+    """Structured extraction via NVIDIA NIM JSON Output mode.
 
-    DeepSeek supports response_format={"type": "json_object"} (not full
-    json_schema), and requires the prompt to mention JSON. We inject the
-    requested schema into the prompt as guidance. JSON mode is unsupported on
-    deepseek-reasoner, so extraction is forced onto deepseek-chat.
+    Uses response_format={"type": "json_object"} (OpenAI-compatible).
+    Requires the prompt to mention JSON. JSON mode may not be supported
+    on reasoning models, so extraction is forced onto the 70b instruct
+    model if an ultra model is selected.
     """
     client = _client()
-    chat_model = "deepseek-v4-flash" if "reasoner" in model else model
+    chat_model = "nvidia/nemotron-3-nano-30b-a3b" if "ultra" in model.lower() else model
 
     system = (
         "You are a precise data extractor. Respond with a single valid JSON "
@@ -152,7 +189,7 @@ def op_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) -> d
     usage = response.usage
     return {
         "ok": True,
-        "provider": "deepseek",
+        "provider": "nvidia",
         "operation": "extract",
         "result": {
             "text": content,
@@ -164,7 +201,7 @@ def op_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) -> d
         },
         "warnings": []
         if chat_model == model
-        else [f"extract forced onto {chat_model} (JSON mode unsupported on reasoner)"],
+        else [f"extract forced onto {chat_model} (JSON mode unsupported on ultra)"],
         "request_id": response.id,
         "duration_ms": duration_ms,
     }
@@ -173,7 +210,7 @@ def op_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) -> d
 def op_review(
     prompt: str, model: str, max_tokens: int, files: list | None = None
 ) -> dict:
-    """Code review via DeepSeek API with review-specific system prompt."""
+    """Code review via NVIDIA NIM API with review-specific system prompt."""
     system = (
         "You are a senior code reviewer. Review the provided code for: "
         "1) Security vulnerabilities (SQL injection, XSS, auth bypass, secrets in code) "
@@ -196,7 +233,7 @@ def op_models() -> dict:
     """List available models (from local allowlist, no API call)."""
     return {
         "ok": True,
-        "provider": "deepseek",
+        "provider": "nvidia",
         "operation": "models",
         "result": {
             "text": f"Available models: {', '.join(ALLOWED_MODELS)}",
@@ -213,31 +250,35 @@ def op_models() -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="DeepSeek Bridge for Hermes Agent")
+    parser = argparse.ArgumentParser(description="NVIDIA NIM Bridge for Hermes Agent")
     parser.add_argument(
-        "--operation", required=True, choices=["chat", "extract", "review", "models"]
+        "--operation",
+        required=True,
+        choices=["chat", "extract", "review", "models"],
     )
     parser.add_argument("--prompt", default="")
-    parser.add_argument("--model", default="deepseek-v4-flash")
+    parser.add_argument("--model", default="nvidia/nemotron-3-nano-30b-a3b")
     parser.add_argument("--max-tokens", type=int, default=2000)
     parser.add_argument("--system", default=None)
     parser.add_argument(
         "--schema", default=None, help="JSON schema for extract operation"
     )
     parser.add_argument(
-        "--files", default=None, help="JSON array of {path, content} for review"
+        "--files",
+        default=None,
+        help="JSON array of {path, content} for review",
     )
     args = parser.parse_args()
 
     # Validate API key presence
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key and args.operation != "models":
         print(
             json.dumps(
                 {
                     "ok": False,
-                    "error": "DEEPSEEK_API_KEY not set in environment",
-                    "hint": "Set DEEPSEEK_API_KEY in ~/.hermes/.env or via vault injection",
+                    "error": "NVIDIA_API_KEY not set in environment",
+                    "hint": "Set NVIDIA_API_KEY in ~/.hermes/.env or via vault injection",
                 }
             )
         )
@@ -273,7 +314,7 @@ def main():
             json.dumps(
                 {
                     "ok": False,
-                    "provider": "deepseek",
+                    "provider": "nvidia",
                     "operation": args.operation,
                     "error": redact(str(e)),
                     "error_type": type(e).__name__,

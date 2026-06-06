@@ -22,6 +22,7 @@ import re
 
 SECRET_PATTERNS: list[tuple[str, str]] = [
     # ── Provider API Keys ──
+    (r"nvapi-[A-Za-z0-9_-]{40,}", "<NVIDIA_KEY_REDACTED>"),
     (r"sk-ant-[A-Za-z0-9-_]{20,}", "<ANTHROPIC_KEY_REDACTED>"),
     (r"sk-[A-Za-z0-9-_]{20,}", "<OPENAI_KEY_REDACTED>"),
     (r"AIza[0-9A-Za-z_-]{35}", "<GEMINI_KEY_REDACTED>"),

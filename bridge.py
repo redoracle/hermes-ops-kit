@@ -24,6 +24,7 @@ PROVIDERS = {
     "github": os.path.join(BRIDGE_DIR, "providers", "github_adapter.py"),
     "gemini": os.path.join(BRIDGE_DIR, "providers", "gemini_adapter.py"),
     "deepseek": os.path.join(BRIDGE_DIR, "providers", "deepseek_adapter.py"),
+    "nvidia": os.path.join(BRIDGE_DIR, "providers", "nvidia_adapter.py"),
 }
 
 CAPABILITIES = {
@@ -64,6 +65,19 @@ CAPABILITIES = {
         "operations": ["chat", "extract", "review", "models"],
         "requires_approval_for": [],
         "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+    },
+    "nvidia": {
+        "surfaces": ["api"],
+        "operations": ["chat", "extract", "review", "models"],
+        "requires_approval_for": [],
+        "models": [
+            "nvidia/nemotron-3-ultra-550b-a55b",
+            "nvidia/nemotron-3-super-120b-a12b",
+            "nvidia/nemotron-3-nano-30b-a3b",
+            "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+            "meta/llama-4-maverick-17b-128e-instruct",
+            "mistralai/mistral-nemotron",
+        ],
     },
 }
 

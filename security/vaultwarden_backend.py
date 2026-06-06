@@ -84,6 +84,9 @@ INTERNAL_REF_MAP: dict[str, str] = {
     "hermes/deepseek/anthropic_base_url": f"{HERMES_ITEM_PREFIX}/DeepSeek/ANTHROPIC_BASE_URL",
     "hermes/deepseek/default_model": f"{HERMES_ITEM_PREFIX}/DeepSeek/DEFAULT_MODEL",
     "hermes/deepseek/reasoning_model": f"{HERMES_ITEM_PREFIX}/DeepSeek/REASONING_MODEL",
+    # NVIDIA NIM
+    "hermes/nvidia/api_key": f"{HERMES_ITEM_PREFIX}/NVIDIA/API_KEY",
+    "hermes/nvidia/base_url": f"{HERMES_ITEM_PREFIX}/NVIDIA/BASE_URL",
     # Assistants — Assistant
     "hermes/assistants/assistant-id/api_base": f"{HERMES_ITEM_PREFIX}/Assistants/Assistant/API_BASE",
     "hermes/assistants/assistant-id/api_key": f"{HERMES_ITEM_PREFIX}/Assistants/Assistant/API_KEY",

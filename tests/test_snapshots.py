@@ -64,10 +64,10 @@ def test_usage_metrics_json_is_valid():
 
 
 def test_usage_metrics_json_has_providers():
-    """usage_metrics --json includes all 5 providers."""
+    """usage_metrics --json includes all 6 providers."""
     r = _run("usage_metrics_v2.py", "--json")
     data = json.loads(r.stdout)
-    for provider in ["openai", "anthropic", "github", "gemini", "deepseek"]:
+    for provider in ["openai", "anthropic", "github", "gemini", "deepseek", "nvidia"]:
         assert provider in data, f"Missing provider: {provider}"
 
 
