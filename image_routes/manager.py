@@ -33,10 +33,18 @@ def _config_path() -> str:
 
 
 def _load_config() -> dict:
-    """Load the image_routes.yaml configuration."""
+    """Load the image_routes.yaml configuration.
+
+    Auto-seeds the deployed file from the bundled default on first run.
+    """
     path = _config_path()
     if not os.path.exists(path):
-        return {}
+        # Auto-seed from bundled if deployed doesn't exist yet
+        if path != BUNDLED_CONFIG and os.path.exists(BUNDLED_CONFIG):
+            _seed_config()
+            path = DEPLOYED_CONFIG
+        else:
+            return {}
 
     # Read file content first so we can attempt YAML then JSON parsing.
     try:
@@ -63,6 +71,15 @@ def _load_config() -> dict:
         return json.loads(content) or {}
     except Exception:
         return {}
+
+
+def _seed_config() -> None:
+    """Copy the bundled image_routes.yaml to the deployed location on first run."""
+    os.makedirs(os.path.dirname(DEPLOYED_CONFIG), exist_ok=True)
+    with open(BUNDLED_CONFIG, "r") as src:
+        with open(DEPLOYED_CONFIG, "w") as dst:
+            dst.write(src.read())
+    os.chmod(DEPLOYED_CONFIG, 0o600)
 
 
 def _save_config(config: dict) -> None:
