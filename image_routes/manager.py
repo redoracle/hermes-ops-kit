@@ -37,14 +37,13 @@ def _load_config() -> dict:
 
     Auto-seeds the deployed file from the bundled default on first run.
     """
-    path = _config_path()
-    if not os.path.exists(path):
-        # Auto-seed from bundled if deployed doesn't exist yet
-        if path != BUNDLED_CONFIG and os.path.exists(BUNDLED_CONFIG):
+    if not os.path.exists(DEPLOYED_CONFIG):
+        if os.path.exists(BUNDLED_CONFIG):
             _seed_config()
-            path = DEPLOYED_CONFIG
         else:
             return {}
+
+    path = DEPLOYED_CONFIG
 
     # Read file content first so we can attempt YAML then JSON parsing.
     try:
