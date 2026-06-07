@@ -86,10 +86,18 @@ Add to `~/.hermes/config.yaml`:
 plugins:
   enabled:
     - hermes-ops-kit
+    - image_gen/ops-kit-router # standalone image gen backend
 
 image_gen:
   provider: ops-kit-router
   model: auto
+```
+
+Or, via CLI:
+
+```bash
+hermes plugins enable hermes-ops-kit
+hermes plugins enable image_gen/ops-kit-router
 ```
 
 Restart Hermes Agent.
@@ -135,13 +143,13 @@ hermes-key-rotate --doctor-secrets
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `bw` command not found | `npm install -g @bitwarden/cli` |
-| `BW_SESSION` expired | `bw unlock` → copy new session key |
-| Provider key missing | `hermes-key-rotate rotate --provider <p> --manual-new-key-stdin` |
-| `.env.generated` empty | `hermes-key-rotate --render-env` |
-| Image routes all `NO KEY` | Check `GEMINI_API_KEY` in `.env.generated` |
+| Symptom                   | Fix                                                              |
+| ------------------------- | ---------------------------------------------------------------- |
+| `bw` command not found    | `npm install -g @bitwarden/cli`                                  |
+| `BW_SESSION` expired      | `bw unlock` → copy new session key                               |
+| Provider key missing      | `hermes-key-rotate rotate --provider <p> --manual-new-key-stdin` |
+| `.env.generated` empty    | `hermes-key-rotate --render-env`                                 |
+| Image routes all `NO KEY` | Check `GEMINI_API_KEY` in `.env.generated`                       |
 
 ## Next Steps
 
@@ -151,7 +159,6 @@ hermes-key-rotate --doctor-secrets
 - Read [[Threat Model]] to understand the security model
 - Read [[Operations Runbook]] for incident response procedures
 
-
 ## Related
 
 - [[Architecture]] — full module map and data flows
@@ -160,4 +167,3 @@ hermes-key-rotate --doctor-secrets
 - [[Threat Model]] — security model
 - [[Key Management Lifecycle]] — full secret lifecycle, rotation modes, revocation matrix
 - [[Operations Runbook]] — incident response procedures
-

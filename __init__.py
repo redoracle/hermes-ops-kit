@@ -8,6 +8,19 @@ Install as a Hermes plugin or standalone Python package.
 
 from pathlib import Path
 
+# ── sys.path priming ────────────────────────────────────────────────
+# Hermes loads plugins via importlib without adding the plugin directory
+# to sys.path.  Ops-kit uses absolute intra-package imports (e.g.
+# ``from security.redaction import redact``) throughout — those need
+# the ops-kit directory on sys.path to resolve.  Prime it at module
+# level so it's in effect before ``register()`` imports ``tools`` et al.
+import os as _os
+import sys as _sys
+
+_OPS_KIT_DIR = _os.path.dirname(_os.path.abspath(__file__))
+if _OPS_KIT_DIR not in _sys.path:
+    _sys.path.insert(0, _OPS_KIT_DIR)
+
 
 def register(ctx):
     """Register all tools, CLI commands, hooks, and skills with Hermes.

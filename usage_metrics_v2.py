@@ -674,34 +674,57 @@ def check_nvidia(api_key: str | None = None) -> dict:
     base_url = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
     t0 = time.time()
     try:
-        req = urllib.request.Request(
-            f"{base_url}/models",
-            headers={"Authorization": f"Bearer {key}"},
-        )
-        resp = _urlopen(req)
-        data = json.loads(resp.read().decode())
-
-        # Capture rate-limit headers if present
+        # ── Paginate through all pages ──────────────────────────
+        # NVIDIA NIM uses OpenAI-compatible pagination:
+        #   response: { data: [...], has_more: bool, last_id: str }
+        #   query:    ?after=<last_id> to fetch the next page
+        all_models: list[dict] = []
         rate_limits: dict[str, str] = {}
-        for k, v in resp.headers.items():
-            lk = k.lower()
-            if "ratelimit" in lk or lk == "retry-after":
-                rate_limits[k] = v
+        after: str | None = None
+        pages = 0
 
-        models = [
-            {"id": m.get("id", ""), "owned_by": m.get("owned_by", "nvidia")}
-            for m in data.get("data", [])
-            if m.get("id")
-        ]
+        while True:
+            url = f"{base_url}/models"
+            if after:
+                url += f"?after={after}"
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {key}"}
+            )
+            resp = _urlopen(req)
+            data = json.loads(resp.read().decode())
+            pages += 1
+
+            # Capture rate-limit headers from the first response
+            if not rate_limits:
+                for k, v in resp.headers.items():
+                    lk = k.lower()
+                    if "ratelimit" in lk or lk == "retry-after":
+                        rate_limits[k] = v
+
+            page_models = [
+                {"id": m.get("id", ""), "owned_by": m.get("owned_by", "nvidia")}
+                for m in data.get("data", [])
+                if m.get("id")
+            ]
+            all_models.extend(page_models)
+
+            # Check for more pages
+            if not data.get("has_more"):
+                break
+            after = data.get("last_id")
+            if not after:
+                break  # safety: no cursor, stop
+
         result = {
             "provider": "nvidia",
             "status": "online",
             "api_latency_ms": int((time.time() - t0) * 1000),
-            "models": models,
-            "model_count": len(models),
+            "models": all_models,
+            "model_count": len(all_models),
             "has_cost_api": False,  # NVIDIA has no usage/cost API endpoint
             "has_quota_api": False,  # quota/credits via NVIDIA Build UI only
             "quota_url": "build.nvidia.com/ngc/keys",
+            "pages_fetched": pages,
         }
         if rate_limits:
             result["rate_limits"] = rate_limits

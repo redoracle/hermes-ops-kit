@@ -1,0 +1,5 @@
+name: ops-kit-router
+version: 1.0.0
+description: "Hermes Ops Kit image generation router — dispatches to local ComfyUI, Gemini Image, OpenAI DALL-E/gpt-image, or FAL.ai based on image_routes.yaml."
+kind: backend
+author: Hermes Ops Kit

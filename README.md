@@ -143,6 +143,7 @@ HERMES_OPS_KIT_VERSION=v0.2.0 bash -c "$(curl -fsSL https://raw.githubuserconten
 # Git clone + plugin registration
 git clone https://github.com/redoracle/hermes-ops-kit.git ~/.hermes/plugins/hermes-ops-kit
 hermes plugins enable hermes-ops-kit
+hermes plugins enable image_gen/ops-kit-router    # also enable the image gen backend
 
 # Pip install (library use)
 pip install git+https://github.com/redoracle/hermes-ops-kit.git
@@ -336,8 +337,9 @@ Gemini 2.5 Flash Image (fast), OpenAI gpt-image-2 (quality), FAL.ai (cloud
 fallback). Priority-based with `prefer_local` policy.
 
 Configuration: [`config/image_routes.yaml`](config/image_routes.yaml).
-The [`hermes_patches/`](hermes_patches/README.md) directory ships a
-bridge plugin for Hermes' native `image_generate` tool.
+The [`hermes_patches/image_gen/ops-kit-router/`](hermes_patches/README.md) directory
+ships a standalone Hermes plugin that bridges the native `image_generate` tool to
+ops-kit's multi-backend image router (local ComfyUI → Gemini → OpenAI → FAL).
 
 ### Assistant manager
 

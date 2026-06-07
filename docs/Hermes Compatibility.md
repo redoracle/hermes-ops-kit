@@ -13,19 +13,19 @@ Hermes — it does NOT replace any core functionality.
 
 ## What Ops Kit Provides
 
-| Capability           | How it works                                                                                  |
-| -------------------- | --------------------------------------------------------------------------------------------- |
+| Capability           | How it works                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
 | Secret projection    | Reads from Bitwarden/Vaultwarden, renders `~/.hermes/.env.generated` (3-layer denylist + `--merge`) |
-| Key rotation         | 14-phase state machine with retry, rollback, per-provider locking, orphan cleanup             |
-| Key validation       | Structured `ValidationResult` with `reason_class`, `http_status`, `retry_recommended`         |
-| Emergency rotation   | Immediate revoke + replace on key compromise via `emergency` subcommand                       |
-| Bulk seed            | `seed-from-env` migrates all runtime keys from `.env` to Bitwarden/Vaultwarden                |
-| Admin key seeding    | `seed-admin` subcommand with live API validation before storage                               |
-| Provider health      | Live API probes for all 5 LLM providers                                                       |
-| Route diagnostics    | Reads `~/.hermes/config.yaml` model/aux/fallback, displays in UI                              |
-| MCP auditing         | Scans configured MCP servers, classifies tools by risk                                        |
-| Usage/cost telemetry | OpenAI + Anthropic admin API cost data (needs admin keys)                                     |
-| Config patching      | Writes `~/.hermes/config.yaml` for route profiles, image_gen                                  |
+| Key rotation         | 14-phase state machine with retry, rollback, per-provider locking, orphan cleanup                   |
+| Key validation       | Structured `ValidationResult` with `reason_class`, `http_status`, `retry_recommended`               |
+| Emergency rotation   | Immediate revoke + replace on key compromise via `emergency` subcommand                             |
+| Bulk seed            | `seed-from-env` migrates all runtime keys from `.env` to Bitwarden/Vaultwarden                      |
+| Admin key seeding    | `seed-admin` subcommand with live API validation before storage                                     |
+| Provider health      | Live API probes for all 5 LLM providers                                                             |
+| Route diagnostics    | Reads `~/.hermes/config.yaml` model/aux/fallback, displays in UI                                    |
+| MCP auditing         | Scans configured MCP servers, classifies tools by risk                                              |
+| Usage/cost telemetry | OpenAI + Anthropic admin API cost data (needs admin keys)                                           |
+| Config patching      | Writes `~/.hermes/config.yaml` for route profiles, image_gen                                        |
 
 ## What Ops Kit Does NOT Replace
 
@@ -48,11 +48,19 @@ In `~/.hermes/config.yaml`:
 ```yaml
 plugins:
   enabled:
-    - hermes-ops-kit # Ops kit + image_gen provider (self-registers)
+    - hermes-ops-kit # Ops kit tools, hooks, and commands
+    - image_gen/ops-kit-router # Standalone image_gen backend (local→Gemini→OpenAI→FAL)
 
 image_gen:
   provider: ops-kit-router
   model: auto
+```
+
+Enable via CLI instead of editing config.yaml directly:
+
+```bash
+hermes plugins enable hermes-ops-kit
+hermes plugins enable image_gen/ops-kit-router
 ```
 
 ## Files Written by Ops Kit

@@ -26,7 +26,7 @@ hermes_export.py           # Structured export: usage, security, audit, briefing
 image_routes/              # Image generation routing (NOT LLM text — separate layer)
   manager.py               #   CLI: routes, doctor, test, set-default, set-route
   router.py                #   Dispatch: config→adapter, local-first, fallback on any generate() failure
-  hermes_provider.py       #   OpsKitRouterProvider — registered by __init__.py (no separate plugin)
+  hermes_provider.py       #   OpsKitRouterProvider — registered by standalone image_gen/ops-kit-router plugin
   background_edit.py       #   Subject-preserving background replacement
   adapters/
     base.py                #     Abstract BaseImageAdapter + load_dotenv() + envelope
