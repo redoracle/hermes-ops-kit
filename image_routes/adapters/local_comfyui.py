@@ -53,7 +53,7 @@ class LocalComfyUIAdapter(BaseImageAdapter):
         try:
             url = f"{self.endpoint}/system_stats"
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=2) as resp:
                 data = json.loads(resp.read())
                 return "system" in data
         except Exception:
@@ -64,7 +64,7 @@ class LocalComfyUIAdapter(BaseImageAdapter):
         try:
             url = f"{self.endpoint}/system_stats"
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=2) as resp:
                 return json.loads(resp.read())
         except Exception:
             return {"error": "ComfyUI not reachable"}
@@ -261,7 +261,7 @@ class LocalComfyUIAdapter(BaseImageAdapter):
             try:
                 url = f"{self.endpoint}/history/{prompt_id}"
                 req = urllib.request.Request(url)
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                with urllib.request.urlopen(req, timeout=2) as resp:
                     history = json.loads(resp.read())
                 entry = history.get(prompt_id, {})
                 if entry:

@@ -33,31 +33,13 @@ class GeminiImageAdapter(BaseImageAdapter):
     default_model = "gemini-2.5-flash-image"
 
     def is_available(self) -> bool:
-        """Check GEMINI_API_KEY with a real API probe.
+        """Check GEMINI_API_KEY is set (fast — no API probe).
 
-        A models.list() call is essentially free (does not count against
-        generation quota) and catches expired keys, revoked keys, and
-        quota-exhausted projects — all of which a simple env-var check
-        would falsely report as READY.
+        Key validity is verified at generation time; a bad key surfaces
+        as a generation error rather than a misleading "READY" status.
         """
         load_dotenv()
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return False
-        try:
-            from google import genai  # pyright: ignore[reportAttributeAccessIssue]
-
-            google_key = os.environ.pop("GOOGLE_API_KEY", None)
-            try:
-                client = genai.Client(api_key=api_key)
-                # Lightweight probe — does not consume generation quota
-                next(client.models.list(), None)
-                return True
-            finally:
-                if google_key is not None:
-                    os.environ["GOOGLE_API_KEY"] = google_key
-        except Exception:
-            return False
+        return bool(os.environ.get("GEMINI_API_KEY"))
 
     def generate(
         self,
