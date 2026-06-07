@@ -23,6 +23,8 @@ CAPABILITY_KEYWORDS: dict[str, list[str]] = {
         "edit",
         "save",
         "upload",
+        "activate",
+        "deactivate",
     ],
     "read_files": [
         "read",
@@ -34,6 +36,14 @@ CAPABILITY_KEYWORDS: dict[str, list[str]] = {
         "find",
         "open",
         "cat",
+        "export",
+        "check",
+        "status",
+        "recent",
+        "log",
+        "return",
+        "retrieve",
+        "fetch",
     ],
     "execute_commands": [
         "shell",
@@ -120,7 +130,17 @@ def detect_capabilities(
     ``script`` matching inside ``transcript`` or ``exec`` inside
     ``execution``, while still correctly matching snake_case identifiers
     (``get_transcript`` → ``get``).
+
+    Tool names that begin with a read-only verb prefix (``get_``,
+    ``list_``, ``find_``, ``search_``, ``read_``, ``fetch_``, ``view_``)
+    suppress mutation-related capabilities — these prefixes strongly
+    signal read-only operations, even when the description mentions
+    repo terms contextually (e.g. "get_issue" whose description notes
+    it returns the "git branch name").
     """
+    _READ_PREFIXES = ("get_", "list_", "find_", "search_", "read_", "fetch_", "view_")
+    _MUTATION_CAPS = {"repo_mutation", "write_files", "external_side_effect"}
+
     text = f"{tool_name} {description} {str(input_schema)}".lower()
     caps: dict[str, bool] = {}
     for cap, keywords in CAPABILITY_KEYWORDS.items():
@@ -133,6 +153,16 @@ def detect_capabilities(
                 break
         else:
             caps[cap] = False
+
+    # Suppress mutation capabilities for read-prefixed tools.
+    # Descriptions often mention contextual repo terms (branch, PR, git)
+    # that describe the input domain, not the tool's own side effects.
+    name_lower = tool_name.lower()
+    if any(name_lower.startswith(p) for p in _READ_PREFIXES):
+        for cap in _MUTATION_CAPS:
+            if caps.get(cap):
+                caps[cap] = False
+
     return caps
 
 

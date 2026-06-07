@@ -253,12 +253,39 @@ def main():
     sub.add_parser("audit", help="Audit trail").add_argument(
         "audit_action", nargs="?", default="tail", choices=["tail", "search", "export"]
     )
-    mcp = sub.add_parser("mcp", help="MCP tool auditor")
+    mcp = sub.add_parser(
+        "mcp",
+        help="MCP tool security auditor",
+        description="Discover, audit, and approve MCP server tools with risk classification.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  hermes-ops-kit mcp                       # full audit\n"
+            "  hermes-ops-kit mcp list                  # compact server summary\n"
+            "  hermes-ops-kit mcp tools                 # all tools, all servers\n"
+            "  hermes-ops-kit mcp tools --server n8n    # tools for one server\n"
+            "  hermes-ops-kit mcp risks                 # medium+ risk summary\n"
+            "  hermes-ops-kit mcp approve --server n8n  # whitelist all tools\n"
+            "  hermes-ops-kit mcp approve --all          # whitelist everything\n"
+            "  hermes-ops-kit mcp revoke                 # clear all approvals\n"
+            "  hermes-ops-kit mcp policy                 # show current policy\n"
+            "  hermes-ops-kit mcp export                 # machine-readable JSON"
+        ),
+    )
     mcp.add_argument(
         "mcp_action",
         nargs="?",
         default="audit",
-        choices=["audit", "list", "risks", "export", "approve", "revoke", "policy"],
+        choices=[
+            "audit",
+            "list",
+            "tools",
+            "risks",
+            "export",
+            "approve",
+            "revoke",
+            "policy",
+        ],
     )
     mcp.add_argument("mcp_args", nargs=argparse.REMAINDER, default=[])
     sub.add_parser("budget", help="Cost governor").add_argument(

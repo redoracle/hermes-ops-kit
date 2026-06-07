@@ -647,13 +647,15 @@ def _handle_mcp(args: list[str]) -> int:
         result = run_audit()
         for r in result["risks"]:
             action = (
-                "APPROVED"
+                "APPROVED ✓"
                 if r.get("approved")
-                else "BLOCKED"
+                else "BLOCKED ✗"
                 if r.get("blocked")
-                else "APPROVAL"
+                else "REQUIRES APPROVAL"
             )
             print(f"  ⚠ {r['full_name']} risk={r['risk']} {action}")
+    elif sub == "tools":
+        return _mcp_tools(rest)
     elif sub == "approve":
         return _mcp_approve(
             rest, approve_server_fn=approve_server, approve_tool_fn=approve_tool
@@ -735,6 +737,60 @@ def _mcp_approve(
                 "Usage: hermes-ops-kit mcp approve [--all] [--server ID] [--tool FULL_NAME]"
             )
             return 1
+    return 0
+
+
+def _mcp_tools(args: list[str]) -> int:
+    """Handle ``hermes-ops-kit mcp tools --server <id>``.
+
+    Lists every tool for one or all servers with risk level and approval
+    status, including low-risk tools omitted by ``mcp risks``.
+    """
+    # Resolve --server filter
+    target_server: str | None = None
+    i = 0
+    while i < len(args):
+        if args[i] == "--server" and i + 1 < len(args):
+            target_server = args[i + 1]
+            i += 2
+        else:
+            print(f"Unknown flag: {args[i]}")
+            print("Usage: hermes-ops-kit mcp tools [--server SERVER_ID]")
+            return 1
+
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from mcp.auditor import run_audit  # pyright: ignore[reportMissingImports]
+    except Exception as e:
+        print(f"MCP auditor unavailable: {e}")
+        return 1
+
+    result = run_audit()
+
+    for srv in result["servers"]:
+        sid = srv["server_id"]
+        if target_server and sid != target_server:
+            continue
+        tools = srv.get("tools", [])
+        print(f"\n{sid} — {len(tools)} tools  (server risk: {srv['risk']})\n")
+        if not tools:
+            print("  (no tools discovered)")
+            continue
+
+        # Column widths
+        name_w = max(len(t["tool_name"]) for t in tools) if tools else 20
+        for t in tools:
+            risk = t["risk"]
+            # Status label
+            if t.get("approved"):
+                status = "APPROVED ✓"
+            elif t.get("blocked"):
+                status = "BLOCKED ✗"
+            else:
+                status = "REQUIRES APPROVAL"
+            # Color-coded risk (no ANSI for compatibility with --no-color)
+            print(f"  {t['tool_name']:<{name_w}s}  {risk:<8s}  {status}")
+    print()
     return 0
 
 

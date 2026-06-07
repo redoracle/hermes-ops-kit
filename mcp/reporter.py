@@ -59,7 +59,11 @@ def fmt_audit(result: dict[str, Any], as_json: bool = False) -> str:
 
     lines.append("")
     lines.append("NEXT")
-    lines.append("  hermes-ops-kit mcp list")
-    lines.append("  hermes-ops-kit mcp risks")
+    lines.append(
+        "  hermes-ops-kit mcp tools              # all tools with risk + status"
+    )
+    lines.append("  hermes-ops-kit mcp tools --server n8n  # filter by server")
+    lines.append("  hermes-ops-kit mcp risks              # medium+ risk summary")
+    lines.append("  hermes-ops-kit mcp approve --server <id>")
 
     return "\n".join(lines)

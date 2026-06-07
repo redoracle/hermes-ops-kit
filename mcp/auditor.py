@@ -222,20 +222,49 @@ def _discover_stdio_tools(
         _safe_terminate(proc)
 
 
-def _discover_http_tools(url: str) -> list[dict[str, str]]:
+def _load_oauth_token(server_id: str) -> str | None:
+    """Load an OAuth access token for *server_id* from the MCP token store.
+
+    Returns the ``access_token`` string, or ``None`` when no token is found,
+    the token is expired, or the file is unreadable.
+    """
+    token_path = os.path.expanduser(f"~/.hermes/mcp-tokens/{server_id}.json")
+    if not os.path.exists(token_path):
+        return None
+    try:
+        with open(token_path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    token = data.get("access_token")
+    if not token:
+        return None
+    # Respect expiration with a 60 s grace period
+    expires_at = data.get("expires_at")
+    if isinstance(expires_at, (int, float)) and expires_at > 0:
+        if time.time() > expires_at - 60:
+            return None  # expired (or expires within 60 s)
+    return token
+
+
+def _discover_http_tools(
+    url: str, headers: dict[str, str] | None = None
+) -> list[dict[str, str]]:
     """Fetch the tool list from an HTTP MCP server via JSON-RPC POST.
 
     Returns a list of ``{name, desc}`` dicts.  Never raises — returns an
     empty list on any failure.
+
+    *headers* is an optional dict of extra HTTP headers (e.g. Authorization).
     """
     try:
         # initialize
-        init_resp = _http_jsonrpc(url, _MCP_INIT_REQUEST)
+        init_resp = _http_jsonrpc(url, _MCP_INIT_REQUEST, headers=headers)
         if init_resp is None:
             return []
 
         # tools/list
-        tools_resp = _http_jsonrpc(url, _MCP_TOOLS_LIST_REQUEST)
+        tools_resp = _http_jsonrpc(url, _MCP_TOOLS_LIST_REQUEST, headers=headers)
         if tools_resp is None:
             return []
 
@@ -244,23 +273,56 @@ def _discover_http_tools(url: str) -> list[dict[str, str]]:
         return []
 
 
-def _http_jsonrpc(url: str, request_body: str) -> str | None:
+def _parse_sse_data(raw: str) -> str | None:
+    """Extract the JSON payload from an SSE (Server-Sent Events) stream.
+
+    SSE lines use ``data: <json>`` format.  Returns the first ``data:``
+    line body that parses as valid JSON, or ``None``.
+    """
+    for line in raw.splitlines():
+        if line.startswith("data:"):
+            candidate = line[len("data:") :].strip()
+            if candidate:
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    continue
+    return None
+
+
+def _http_jsonrpc(
+    url: str, request_body: str, headers: dict[str, str] | None = None
+) -> str | None:
     """Send a JSON-RPC request to an HTTP MCP endpoint.
 
-    Returns the raw response body text, or None on failure.
+    Returns the raw JSON response body text (SSE envelopes are unwrapped
+    automatically), or ``None`` on failure.
+
+    *headers* is an optional dict of extra HTTP headers to merge
+    (e.g. ``{"Authorization": "Bearer <token>"}`` for OAuth endpoints).
     """
+    merged = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if headers:
+        merged.update(headers)
     req = urllib.request.Request(
         url,
         data=request_body.encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
-        },
+        headers=merged,
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw = resp.read().decode("utf-8")
+            # Handle SSE (text/event-stream) responses — extract the
+            # JSON payload from ``data: {...}`` lines.
+            if "text/event-stream" in resp.headers.get("Content-Type", ""):
+                sse_json = _parse_sse_data(raw)
+                if sse_json is not None:
+                    return sse_json
             return raw
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return None
@@ -401,44 +463,57 @@ def audit_tool(
 
 
 def run_audit() -> dict[str, Any]:
-    """Run full MCP audit: servers + tools + risks."""
+    """Run full MCP audit: servers + tools + risks.
+
+    Always attempts dynamic MCP protocol discovery first, then falls back
+    to static config declarations only when discovery fails.  No hardcoded
+    tool lists — the real server is the authoritative source.
+    """
     servers = inventory_servers()
     tools = []
-    risks = []
-    warnings = []
+    risks: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     policy = _load_mcp_policy()
+
+    _RISK_ORDER = {"critical": 5, "high": 4, "medium": 3, "low": 2, "unknown": 1}
 
     for srv in servers:
         sid = srv["server_id"]
         cfg = _load_hermes_mcp_config().get(sid, {})
 
-        # ── Resolve tool list (config or dynamic discovery) ──────────
-        known_tools = _parse_tools_config(cfg.get("tools"))
+        # ── Phase 1: dynamic discovery (always attempted first) ────────
+        discovered: list[dict[str, str]] = []
+        transport = srv["transport"]
+        if transport == "stdio":
+            discovered = _discover_stdio_tools(
+                cfg.get("command", ""),
+                cfg.get("args"),
+                cfg.get("env"),
+            )
+        elif transport == "http":
+            http_headers: dict[str, str] | None = None
+            if cfg.get("auth") == "oauth":
+                token = _load_oauth_token(sid)
+                if token:
+                    http_headers = {"Authorization": f"Bearer {token}"}
+            discovered = _discover_http_tools(cfg.get("url", ""), headers=http_headers)
 
-        if not known_tools:
-            # Dynamic discovery via MCP protocol
-            transport = srv["transport"]
-            if transport == "stdio":
-                known_tools = _discover_stdio_tools(
-                    cfg.get("command", ""),
-                    cfg.get("args"),
-                    cfg.get("env"),
-                )
-            elif transport == "http":
-                known_tools = _discover_http_tools(cfg.get("url", ""))
-            # Fallback: hardcoded well-known servers
-            if not known_tools and sid == "obsidian-mcp-vault":
-                known_tools = [
-                    {"name": "read_note", "desc": "Read a note from the vault"},
-                    {"name": "write_note", "desc": "Create or overwrite a note"},
-                    {"name": "edit_note", "desc": "In-place edit of a note"},
-                    {"name": "search_notes", "desc": "Search notes with filters"},
-                    {"name": "delete_note", "desc": "Delete a note from the vault"},
-                    {"name": "batch", "desc": "Execute multiple vault operations"},
-                    {"name": "append_note", "desc": "Append content to a note"},
-                    {"name": "move_note", "desc": "Move or rename a note"},
-                ]
+        # ── Phase 2: static config is only a fallback ──────────────────
+        static_tools = _parse_tools_config(cfg.get("tools"))
 
+        if discovered:
+            # Dynamic discovery succeeded — always use the real tool list.
+            # Static config declarations are ignored for audit purposes
+            # (the audit shows what the server actually exposes).
+            known_tools = discovered
+        elif static_tools:
+            # Dynamic discovery failed — fall back to static declarations.
+            known_tools = static_tools
+        else:
+            known_tools = []
+
+        # ── Phase 3: audit each tool ───────────────────────────────────
+        server_risk_level = 1  # unknown
         for t in known_tools:
             tname = t.get("name", t) if isinstance(t, dict) else t
             if not isinstance(tname, str):
@@ -457,7 +532,12 @@ def run_audit() -> dict[str, Any]:
             tools.append(tool_audit)
             srv["tools"].append(tool_audit)
 
-            if tool_audit["risk"] in ("high", "critical"):
+            # Track max risk for server-level rollup
+            server_risk_level = max(
+                server_risk_level, _RISK_ORDER.get(tool_audit["risk"], 1)
+            )
+
+            if tool_audit["risk"] in ("high", "critical", "medium"):
                 risks.append(tool_audit)
             if tool_audit["injection_risk"] in ("medium", "high"):
                 warnings.append(
@@ -467,6 +547,11 @@ def run_audit() -> dict[str, Any]:
                         "matches": tool_audit["injection_matches"],
                     }
                 )
+
+        # ── Roll up server-level risk ──────────────────────────────────
+        srv["risk"] = {v: k for k, v in _RISK_ORDER.items()}.get(
+            server_risk_level, "unknown"
+        )
 
     return {
         "ok": True,
