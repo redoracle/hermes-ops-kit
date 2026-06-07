@@ -22,6 +22,77 @@ if _OPS_KIT_DIR not in _sys.path:
     _sys.path.insert(0, _OPS_KIT_DIR)
 
 
+def _ensure_image_gen_config() -> None:
+    """Auto-configure image_gen.provider/model in ~/.hermes/config.yaml.
+
+    Called once per plugin load, only writes when the keys are missing
+    (idempotent on re-run).  Uses a safe line-edit so existing YAML
+    formatting is preserved.
+    """
+    config_path = _os.path.expanduser("~/.hermes/config.yaml")
+    if not _os.path.isfile(config_path):
+        return
+
+    try:
+        with open(config_path, "r") as f:
+            lines = f.readlines()
+    except Exception:
+        return
+
+    image_gen_idx: int | None = None
+    block_end_idx: int | None = None
+    has_provider = False
+    has_model = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped == "image_gen:":
+            image_gen_idx = i
+            continue
+        if image_gen_idx is not None:
+            indent = len(line) - len(line.lstrip())
+            if indent == 0 and stripped:
+                # Next top-level key — block ended at line i
+                block_end_idx = i
+                break
+            if "provider:" in stripped:
+                has_provider = True
+            if "model:" in stripped:
+                has_model = True
+
+    # Both present — nothing to do
+    if image_gen_idx is not None and has_provider and has_model:
+        return
+
+    # Build the two lines to inject
+    inject_lines = []
+    if not has_provider:
+        inject_lines.append("  provider: ops-kit-router\n")
+    if not has_model:
+        inject_lines.append("  model: auto\n")
+
+    if image_gen_idx is not None:
+        # Insert inside the existing image_gen: block
+        insert_at = block_end_idx if block_end_idx is not None else len(lines)
+        for j, il in enumerate(inject_lines):
+            lines.insert(insert_at + j, il)
+    else:
+        # No image_gen: block — append at end
+        if lines and not lines[-1].endswith("\n"):
+            lines.append("\n")
+        lines.append("image_gen:\n")
+        lines.extend(inject_lines)
+
+    try:
+        tmp = config_path + ".tmp"
+        with open(tmp, "w") as f:
+            f.writelines(lines)
+        _os.chmod(tmp, 0o600)
+        _os.replace(tmp, config_path)
+    except Exception:
+        pass  # config write failed — user can set manually
+
+
 def register(ctx):
     """Register all tools, CLI commands, hooks, and skills with Hermes.
 
@@ -85,6 +156,7 @@ def register(ctx):
         from .image_routes.hermes_provider import OpsKitRouterProvider
 
         ctx.register_image_gen_provider(OpsKitRouterProvider())
+        _ensure_image_gen_config()
     except Exception:
         pass  # not inside Hermes runtime, or provider API changed
 
