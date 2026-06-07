@@ -113,11 +113,26 @@ RISK_RULES: dict[str, list[str]] = {
 def detect_capabilities(
     tool_name: str, description: str = "", input_schema: dict[str, Any] | None = None
 ) -> dict[str, bool]:
-    """Infer tool capabilities from name, description, and schema."""
+    """Infer tool capabilities from name, description, and schema.
+
+    Uses custom boundary matching that treats ``_``, whitespace, and
+    string edges as word separators.  This avoids false positives like
+    ``script`` matching inside ``transcript`` or ``exec`` inside
+    ``execution``, while still correctly matching snake_case identifiers
+    (``get_transcript`` → ``get``).
+    """
     text = f"{tool_name} {description} {str(input_schema)}".lower()
     caps: dict[str, bool] = {}
     for cap, keywords in CAPABILITY_KEYWORDS.items():
-        caps[cap] = any(kw in text for kw in keywords)
+        for kw in keywords:
+            # Boundary: start-of-string, underscore, or whitespace before;
+            # end-of-string, underscore, or whitespace after.
+            pat = r"(?:^|[\s_])" + re.escape(kw) + r"(?:$|[\s_])"
+            if re.search(pat, text):
+                caps[cap] = True
+                break
+        else:
+            caps[cap] = False
     return caps
 
 
