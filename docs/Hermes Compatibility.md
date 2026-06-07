@@ -48,19 +48,11 @@ In `~/.hermes/config.yaml`:
 ```yaml
 plugins:
   enabled:
-    - hermes-ops-kit # Ops kit tools, hooks, and commands
-    - image_gen/ops-kit-router # Standalone image_gen backend (local→Gemini→OpenAI→FAL)
+    - hermes-ops-kit            # Ops kit + image_gen provider (self-registers)
 
 image_gen:
   provider: ops-kit-router
   model: auto
-```
-
-Enable via CLI instead of editing config.yaml directly:
-
-```bash
-hermes plugins enable hermes-ops-kit
-hermes plugins enable image_gen/ops-kit-router
 ```
 
 ## Files Written by Ops Kit

@@ -86,18 +86,10 @@ Add to `~/.hermes/config.yaml`:
 plugins:
   enabled:
     - hermes-ops-kit
-    - image_gen/ops-kit-router # standalone image gen backend
 
 image_gen:
   provider: ops-kit-router
   model: auto
-```
-
-Or, via CLI:
-
-```bash
-hermes plugins enable hermes-ops-kit
-hermes plugins enable image_gen/ops-kit-router
 ```
 
 Restart Hermes Agent.

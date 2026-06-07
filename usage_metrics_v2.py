@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -126,6 +127,7 @@ ASSISTANT_NAMES: dict = {}
 # ─── HTTP helper ─────────────────────────────────────────────────
 
 HTTP_TIMEOUT = 15  # seconds; the org cost endpoint can take ~3-4s under load
+MAX_PAGES = 20  # hard pagination cap for model-list endpoints (NVIDIA NIM etc.)
 
 
 def _urlopen(req, timeout: int = HTTP_TIMEOUT, retries: int = 1):
@@ -682,16 +684,44 @@ def check_nvidia(api_key: str | None = None) -> dict:
         rate_limits: dict[str, str] = {}
         after: str | None = None
         pages = 0
+        partial = False
+        partial_error: str | None = None
+        backoff_delay = 0.3  # base inter-page delay (seconds)
+        backoff_multiplier = 1  # exponent for 429 backoff; resets on success
 
-        while True:
+        while pages < MAX_PAGES:
             url = f"{base_url}/models"
             if after:
-                url += f"?after={after}"
-            req = urllib.request.Request(
-                url, headers={"Authorization": f"Bearer {key}"}
-            )
-            resp = _urlopen(req)
-            data = json.loads(resp.read().decode())
+                url += "?" + urllib.parse.urlencode({"after": after})
+
+            try:
+                req = urllib.request.Request(
+                    url, headers={"Authorization": f"Bearer {key}"}
+                )
+                resp = _urlopen(req)
+                data = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    # Parse Retry-After: seconds-int or HTTP-date
+                    retry_after = e.headers.get("Retry-After", "")
+                    try:
+                        wait = int(retry_after)
+                    except (ValueError, TypeError):
+                        wait = min(backoff_delay * (2**backoff_multiplier), 60)
+                    backoff_multiplier += 1
+                    time.sleep(wait)
+                    continue  # retry the same page
+                partial = True
+                partial_error = f"page {pages + 1} fetch failed: HTTP {e.code}"
+                break
+            except Exception as e:
+                partial = True
+                partial_error = f"page {pages + 1} fetch failed: {e}"
+                break
+
+            # Success — reset backoff
+            backoff_multiplier = 1
+
             pages += 1
 
             # Capture rate-limit headers from the first response
@@ -715,6 +745,13 @@ def check_nvidia(api_key: str | None = None) -> dict:
             if not after:
                 break  # safety: no cursor, stop
 
+            # Polite inter-page delay (skip after last page)
+            time.sleep(backoff_delay)
+        else:
+            # while loop completed without break → max pages reached
+            partial = True
+            partial_error = f"reached max pages limit ({MAX_PAGES})"
+
         result = {
             "provider": "nvidia",
             "status": "online",
@@ -726,6 +763,9 @@ def check_nvidia(api_key: str | None = None) -> dict:
             "quota_url": "build.nvidia.com/ngc/keys",
             "pages_fetched": pages,
         }
+        if partial:
+            result["partial"] = True
+            result["partial_error"] = partial_error
         if rate_limits:
             result["rate_limits"] = rate_limits
         return result
