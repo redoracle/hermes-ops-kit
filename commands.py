@@ -630,14 +630,14 @@ def _handle_mcp(args: list[str]) -> int:
     rest = args[1:] if len(args) > 1 else []
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from mcp.auditor import (  # pyright: ignore[reportMissingImports]
+        from mcp_auditor.auditor import (  # pyright: ignore[reportMissingImports]
             run_audit,
             approve_server,
             approve_tool,
             revoke_all,
             show_policy,
         )
-        from mcp.reporter import fmt_audit  # pyright: ignore[reportMissingImports]
+        from mcp_auditor.reporter import fmt_audit  # pyright: ignore[reportMissingImports]
     except Exception as e:
         print(f"MCP auditor unavailable: {e}")
         return 1
@@ -715,7 +715,7 @@ def _mcp_approve(
         # Approve all known MCP servers atomically
         server_ids = []
         try:
-            from mcp.auditor import inventory_servers  # pyright: ignore[reportMissingImports]
+            from mcp_auditor.auditor import inventory_servers  # pyright: ignore[reportMissingImports]
 
             for s in inventory_servers():
                 server_ids.append(s["server_id"])
@@ -768,7 +768,7 @@ def _mcp_tools(args: list[str]) -> int:
 
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from mcp.auditor import run_audit  # pyright: ignore[reportMissingImports]
+        from mcp_auditor.auditor import run_audit  # pyright: ignore[reportMissingImports]
     except Exception as e:
         print(f"MCP auditor unavailable: {e}")
         return 1
@@ -1074,9 +1074,13 @@ def _handle_install(_args: list[str]) -> int:
         try:
             from security.plugin_scanner.bootstrap import main as bootstrap_main  # pyright: ignore[reportMissingImports]
         except ImportError:
-            cli_path = os.path.join(script_dir, "security", "plugin_scanner", "bootstrap.py")
+            cli_path = os.path.join(
+                script_dir, "security", "plugin_scanner", "bootstrap.py"
+            )
             if os.path.exists(cli_path):
-                return _run_script(script_dir, "security/plugin_scanner/bootstrap.py", rest)
+                return _run_script(
+                    script_dir, "security/plugin_scanner/bootstrap.py", rest
+                )
             print("Bootstrap module not found.")
             return 1
         return bootstrap_main(rest)

@@ -19,7 +19,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mcp.classifier import detect_capabilities, classify_risk, scan_metadata  # pyright: ignore[reportMissingImports]
+from mcp_auditor.classifier import detect_capabilities, classify_risk, scan_metadata  # pyright: ignore[reportMissingImports]
 
 
 def _load_hermes_mcp_config() -> dict[str, Any]:

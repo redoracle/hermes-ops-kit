@@ -100,7 +100,9 @@ def _validate_policy(policy: Any) -> dict[str, Any]:
         raise RuntimeError("Plugin policy 'rule_overrides' must be an object")
     for plugin_name, plugin_overrides in overrides.items():
         if not isinstance(plugin_name, str) or not isinstance(plugin_overrides, dict):
-            raise RuntimeError("Plugin policy rule overrides must map plugin names to objects")
+            raise RuntimeError(
+                "Plugin policy rule overrides must map plugin names to objects"
+            )
         if not all(
             isinstance(rule, str)
             and isinstance(action, str)

@@ -118,7 +118,9 @@ def _restore_hermes_config(backup_path: str) -> None:
     _parse_hermes_config(backup_path)
     config_dir = os.path.dirname(HERMES_CONFIG_PATH)
     os.makedirs(config_dir, mode=0o700, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".config-restore-", suffix=".yaml", dir=config_dir)
+    fd, tmp = tempfile.mkstemp(
+        prefix=".config-restore-", suffix=".yaml", dir=config_dir
+    )
     try:
         os.fchmod(fd, 0o600)
         with open(backup_path, "rb") as source, os.fdopen(fd, "wb") as target:
@@ -277,7 +279,7 @@ def get_mcp_enforcement_decisions(
     unsafe tool disables the whole server. Critical tools always block boot.
     """
     if audit is None:
-        from mcp.auditor import run_audit  # pyright: ignore[reportMissingImports]
+        from mcp_auditor.auditor import run_audit  # pyright: ignore[reportMissingImports]
 
         audit = run_audit(dynamic_discovery=False)
     if not audit.get("ok"):
@@ -537,7 +539,7 @@ def main(argv: list[str] | None = None) -> int:
 
         start = time.time()
         results = scan_all(profile="startup", force=args.force)
-        from mcp.auditor import run_audit  # pyright: ignore[reportMissingImports]
+        from mcp_auditor.auditor import run_audit  # pyright: ignore[reportMissingImports]
 
         mcp_audit = run_audit(dynamic_discovery=False)
         scan_ms = int((time.time() - start) * 1000)

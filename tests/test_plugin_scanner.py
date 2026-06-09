@@ -1377,7 +1377,7 @@ class TestPreflightEnforcement:
         assert config["mcp_servers"]["writer"]["enabled"] is False
 
     def test_corrupt_mcp_policy_fails_closed(self, tmp_path, monkeypatch):
-        import mcp.auditor as auditor
+        import mcp_auditor.auditor as auditor
 
         policy_path = tmp_path / "mcp_policy.json"
         policy_path.write_text("{broken")
@@ -1386,7 +1386,7 @@ class TestPreflightEnforcement:
             auditor._load_mcp_policy()
 
     def test_malformed_mcp_approval_list_fails_closed(self, tmp_path, monkeypatch):
-        import mcp.auditor as auditor
+        import mcp_auditor.auditor as auditor
 
         policy_path = tmp_path / "mcp_policy.json"
         policy_path.write_text('{"approved_servers": "danger"}')
@@ -1404,7 +1404,7 @@ class TestPreflightEnforcement:
             plugin_policy._load_policy()
 
     def test_mcp_critical_approval_does_not_unblock(self, monkeypatch):
-        import mcp.auditor as auditor
+        import mcp_auditor.auditor as auditor
 
         monkeypatch.setattr(
             auditor,
@@ -1436,7 +1436,7 @@ class TestPreflightEnforcement:
         assert tool["blocked"] is True
 
     def test_preflight_mcp_audit_never_uses_dynamic_discovery(self, monkeypatch):
-        import mcp.auditor as auditor
+        import mcp_auditor.auditor as auditor
 
         monkeypatch.setattr(
             auditor,
@@ -1466,7 +1466,7 @@ class TestPreflightEnforcement:
         assert result["servers"][0]["tools"] == []
 
     def test_mcp_config_malformed_fails_closed(self, tmp_path, monkeypatch):
-        import mcp.auditor as auditor
+        import mcp_auditor.auditor as auditor
 
         config_path = tmp_path / "config.yaml"
         config_path.write_text("mcp_servers: invalid")
@@ -1479,7 +1479,7 @@ class TestPreflightEnforcement:
             auditor._load_hermes_mcp_config()
 
     def test_mcp_http_discovery_rejects_non_http_url(self, monkeypatch):
-        import mcp.auditor as auditor
+        import mcp_auditor.auditor as auditor
 
         monkeypatch.setattr(
             auditor.urllib.request,
@@ -1722,7 +1722,9 @@ class TestBootstrapFlow:
         monkeypatch.setattr(bootstrap, "HERMES_HOME", home)
         monkeypatch.setattr(bootstrap, "OPS_KIT_DIR", ops_dir)
         monkeypatch.setattr(bootstrap, "REPORT_DIR", reports_dir)
-        monkeypatch.setattr(bootstrap, "SCANNER_CONFIG_PATH", ops_dir / "plugin_scanner.yaml")
+        monkeypatch.setattr(
+            bootstrap, "SCANNER_CONFIG_PATH", ops_dir / "plugin_scanner.yaml"
+        )
         monkeypatch.setattr(
             bootstrap,
             "DEFAULT_SCANNER_CONFIG",
@@ -1863,7 +1865,11 @@ class TestBootstrapFlow:
             calls.update(kwargs)
             return {
                 "preflight": {"ok": True},
-                "restart": {"rollback_performed": False, "succeeded": None, "attempted": False},
+                "restart": {
+                    "rollback_performed": False,
+                    "succeeded": None,
+                    "attempted": False,
+                },
             }
 
         monkeypatch.setattr(bootstrap, "bootstrap", fake_bootstrap)

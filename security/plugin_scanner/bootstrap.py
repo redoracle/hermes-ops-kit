@@ -34,7 +34,9 @@ OPS_KIT_DIR = HERMES_HOME / "ops-kit"
 REPORT_DIR = OPS_KIT_DIR / "reports"
 SCANNER_CONFIG_PATH = OPS_KIT_DIR / "plugin_scanner.yaml"
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_SCANNER_CONFIG = ROOT_DIR / "security" / "plugin_scanner" / "plugin_scanner.yaml"
+DEFAULT_SCANNER_CONFIG = (
+    ROOT_DIR / "security" / "plugin_scanner" / "plugin_scanner.yaml"
+)
 PLUGIN_MANIFEST = ROOT_DIR / "plugin.yaml"
 DISCLAIMER = (
     "Security scanning reduces risk but does not guarantee that a plugin is safe. "
@@ -350,15 +352,16 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"  scanner config created: {'yes' if report['setup']['created_scanner_config'] else 'no'}"
         )
-        print(f"  plugins scanned: {report['install_scan']['summary']['plugins_scanned']}")
-        print(f"  preflight enabled: {'yes' if not report['dry_run'] else 'no'}")
         print(
-            "  wrappers: "
-            + ", ".join(report["wrappers"])
+            f"  plugins scanned: {report['install_scan']['summary']['plugins_scanned']}"
         )
+        print(f"  preflight enabled: {'yes' if not report['dry_run'] else 'no'}")
+        print("  wrappers: " + ", ".join(report["wrappers"]))
         print(f"  blocked: {len(report['preflight']['decisions']['blocked'])}")
         print(f"  deferred: {len(report['preflight']['decisions']['deferred'])}")
-        print(f"  disabled MCP servers: {len(report['preflight']['mcp_decisions']['disable'])}")
+        print(
+            f"  disabled MCP servers: {len(report['preflight']['mcp_decisions']['disable'])}"
+        )
         print("  docs:")
         for doc in report["docs"]:
             print(f"    - {doc}")
