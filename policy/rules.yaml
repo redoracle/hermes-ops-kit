@@ -63,6 +63,17 @@ rules:
       - credential_dump
       - unauthorized_network_probe
 
+  plugin_security:
+    description: "Rules for plugin security scanner integration"
+    deny_if:
+      - risk_level_critical
+    require_approval_for:
+      - risk_level_high
+      - risk_level_medium
+    allow:
+      - risk_level_low
+      - risk_level_none
+
 secrets:
   patterns:
     - name: anthropic_key

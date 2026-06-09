@@ -28,8 +28,9 @@ def _load_rules() -> dict[str, Any]:
                 import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
 
                 with open(p) as f:
-                    _RULES = _yaml.safe_load(f) or {}
-                    return _RULES
+                    loaded = _yaml.safe_load(f) or {}
+                _RULES = loaded if isinstance(loaded, dict) else {}
+                return _RULES
             except Exception:
                 pass
     _RULES = {}
@@ -176,3 +177,55 @@ def check_secret_backend(url: str, tls_ok: bool) -> PolicyDecision:
         return deny("TLS verification failed for secret backend")
 
     return allow("Secret backend transport is secure")
+
+
+def check_plugin_security(risk_level: str, is_approved: bool) -> PolicyDecision:
+    """Check if a plugin should be allowed based on its security scan result.
+
+    Args:
+        risk_level: The scanned risk level (none, low, medium, high, critical).
+        is_approved: Whether the plugin/finding is explicitly approved.
+
+    Returns:
+        PolicyDecision indicating allow/deny/require_approval.
+    """
+    rules = _load_rules().get("rules", {}).get("plugin_security", {})
+
+    # Critical risk → always deny unless explicitly in blocked-override list
+    if risk_level == "critical":
+        deny_conditions = rules.get("deny_if", [])
+        if "risk_level_critical" in deny_conditions:
+            return deny("Plugin has critical risk findings — blocked by policy")
+        # Even without explicit deny rule, critical should block
+        return deny("Plugin has critical risk findings")
+
+    # High risk → deny unless approved
+    if risk_level == "high":
+        require_approval_for = rules.get("require_approval_for", [])
+        if "risk_level_high" in require_approval_for and not is_approved:
+            return require_approval("Plugin has high risk findings — approval required")
+        if is_approved:
+            return allow("High-risk plugin explicitly approved")
+
+    # Medium risk → require approval
+    if risk_level == "medium":
+        require_approval_for = rules.get("require_approval_for", [])
+        if "risk_level_medium" in require_approval_for and not is_approved:
+            return require_approval(
+                "Plugin has medium risk findings — approval required"
+            )
+        if is_approved:
+            return allow("Medium-risk plugin explicitly approved")
+
+    # Low/none → allow
+    allowed = rules.get("allow", [])
+    if "risk_level_low" in allowed and risk_level == "low":
+        return allow("Low risk — allowed by policy")
+    if "risk_level_none" in allowed and risk_level == "none":
+        return allow("No risk — allowed by policy")
+
+    # Default: low/none are fine, everything else needs approval
+    if risk_level in ("none", "low"):
+        return allow(f"Risk level '{risk_level}' — allowed by default")
+
+    return require_approval(f"Risk level '{risk_level}' — requires approval")

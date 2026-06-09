@@ -2,7 +2,7 @@
 title: Architecture
 tags: [hermes, ops-kit, architecture]
 created: 2026-06-04
-modified: 2026-06-07
+modified: 2026-06-09
 ---
 
 # Architecture
@@ -44,6 +44,21 @@ security/                  # Secret backend, redaction, fingerprints, locking, c
   fingerprints.py          #   SHA-256 fingerprint + last4
   file_permissions.py      #   chmod 600/700 enforcement
   secret_scanner.py        #   Pre-write gate (blocks secrets in Obsidian/audit)
+  plugin_scanner/          #   Plugin security scanner (defense-in-depth, v0.2.0)
+    scanner.py             #     Orchestrator + objective scoring engine (score cap)
+    enforce.py             #     Pre-boot policy enforcement + config synchronization
+    bootstrap.py           #     First-install setup wizard
+    cli.py                 #     CLI handler (scan, approve, revoke, override, policy, cache)
+    findings.py            #     Finding, RiskLevel, ScanResult, ScanProfile data models
+    cache.py               #     SQLite SHA-256 cache (keyed by git_commit + file_tree_sha)
+    policy.py              #     Approval policy v2: plugin_policy.json + rule_overrides + JSONL audit
+    plugin_scanner.yaml    #     Default configuration (profiles, timeouts, categories)
+    categories/
+      secrets.py           #     Secrets: regex + entropy + dummy detection + doc/test/skill downgrades
+      policy.py            #     Policy: AST + regex + skill-mode + pip/curl .py guards
+    rules/
+      hermes-critical.yaml #     Custom Semgrep rules (ERROR severity)
+      hermes-warning.yaml  #     Custom Semgrep rules (WARNING severity)
 
 env/                       # Environment rendering pipeline (3-layer denylist gate)
   env_loader.py            #   Loads ~/.hermes/.env, validates bootstrap vars
@@ -69,7 +84,7 @@ assistants/                # Remote agent delegation (NOT providers)
   task_store.py            #   SQLite task lifecycle tracking
   audit.py                 #   JSONL delegation audit
 
-mcp/                       # MCP tool auditor + risk classifier
+mcp/                       # MCP tool auditor + risk classifier; preflight gates servers
   auditor.py               #   Server discovery, tool audit, approve/revoke policy
   classifier.py            #   Capability detection + risk rules
   reporter.py              #   Formatted audit output
@@ -77,7 +92,7 @@ mcp/                       # MCP tool auditor + risk classifier
 policy/                    # Centralized policy engine
   engine.py                #   PolicyDecision, scan_for_secrets, check_* functions
   decisions.py             #   Convenience wrappers with audit logging
-  rules.yaml               #   Declarative rules for delegation, rotation, Obsidian
+  rules.yaml               #   Declarative rules for delegation, rotation, Obsidian, plugin_security
 
 ui/                        # Shared terminal UI foundation
   console.py               #   Unified Console: NO_COLOR, TTY, mode dispatch
@@ -102,11 +117,18 @@ cost_governor/             # Budget enforcement
   budget.py                #   Budget evaluation engine
 
 docs/                      # Documentation
-  obsidian_sink.py         #   Sanitized Obsidian writes (secret scanner gate)
+  architecture.md          #   This file
   hermes-compatibility.md  #   Hermes integration guide
+  hermes-hook-integration.md#  Plugin scanner Hermes hook wiring
+  plugin-security-scanner.md#  Plugin scanner user docs + CLI reference
+  plugin-security-scanner-design.md  #  Plugin scanner design decisions + ADRs
+  external-security-tools.md#  Platform-specific gitleaks/Semgrep/Bandit install guide
   threat-model.md          #   Security threat model
   route-profile-design.md  #   Route architecture
-  architecture.md          #   This file
+
+scripts/                   # Operational scripts
+  test-scanner.sh          #   10-test scanner integration suite
+  preflight-scan.sh        #   Pre-release secret audit
 
 assistant_tasks/           # Scheduled assistant task profiles
   profiles.py              #   Profile definitions
@@ -213,6 +235,33 @@ Hermes tool call: ai_provider_invoke
   └─ redact() output → return to Hermes
 ```
 
+## Data Flow: Preflight Enforcement
+
+```text
+hermes-ops-kit preflight
+  │
+  ├─ 1. Plugin scan (startup profile, 12s timeout)
+  │     └─ security/plugin_scanner/scanner.py:scan_all()
+  │
+  ├─ 2. Policy enforcement decisions
+  │     ├─ Plugin decisions: enforce.py:get_enforcement_decisions()
+  │     │     ├─ CRITICAL → blocked (excluded from config)
+  │     │     ├─ HIGH/MEDIUM + approved → allowed (included)
+  │     │     └─ HIGH/MEDIUM + unapproved → deferred (excluded)
+  │     └─ MCP decisions: enforce.py:get_mcp_enforcement_decisions()
+  │           ├─ Incomplete discovery → server disabled
+  │           ├─ Unapproved HIGH tool → server disabled
+  │           └─ CRITICAL tool → server blocked (blocks boot)
+  │
+  ├─ 3. Apply enforcement (dry_run=False → writes)
+  │     └─ enforce.py:apply_enforcement()
+  │           ├─ Sync plugin config to ~/.hermes/config.yaml
+  │           └─ Sync MCP server enable/disable flags
+  │
+  └─ 4. Return structured decision (ok, decisions, enforcement, mcp_decisions)
+        └─ policy/decisions.py:preflight_decision() wraps the full pipeline
+```
+
 ## Plugin Lifecycle
 
 1. Hermes starts → loads plugin manifest (`plugin.yaml`)
@@ -220,6 +269,7 @@ Hermes tool call: ai_provider_invoke
 3. Ops Kit registers 7 tools, 2 hooks, 1 CLI command, 1 skill
 4. Startup hook: checks `~/.hermes/.env` permissions (must be chmod 600)
 5. Post-tool-call hook: redacts output for every tool call
+6. Preflight hook (optional): scans all plugins → blocks unsafe ones from loading
 
 ## Subprocess Adapter Pattern
 
@@ -245,3 +295,5 @@ envelope: `{ok: bool, provider: str, model: str, result: ...}`
 - [[Quickstart]] — getting started guide
 - `tests/test_security.py` — 33 security tests
 - `tests/test_snapshots.py` — 14 snapshot tests
+- `tests/test_plugin_scanner.py` — 109 plugin scanner tests
+- `scripts/test-scanner.sh` — 10-test scanner integration suite

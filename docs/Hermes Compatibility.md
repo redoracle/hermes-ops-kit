@@ -71,7 +71,7 @@ image_gen:
 | `~/.hermes/key-rotation-audit.jsonl`      | Key rotation log                             | Yes (but you lose rotation history)                 |
 | `~/.hermes/assistants/audit.jsonl`        | Assistant delegation log                     | Yes (but you lose delegation history)               |
 | `~/.hermes/assistants/tasks.sqlite`       | Task lifecycle DB                            | Yes (active tasks lost)                             |
-| `~/.hermes/mcp_policy.json`               | MCP tool approval whitelist                  | Yes (will be regenerated)                           |
+| `~/.hermes/mcp_policy.json`               | MCP approval whitelist + preflight input     | Yes (will be regenerated)                           |
 
 ## Security Model
 

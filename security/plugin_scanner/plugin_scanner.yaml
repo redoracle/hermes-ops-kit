@@ -1,0 +1,200 @@
+# Hermes Plugin Security Scanner — Default Configuration
+#
+# Installed to ~/.hermes/ops-kit/plugin_scanner.yaml on first use.
+# All paths are relative to the user's home directory.
+#
+# Safe defaults: no external API calls, no sandbox, medium+ disabled
+# unless approved, critical blocked.
+
+version: 1
+
+# ── Scan Profiles ─────────────────────────────────────────────────
+scan_profiles:
+  startup:
+    description: "Run at Hermes startup — fast, essential"
+    categories:
+      - secrets
+      - policy
+    timeout_seconds: 12
+    parallel: true
+    block_on:
+      - critical
+      - high
+    cache_ttl_hours: 168
+
+  install:
+    description: "Run on first plugin install — deeper scan"
+    categories:
+      - secrets
+      - policy
+    timeout_seconds: 60
+    parallel: true
+    block_on:
+      - critical
+      - high
+    cache_ttl_hours: 0
+
+  update:
+    description: "Run on plugin update — force rescan"
+    categories:
+      - secrets
+      - policy
+    timeout_seconds: 60
+    parallel: false
+    block_on:
+      - critical
+      - high
+    cache_ttl_hours: 0
+
+  manual:
+    description: "Full manual scan on demand"
+    categories:
+      - secrets
+      - policy
+    timeout_seconds: 120
+    parallel: false
+    block_on:
+      - critical
+    cache_ttl_hours: 0
+
+  ci:
+    description: "CI/CD pipeline — offline-only, fast, JSON output"
+    categories:
+      - secrets
+      - policy
+    timeout_seconds: 60
+    parallel: true
+    block_on:
+      - critical
+    cache_ttl_hours: 0
+
+# ── Category Configuration ────────────────────────────────────────
+categories:
+  secrets:
+    enabled: true
+    tools:
+      regex_patterns:
+        enabled: true
+        risk_weight: 5
+      gitleaks:
+        enabled: true
+        risk_weight: 8
+    threshold:
+      score: 15
+      single_finding: critical
+
+  policy:
+    enabled: true
+    tools:
+      ast_import_scanner:
+        enabled: true
+        risk_weight: 3
+      regex_patterns:
+        enabled: true
+        risk_weight: 5
+      semgrep:
+        enabled: true
+        risk_weight: 10
+      bandit:
+        enabled: false
+        risk_weight: 5
+    threshold:
+      score: 12
+
+  # Future categories (Phase 2+):
+  code:
+    enabled: false
+    tools:
+      entropy_analyzer:
+        enabled: false
+        max_entropy: 6.0
+        risk_weight: 5
+      ast_density:
+        enabled: false
+        max_density: 0.8
+        risk_weight: 3
+    threshold:
+      score: 10
+
+  dependencies:
+    enabled: false
+    tools:
+      semgrep_supply_chain:
+        enabled: false
+        risk_weight: 10
+      npm_audit:
+        enabled: false
+        risk_weight: 5
+      pip_audit:
+        enabled: false
+        risk_weight: 5
+    threshold:
+      score: 12
+      severity_filter:
+        - critical
+        - high
+
+  behavior:
+    enabled: false
+    tools:
+      docker_sandbox:
+        enabled: false
+        timeout_per_plugin: 30
+        risk_weight: 15
+    threshold:
+      score: 15
+
+  reputation:
+    enabled: false
+    tools:
+      ossf_scorecard:
+        enabled: false
+        min_score: 5.0
+        risk_weight: 5
+      virustotal:
+        enabled: false
+        risk_weight: 10
+      github_advisory:
+        enabled: false
+        risk_weight: 5
+    threshold:
+      score: 8
+
+# ── Approval Mode ─────────────────────────────────────────────────
+approval:
+  mode: auto
+
+  auto:
+    risk_none: allow
+    risk_low: allow
+    risk_medium: disable
+    risk_high: disable
+    risk_critical: block
+
+  interactive:
+    prompt_on:
+      - medium
+      - high
+    auto_block:
+      - critical
+
+  strict:
+    allow_max_risk: low
+    deny_on_unknown: true
+
+# ── Tool Availability ──────────────────────────────────────────────
+tools:
+  semgrep: auto
+  gitleaks: auto
+  bandit: auto
+
+# ── Cache Settings ─────────────────────────────────────────────────
+cache:
+  ttl_hours: 168
+  db_path: "~/.hermes/ops-kit/plugin_scanner_cache.db"
+
+# ── Block Thresholds ───────────────────────────────────────────────
+block_thresholds:
+  max_critical_findings: 1
+  max_high_findings: 5
+  max_medium_findings: 20

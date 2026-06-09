@@ -1,0 +1,126 @@
+# Hermes Plugin Security Scanner — Warning Severity Rules
+#
+# These rules detect patterns that indicate HIGH or MEDIUM risk:
+# dynamic imports, network callbacks, prompt injection,
+# file system writes, and suspicious module usage.
+#
+# Used by: security/plugin_scanner/categories/policy.py
+# Requires: semgrep (optional — scanner degrades gracefully without it)
+
+rules:
+  # ── Dynamic Module Loading (Plugin Side-Loading) ─────────────
+  - id: hermes-plugin-side-loading
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              importlib.import_module($DYNAMIC)
+          - pattern: |
+              __import__($DYNAMIC)
+          - pattern: |
+              exec(compile(..., $DYNAMIC, ...))
+          - pattern: |
+              importlib.util.spec_from_file_location(...)
+          - pattern: |
+              importlib.util.module_from_spec(...)
+    message: >
+      Dynamic module loading detected. This could be used for plugin
+      side-loading — loading arbitrary code at runtime from unexpected locations.
+    severity: WARNING
+    metadata:
+      category: defense-evasion
+      threat: dynamic-code-execution
+      risk: high
+
+  # ── Network Callback / C2 Patterns ───────────────────────────
+  - id: hermes-network-callback
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              requests.post("http://$HOST:$PORT", ...)
+          - pattern: |
+              socket.create_connection(($HOST, $PORT))
+          - pattern: |
+              $HTTP.request("POST", "http://...", ...)
+          - pattern: |
+              urllib.request.urlopen("http://...")
+          - pattern: |
+              $CLIENT.post("http://...", ...)
+    message: >
+      Network connection to potentially untrusted host detected.
+      Review whether this plugin needs network access and where it connects.
+    severity: WARNING
+    metadata:
+      category: command-and-control
+      threat: network-callback
+      risk: high
+
+  # ── Prompt Injection in Markdown ─────────────────────────────
+  # NOTE: Prompt injection detection for markdown/plain-text files is handled
+  # by the Python regex detector (PROMPT_INJECTION_PATTERNS in policy.py).
+  # Semgrep code-pattern mode cannot reliably match natural-language prose;
+  # a generic/regex mode rule could be added here if needed, but for now
+  # the Python detector is the authoritative source.
+  # - id: hermes-skill-prompt-injection  (deferred — see policy.py)
+
+  # ── Suspicious File System Writes ────────────────────────────
+  - id: hermes-suspicious-file-write
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              shutil.copy(..., os.path.expanduser("~/.hermes/..."))
+          - pattern: |
+              open(os.path.expanduser("~/.ssh/..."), "w")
+          - pattern: |
+              open(os.path.expanduser("~/.bashrc"), "a")
+          - pattern: |
+              open("/etc/...", "w")
+          # /tmp writes: only flag world-writable or world-executable files.
+          # 0o700 (owner-only rwx) is intentionally excluded — it grants no
+          # access to other users and is the safest executable permission.
+          - patterns:
+              - pattern: |
+                  open("/tmp/...", "w")
+              - pattern-either:
+                  - pattern: |
+                      os.chmod($F, 0o777)
+                  - pattern: |
+                      os.chmod($F, 0o755)
+                  - pattern: |
+                      os.chmod($F, 0o002)
+    message: >
+      Suspicious file system write operation detected.
+      Plugin is attempting to write to sensitive locations on the file system.
+      NOTE: plain /tmp writes are no longer flagged alone; only /tmp writes
+      combined with chmod to executable/world-writable permissions trigger.
+    severity: WARNING
+    metadata:
+      category: persistence
+      threat: suspicious-file-write
+      risk: high
+
+  # ── Cron / Scheduled Task Persistence ────────────────────────
+  - id: hermes-cron-persistence
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              subprocess.run(["crontab", ...])
+          - pattern: |
+              subprocess.run(["schtasks", ...])
+          - pattern: |
+              subprocess.run(["launchctl", ...])
+          - pattern: |
+              open("/etc/crontab", ...)
+          - pattern: |
+              open("/etc/cron.d/...", ...)
+    message: >
+      Attempt to modify system scheduled tasks (cron, launchd, schtasks).
+      This could be used for persistence — running malicious code on a schedule.
+    severity: WARNING
+    metadata:
+      category: persistence
+      threat: scheduled-task
+      risk: medium

@@ -69,10 +69,7 @@ def assert_clean(content: str, sink: str = "unknown") -> None:
 
     This is the single gate called before any Obsidian or audit write.
     """
-    try:
-        from secret_backend import UnsafeSecretWriteError  # pyright: ignore[reportMissingImports]
-    except ImportError:
-        from security.secret_backend import UnsafeSecretWriteError  # pyright: ignore[reportMissingImports]
+    from security.secret_backend import UnsafeSecretWriteError
 
     clean, violations = scan_for_secrets(content)
     if not clean:

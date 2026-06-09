@@ -309,6 +309,24 @@ def main():
     rt.add_argument("--fallback", action="store_true", help="Fallback chain cascade")
     rt.add_argument("--json", action="store_true", help="JSON output")
 
+    install = sub.add_parser("install", help="First-install setup and repair")
+    install.add_argument(
+        "install_args",
+        nargs=argparse.REMAINDER,
+        default=[],
+        help="setup, doctor, or repair arguments",
+    )
+
+    # Plugin security preflight
+    pf = sub.add_parser("preflight", help="Scan + enforce plugin security before boot")
+    pf.add_argument(
+        "--dry-run", action="store_true", help="Preview without modifying config"
+    )
+    pf.add_argument("--json", action="store_true", help="Machine-readable output")
+    pf.add_argument(
+        "--force", action="store_true", help="Force fresh scan (skip cache)"
+    )
+
     args = parser.parse_args()
 
     if args.command == "health":
@@ -332,7 +350,9 @@ def main():
         "budget",
         "maintenance",
         "image",
+        "install",
         "route-test",
+        "preflight",
     ):
         # Delegate to commands.py plugin handler
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -358,11 +378,20 @@ def main():
             cmd_args.extend(getattr(args, "mcp_args", []))
         if args.command == "image":
             cmd_args.extend(getattr(args, "image_args", []))
+        if args.command == "install":
+            cmd_args.extend(getattr(args, "install_args", []))
         if args.command == "route-test":
             if getattr(args, "fallback", False):
                 cmd_args.append("--fallback")
             if getattr(args, "json", False):
                 cmd_args.append("--json")
+        if args.command == "preflight":
+            if getattr(args, "dry_run", False):
+                cmd_args.append("--dry-run")
+            if getattr(args, "json", False):
+                cmd_args.append("--json")
+            if getattr(args, "force", False):
+                cmd_args.append("--force")
         sys.exit(handle_ops_kit_command(cmd_args))
 
 

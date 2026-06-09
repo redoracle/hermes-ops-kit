@@ -10,8 +10,10 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -21,7 +23,7 @@ from mcp.classifier import detect_capabilities, classify_risk, scan_metadata  # 
 
 
 def _load_hermes_mcp_config() -> dict[str, Any]:
-    """Extract mcp_servers from Hermes config."""
+    """Extract mcp_servers from Hermes config, failing closed if malformed."""
     config_path = os.path.expanduser("~/.hermes/config.yaml")
     if not os.path.exists(config_path):
         return {}
@@ -30,12 +32,32 @@ def _load_hermes_mcp_config() -> dict[str, Any]:
 
         with open(config_path) as f:
             cfg = _yaml.safe_load(f) or {}
-        return cfg.get("mcp_servers", {})
-    except Exception:
-        return {}
+    except Exception as exc:
+        raise RuntimeError(f"Cannot load Hermes MCP config: {exc}") from exc
+    if not isinstance(cfg, dict):
+        raise RuntimeError("Hermes config root must be a mapping")
+    servers = cfg.get("mcp_servers", {})
+    if not isinstance(servers, dict):
+        raise RuntimeError("Hermes config 'mcp_servers' must be a mapping")
+    return servers
 
 
 _MCP_POLICY_PATH = os.path.expanduser("~/.hermes/mcp_policy.json")
+
+
+def _validate_mcp_policy(policy: Any) -> dict[str, Any]:
+    """Validate MCP approval policy shape before using it."""
+    if not isinstance(policy, dict):
+        raise RuntimeError("MCP policy root must be an object")
+    validated = dict(policy)
+    for key in ("approved_tools", "approved_servers"):
+        value = validated.get(key, [])
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise RuntimeError(f"MCP policy '{key}' must be a list of strings")
+        validated[key] = value
+    return validated
 
 
 def _load_mcp_policy() -> dict[str, Any]:
@@ -48,9 +70,10 @@ def _load_mcp_policy() -> dict[str, Any]:
     if os.path.exists(_MCP_POLICY_PATH):
         try:
             with open(_MCP_POLICY_PATH) as f:
-                return json.load(f)
-        except Exception:
-            pass
+                policy = json.load(f)
+            return _validate_mcp_policy(policy)
+        except (json.JSONDecodeError, OSError) as exc:
+            raise RuntimeError(f"Cannot load MCP policy: {exc}") from exc
     # Fallback: inline mcp_policy in config.yaml
     config_path = os.path.expanduser("~/.hermes/config.yaml")
     if os.path.exists(config_path):
@@ -59,43 +82,31 @@ def _load_mcp_policy() -> dict[str, Any]:
 
             with open(config_path) as f:
                 cfg = _yaml.safe_load(f) or {}
-            return cfg.get("mcp_policy", {})
-        except Exception:
-            pass
+            policy = cfg.get("mcp_policy", {})
+            return _validate_mcp_policy(policy)
+        except Exception as exc:
+            raise RuntimeError(f"Cannot load inline MCP policy: {exc}") from exc
     return {}
 
 
 def _save_mcp_policy(policy: dict[str, Any]) -> None:
-    """Persist MCP policy to ~/.hermes/mcp_policy.json (no YAML dependency).
-
-    Also attempts to sync into config.yaml when PyYAML is available."""
-    # Atomic JSON write
-    tmp = _MCP_POLICY_PATH + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(policy, f, indent=2, sort_keys=True)
-    os.replace(tmp, _MCP_POLICY_PATH)
-
-    # Best-effort sync to config.yaml when PyYAML is available
-    config_path = os.path.expanduser("~/.hermes/config.yaml")
-    if os.path.exists(config_path):
+    """Durably persist the authoritative MCP policy with mode 0600."""
+    policy_dir = os.path.dirname(_MCP_POLICY_PATH)
+    os.makedirs(policy_dir, mode=0o700, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".mcp-policy-", suffix=".json", dir=policy_dir)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(policy, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, _MCP_POLICY_PATH)
+        os.chmod(_MCP_POLICY_PATH, 0o600)
+    finally:
         try:
-            import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-            with open(config_path) as f:
-                cfg = _yaml.safe_load(f) or {}
-            cfg["mcp_policy"] = policy
-            tmp_yaml = config_path + ".tmp"
-            with open(tmp_yaml, "w") as f:
-                _yaml.dump(
-                    cfg,
-                    f,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    sort_keys=False,
-                )
-            os.replace(tmp_yaml, config_path)
-        except Exception:
-            pass  # JSON file is authoritative; YAML sync is best-effort
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def _is_approved(full_name: str, server_id: str, policy: dict[str, Any]) -> bool:
@@ -228,7 +239,13 @@ def _load_oauth_token(server_id: str) -> str | None:
     Returns the ``access_token`` string, or ``None`` when no token is found,
     the token is expired, or the file is unreadable.
     """
-    token_path = os.path.expanduser(f"~/.hermes/mcp-tokens/{server_id}.json")
+    # Defense in depth: server_id comes from ~/.hermes/config.yaml (trusted),
+    # but constrain it to a single path component so a malformed name cannot
+    # traverse outside the token store (e.g. "../../.ssh/...").
+    token_dir = os.path.expanduser("~/.hermes/mcp-tokens")
+    token_path = os.path.realpath(os.path.join(token_dir, f"{server_id}.json"))
+    if os.path.dirname(token_path) != os.path.realpath(token_dir):
+        return None
     if not os.path.exists(token_path):
         return None
     try:
@@ -302,6 +319,10 @@ def _http_jsonrpc(
     *headers* is an optional dict of extra HTTP headers to merge
     (e.g. ``{"Authorization": "Bearer <token>"}`` for OAuth endpoints).
     """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+
     merged = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
@@ -444,7 +465,10 @@ def audit_tool(
     if inj_matches:
         reasons.append(f"injection_risk:{inj_risk}")
 
-    approval = risk in ("high", "critical") or inj_risk == "high"
+    approval = risk in ("medium", "high", "critical") or inj_risk in (
+        "medium",
+        "high",
+    )
     blocked = risk == "critical"
 
     return {
@@ -462,12 +486,12 @@ def audit_tool(
     }
 
 
-def run_audit() -> dict[str, Any]:
+def run_audit(*, dynamic_discovery: bool = True) -> dict[str, Any]:
     """Run full MCP audit: servers + tools + risks.
 
-    Always attempts dynamic MCP protocol discovery first, then falls back
-    to static config declarations only when discovery fails.  No hardcoded
-    tool lists — the real server is the authoritative source.
+    Interactive audits attempt dynamic MCP protocol discovery first. Preflight
+    callers must pass ``dynamic_discovery=False`` so auditing cannot execute or
+    contact an unaudited server before deciding whether it may load.
     """
     servers = inventory_servers()
     tools = []
@@ -484,13 +508,13 @@ def run_audit() -> dict[str, Any]:
         # ── Phase 1: dynamic discovery (always attempted first) ────────
         discovered: list[dict[str, str]] = []
         transport = srv["transport"]
-        if transport == "stdio":
+        if dynamic_discovery and transport == "stdio":
             discovered = _discover_stdio_tools(
                 cfg.get("command", ""),
                 cfg.get("args"),
                 cfg.get("env"),
             )
-        elif transport == "http":
+        elif dynamic_discovery and transport == "http":
             http_headers: dict[str, str] | None = None
             if cfg.get("auth") == "oauth":
                 token = _load_oauth_token(sid)
@@ -523,11 +547,12 @@ def run_audit() -> dict[str, Any]:
             )
             tool_audit = audit_tool(sid, tname, tdesc)
 
-            # Apply mcp_policy: approved tools bypass blocking/approval
+            # Approval may permit MEDIUM/HIGH tools, but CRITICAL remains blocked.
             if _is_approved(tool_audit["full_name"], sid, policy):
-                tool_audit["blocked"] = False
-                tool_audit["approval_required"] = False
                 tool_audit["approved"] = True
+                if tool_audit["risk"] != "critical":
+                    tool_audit["blocked"] = False
+                    tool_audit["approval_required"] = False
 
             tools.append(tool_audit)
             srv["tools"].append(tool_audit)

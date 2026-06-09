@@ -2,7 +2,7 @@
 title: Threat Model
 tags: [hermes, ops-kit, security, threat-model]
 created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-06-09
 ---
 
 # Threat Model
@@ -82,6 +82,66 @@ infrastructure configuration. This document catalogs threats and mitigations.
 - Read-only by default for remote assistants
 - Capabilities are allowlisted per assistant in `assistants.yaml`
 
+### Trust Boundary 4: Plugin Installation & Execution
+
+**Threats:**
+
+- Malicious plugin with hardcoded secrets (API keys, tokens, session keys)
+- Plugin executing arbitrary shell commands (`os.system`, `subprocess`)
+- Dynamic code injection via `eval()`, `exec()`, or `__import__()`
+- Prompt injection in plugin SKILL.md / AGENTS.md / CLAUDE.md
+- Plugin exfiltrating environment variables (BW*SESSION, VAULTWARDEN, HERMES*\*)
+- Supply chain attack via malicious plugin update
+
+**Mitigations:**
+
+- **Plugin Security Scanner** (`security/plugin_scanner/`): scans all plugins before loading
+  - Secrets detection: regex patterns for 10+ key formats + optional gitleaks (150+ detectors)
+  - Policy detection: AST analysis + regex for dangerous patterns + optional semgrep (2,500+ rules)
+  - Disable-by-default: medium+ risk plugins are disabled until explicitly approved
+  - Critical findings block execution entirely (requires manual config override)
+- **SHA-256 cache** (SQLite): rescan on git commit, file tree change, or scanner version change
+- **Approval policy** (`plugin_policy.json` v2): atomic writes, JSONL audit trail, plus
+  per-rule per-plugin overrides (`allow`, `downgrade:warning`, `downgrade:info`) for
+  fine-grained whitelisting without blanket plugin approval
+- **Policy engine integration** (`check_plugin_security()`): centralized risk evaluation with
+  declarative rules in `policy/rules.yaml`
+- **Scan profiles**: startup (12s fast scan on Hermes boot), install/update (60s deep scan),
+  manual (120s adversarial scan), ci (60s CI/CD pipeline scan)
+- **Anti-false-positive measures** (v0.2.0):
+  - Shannon entropy analysis: keys with <3.2 bits/char entropy are downgraded (real keys are random)
+  - Sequential pattern detection: `abc123`, `def456`, `xyz789` sequences flagged as dummy/test
+  - Doc mode: findings in `.md`/`SKILL.md`/`CHANGELOG.md` downgraded one severity level (examples are expected)
+  - Test mode: findings in `tests/` with dummy patterns downgraded to INFO
+  - Skill vs Code auto-detection: text-heavy plugins (>60% `.md`) get softer severity (prompt injection in a red-teaming skill is its _topic_, not an attack)
+  - Score cap: no CRITICAL individual finding → max HIGH; no HIGH → max MEDIUM
+- **Optional external tools**: gitleaks (150+ secret types), Semgrep (2,500+ SAST rules),
+  Bandit (Python security rules) — auto-detected at runtime, graceful degradation if absent
+- Defense-in-depth: scanner runs as a separate module, not inline with plugin loading
+
+### Trust Boundary 5: MCP Token Storage
+
+**Threat:** Path traversal attack where a malformed MCP server ID
+(e.g. `../../.ssh/id_rsa`) could read or overwrite arbitrary files
+outside `~/.hermes/mcp-tokens/`.
+
+**Mitigation:** `mcp/auditor.py:_load_oauth_token()` constrains the
+server ID to a single path component via `os.path.realpath()` and
+verifies the resolved path stays within the canonical token directory.
+If the resolved path escapes, the function returns `None` — silently
+refusing the read.
+
+### Trust Boundary 6: MCP Tool Loading
+
+**Threat:** MCP audit findings and approvals are advisory only unless Hermes'
+`mcp_servers.<id>.enabled` configuration is updated before boot.
+
+**Mitigation:** `hermes-ops-kit preflight` runs the MCP auditor before Hermes
+starts. Servers with incomplete discovery or unapproved HIGH tools are disabled.
+Any CRITICAL tool disables its server and blocks boot, even if broadly approved.
+Preflight uses static declarations only, avoiding execution or network contact
+with an unaudited MCP server during the gate itself.
+
 ## Key Rotation Threat Analysis
 
 ### Threat: Old key revoked before new key proven working
@@ -149,8 +209,7 @@ User Output ← redact() ← tool handler (tools.py)
                           ├── hermes_key_rotate.py output
                           └── assistant results
 
-Disk Write ← assert_clean() ← obsidian_sink.py
-                              audit/*.py
+Disk Write ← assert_clean() ← audit/*.py
                               env/atomic_write.py
 ```
 
@@ -174,9 +233,12 @@ or partial content. Power loss during write leaves only the temp file.
 - [[Architecture]] — module architecture
 - [[Hermes Compatibility]] — Hermes integration guide
 - [[Route Profile Design]] — route architecture
+- [[Plugin Security Scanner]] — plugin scanner documentation
+- [[Hermes Hook Integration]] — scanner hook wiring for Hermes
 - `security/redaction.py` — 16-pattern secret redaction
 - `security/lockfile.py` — per-provider fcntl.flock advisory locks
 - `env/atomic_write.py` — temp→chmod 600→fsync→rename atomic writes
+- `security/plugin_scanner/` — plugin security scanner source
 - [[Architecture Decisions]] — key architectural decisions (ADRs)
 - [[Key Management Lifecycle]] — full secret lifecycle, rotation modes, revocation matrix
 - [[Operations Runbook]] — incident response procedures

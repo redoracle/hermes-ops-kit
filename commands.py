@@ -52,6 +52,10 @@ def handle_ops_kit_command(args: list[str]) -> int:
         return _handle_install(rest)
     elif subcmd == "route-test":
         return _handle_route_test(rest)
+    elif subcmd == "plugin":
+        return _handle_plugin(rest)
+    elif subcmd == "preflight":
+        return _handle_preflight(rest)
     else:
         print(f"Unknown subcommand: {subcmd}")
         return _usage()
@@ -62,6 +66,7 @@ def _usage() -> int:
     print()
     print("  hermes-ops-kit status                   Health overview")
     print("  hermes-ops-kit usage [--compact|--json]  Usage metrics")
+    print("  hermes-ops-kit preflight [--dry-run]     Scan + enforce plugin security")
     print("  hermes-ops-kit rotate --provider X --dry-run")
     print("  hermes-ops-kit doctor                    Full diagnostic")
     print("  hermes-ops-kit assistant list            Manage assistants")
@@ -73,7 +78,10 @@ def _usage() -> int:
     print('  hermes-ops-kit image test "prompt"        Test image generation')
     print("  hermes-ops-kit image doctor               Validate image backends")
     print("  hermes-ops-kit route-test [--fallback]  Verify route selection")
+    print("  hermes-ops-kit install setup             First-install security bootstrap")
     print("  hermes-ops-kit install doctor            Install checks")
+    print("  hermes-ops-kit plugin scan               Plugin security scanner")
+    print("  hermes-ops-kit plugin policy              Plugin approval policy")
     return 1
 
 
@@ -1053,7 +1061,53 @@ def _handle_image(args: list[str]) -> int:
 
 
 def _handle_install(_args: list[str]) -> int:
-    """Handle install doctor / checks."""
+    """Handle install setup / doctor / repair flow."""
+    if not _args:
+        _args = ["doctor"]
+
+    subcmd = _args[0]
+    rest = _args[1:]
+
+    if subcmd == "setup":
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, script_dir)
+        try:
+            from security.plugin_scanner.bootstrap import main as bootstrap_main  # pyright: ignore[reportMissingImports]
+        except ImportError:
+            cli_path = os.path.join(script_dir, "security", "plugin_scanner", "bootstrap.py")
+            if os.path.exists(cli_path):
+                return _run_script(script_dir, "security/plugin_scanner/bootstrap.py", rest)
+            print("Bootstrap module not found.")
+            return 1
+        return bootstrap_main(rest)
+
+    if subcmd == "repair":
+        backup_path = os.path.expanduser("~/.hermes/config.yaml.bak")
+        config_path = os.path.expanduser("~/.hermes/config.yaml")
+        if os.path.exists(backup_path):
+            try:
+                from security.plugin_scanner.enforce import _restore_hermes_config  # pyright: ignore[reportMissingImports]
+            except ImportError:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                rc = _run_script(
+                    script_dir,
+                    "security/plugin_scanner/enforce.py",
+                    ["--restore-config", backup_path],
+                )
+                if rc != 0:
+                    print(f"Repair failed; backup remains at {backup_path}")
+                    return rc
+            else:
+                try:
+                    _restore_hermes_config(backup_path)
+                except Exception as exc:
+                    print(f"Repair failed: {exc}")
+                    return 1
+            print(f"Restored {config_path} from {backup_path}")
+            return 0
+        print(f"No backup found at {backup_path}")
+        return 1
+
     checks = []
 
     # Python version
@@ -1092,3 +1146,44 @@ def _handle_install(_args: list[str]) -> int:
         print(f"  {icon} {name}: {detail}")
 
     return 0 if all_ok else 1
+
+
+def _handle_plugin(args: list[str]) -> int:
+    """Handle plugin security scanner subcommands.
+
+    Delegates to security/plugin_scanner/cli.py:handle_plugin().
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        from security.plugin_scanner.cli import handle_plugin  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        # Fallback: try running as subprocess script
+        cli_path = os.path.join(script_dir, "security", "plugin_scanner", "cli.py")
+        if os.path.exists(cli_path):
+            return _run_script(os.path.dirname(cli_path), "cli.py", args)
+        print("Plugin scanner module not found.")
+        return 1
+    return handle_plugin(args)
+
+
+def _handle_preflight(args: list[str]) -> int:
+    """Handle preflight plugin security enforcement.
+
+    Scans all plugins, compares results against the approval policy,
+    and synchronizes ~/.hermes/config.yaml so that blocked/disabled
+    plugins are excluded from Hermes' plugin loading.
+
+    Delegates to security/plugin_scanner/enforce.py:main().
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, script_dir)
+    try:
+        from security.plugin_scanner.enforce import main  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        cli_path = os.path.join(script_dir, "security", "plugin_scanner", "enforce.py")
+        if os.path.exists(cli_path):
+            return _run_script(script_dir, "security/plugin_scanner/enforce.py", args)
+        print("Enforcement module not found.")
+        return 1
+    return main(args)
