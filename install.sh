@@ -52,22 +52,75 @@ ok "Directories created"
 if [ -d "$PLUGIN_DIR/.git" ]; then
   log "Updating existing plugin at $PLUGIN_DIR"
   git -C "$PLUGIN_DIR" fetch --tags --quiet
-  git -C "$PLUGIN_DIR" checkout "$VERSION"
-  git -C "$PLUGIN_DIR" pull --ff-only 2>/dev/null || true
+  git -C "$PLUGIN_DIR" checkout --quiet "$VERSION"
+  if git -C "$PLUGIN_DIR" symbolic-ref -q HEAD >/dev/null; then
+    git -C "$PLUGIN_DIR" pull --ff-only --quiet
+  fi
   ok "Plugin updated to $VERSION"
 else
   log "Installing plugin into $PLUGIN_DIR"
-  rm -rf "$PLUGIN_DIR"
+  if [ -e "$PLUGIN_DIR" ]; then
+    fail "$PLUGIN_DIR already exists and is not a Git checkout. Back it up or remove it manually, then rerun the installer."
+  fi
   git clone --depth 1 --branch "$VERSION" "$REPO_URL" "$PLUGIN_DIR"
   ok "Plugin cloned ($VERSION)"
 fi
 
+# ── Pre-install security gate ───────────────────────────────────────
+# Run the static scanner before pip installation or Hermes enablement.
+INSTALL_ALLOWED=false
+log "Running pre-install static security gate"
+if PYTHONPATH="$PLUGIN_DIR" python3 - "$PLUGIN_DIR" "$PLUGIN_NAME" <<'PY'
+import sys
+from security.plugin_scanner.enforce import get_enforcement_decisions
+from security.plugin_scanner.scanner import scan_plugin
+
+plugin_path, plugin_name = sys.argv[1:3]
+result = scan_plugin(
+    plugin_name,
+    plugin_path,
+    profile="install",
+    force=True,
+    use_cache=False,
+)
+decisions = get_enforcement_decisions([result])
+print(
+    f"[ops-kit] Pre-install scan: risk={result.risk_level.value}, "
+    f"findings={len(result.findings)}, errors={len(result.errors)}"
+)
+if decisions["blocked"]:
+    print(f"[error] Blocked by security policy: {decisions['details'][plugin_name]}", file=sys.stderr)
+    raise SystemExit(3)
+if decisions["disable"]:
+    print(f"[warn] Installation deferred: {decisions['details'][plugin_name]}", file=sys.stderr)
+    raise SystemExit(2)
+raise SystemExit(0)
+PY
+then
+  INSTALL_ALLOWED=true
+  ok "Pre-install security gate passed"
+else
+  scan_rc=$?
+  if [ "$scan_rc" -eq 2 ]; then
+    warn "MEDIUM/HIGH risk requires explicit approval. Package install and Hermes enablement skipped."
+    warn "Review the report, then run: hermes-ops-kit plugin approve $PLUGIN_NAME"
+  else
+    fail "Pre-install security gate failed or found CRITICAL risk (exit $scan_rc)"
+  fi
+fi
+
 # ── Python package ──────────────────────────────────────────────────
-log "Installing Python package"
-python3 -m pip install --user -e "$PLUGIN_DIR" 2>/dev/null || \
-  python3 -m pip install --user "$PLUGIN_DIR" 2>/dev/null || \
-  warn "pip install failed — installing wrapper scripts instead"
-ok "Python package installed"
+if $INSTALL_ALLOWED; then
+  log "Installing Python package"
+  if python3 -m pip install --user -e "$PLUGIN_DIR" 2>/dev/null || \
+    python3 -m pip install --user "$PLUGIN_DIR" 2>/dev/null; then
+    ok "Python package installed"
+  else
+    warn "pip install failed — installing wrapper scripts instead"
+  fi
+else
+  warn "Python package installation skipped until explicit approval"
+fi
 
 # ── CLI wrappers (always available, even without pip) ──────────────
 log "Installing CLI commands"
@@ -93,13 +146,34 @@ WRAPPER
   chmod +x "$BIN_DIR/$cli_name"
 done
 
-# Ensure ~/.local/bin is in PATH
-if ! echo "$PATH" | grep -q "$BIN_DIR"; then
-  if [ -f "$HOME/.bashrc" ]; then
-    grep -q "$BIN_DIR" "$HOME/.bashrc" || echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
-  fi
+ensure_path_entry() {
+  rc_file="$1"
+  [ -f "$rc_file" ] || touch "$rc_file"
+  grep -q "$BIN_DIR" "$rc_file" || echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$rc_file"
+}
+
+# Ensure ~/.local/bin is in PATH for common shells
+case ":$PATH:" in
+*":$BIN_DIR:"*)
+  ;;
+*)
+  case "${SHELL:-}" in
+    */zsh)
+      ensure_path_entry "$HOME/.zshrc"
+      ensure_path_entry "$HOME/.profile"
+      ;;
+    */fish)
+      warn "fish shell detected — add $BIN_DIR to PATH manually in config.fish"
+      ;;
+    *)
+      ensure_path_entry "$HOME/.bashrc"
+      ensure_path_entry "$HOME/.profile"
+      ;;
+  esac
   export PATH="$BIN_DIR:$PATH"
-fi
+  warn "Added $BIN_DIR to PATH for this session; restart your shell to make it permanent"
+  ;;
+esac
 ok "CLI commands installed ($BIN_DIR)"
 
 # ── Config templates ────────────────────────────────────────────────
@@ -119,13 +193,20 @@ if [ ! -f "$HERMES_HOME/.env" ]; then
   touch "$HERMES_HOME/.env"
 fi
 chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
-ok "~/.hermes/.env permissions set"
+ok "$HERMES_HOME/.env permissions set"
+
+# ── Security bootstrap ──────────────────────────────────────────────
+log "Running first-install security bootstrap"
+python3 "$PLUGIN_DIR/security/plugin_scanner/bootstrap.py" --headless --force
+ok "Security bootstrap completed"
 
 # ── Plugin enable ───────────────────────────────────────────────────
-if $HERMES_OK; then
+if $HERMES_OK && $INSTALL_ALLOWED; then
   hermes plugins enable "$PLUGIN_NAME" 2>/dev/null || \
     warn "Could not enable plugin automatically. Run: hermes plugins enable $PLUGIN_NAME"
   ok "Plugin enabled"
+elif $HERMES_OK; then
+  warn "Plugin remains disabled until explicit approval and a successful preflight"
 fi
 
 # ── Doctor ──────────────────────────────────────────────────────────
@@ -148,7 +229,17 @@ log "       VAULTWARDEN_USER=..."
 log "       VAULTWARDEN_PASSWORD=..."
 log "  2. Run: hermes-ops-kit doctor"
 log "  3. Run: hermes-usage --compact"
-log "  4. Run: hermes-ops-kit assistants ping <assistant-id>"
+log "  4. (Optional) Install external security tools for enhanced scanning:"
+log "       → See docs/external-security-tools.md for platform-specific instructions"
+log "       brew install gitleaks          # 150+ secret detectors"
+log "       pip install semgrep             # 2,500+ SAST rules"
+log "       pip install bandit              # Python security rules"
+log "  5. Run: hermes-ops-kit plugin scan --profile manual"
+log "  6. (Optional) Enable pre-boot security enforcement:"
+log "       hermes-ops-kit preflight --dry-run   # preview without changes"
+log "       hermes-ops-kit preflight              # enforce + sync config"
+log "       Preflight uses fast built-in detectors; deep external tools run in manual scans."
+log "  7. Run: hermes-ops-kit assistants ping <assistant-id>"
 if $HERMES_OK; then
-  log "  5. Restart Hermes"
+  log "  8. Restart Hermes"
 fi

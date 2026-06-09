@@ -64,3 +64,53 @@ def _log_denial(rule: str, reason: str, context: str = "") -> None:
         )
     except Exception:
         pass
+
+
+def preflight_decision(
+    *,
+    dry_run: bool = False,
+    force_scan: bool = False,
+) -> dict[str, object]:
+    """Run preflight enforcement and return a structured decision.
+
+    Convenience wrapper that combines scan → policy → enforcement into
+    a single callable function for programmatic use.
+
+    Args:
+        dry_run: If True, preview only — don't modify config.
+        force_scan: If True, skip cache and force fresh scan.
+
+    Returns:
+        Dict with ``ok``, ``decisions``, ``enforcement``, and ``details``
+        keys — same structure as the JSON output of ``hermes-ops-kit preflight``.
+    """
+
+    # Capture the enforce module's JSON output
+    from security.plugin_scanner.enforce import (  # pyright: ignore[reportMissingImports]
+        get_enforcement_decisions,
+        get_mcp_enforcement_decisions,
+        apply_enforcement,
+    )
+
+    from security.plugin_scanner.scanner import scan_all
+
+    results = scan_all(profile="startup", force=force_scan)
+    decisions = get_enforcement_decisions(results)
+    mcp_decisions = get_mcp_enforcement_decisions()
+    enforcement = apply_enforcement(
+        decisions, mcp_decisions=mcp_decisions, dry_run=dry_run
+    )
+
+    return {
+        "ok": decisions["ok"] and mcp_decisions["ok"],
+        "decisions": {
+            "allowed": decisions["allowed"],
+            "approved": decisions["approved"],
+            "deferred": decisions["deferred"],
+            "blocked": decisions["blocked"],
+        },
+        "enforcement": enforcement,
+        "mcp_decisions": mcp_decisions,
+        "details": decisions["details"],
+        "scan_duration_ms": decisions["scan_duration_ms"],
+    }

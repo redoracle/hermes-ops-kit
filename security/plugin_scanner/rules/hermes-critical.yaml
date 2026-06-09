@@ -1,0 +1,201 @@
+# Hermes Plugin Security Scanner — Critical Severity Rules
+#
+# These rules detect patterns that indicate CRITICAL risk:
+# credential theft, reverse shells, obfuscated execution,
+# malicious setup scripts, and Bitwarden/Vaultwarden compromise.
+#
+# Used by: security/plugin_scanner/categories/policy.py
+# Requires: semgrep (optional — scanner degrades gracefully without it)
+
+rules:
+  # ── Hermes Environment Exfiltration ──────────────────────────
+  - id: hermes-env-exfiltration
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              open("$HOME/.hermes/.env", ...)
+          - pattern: |
+              open(os.path.expanduser("~/.hermes/..."), ...)
+          - pattern: |
+              Path("~/.hermes/...").expanduser()
+          - pattern: |
+              open(os.environ["HOME"] + "/.hermes/...", ...)
+    message: >
+      Attempt to access Hermes configuration directory (~/.hermes/).
+      This could be used to steal API keys, Bitwarden sessions, or
+      other sensitive configuration data.
+    severity: ERROR
+    metadata:
+      category: credential-access
+      threat: env-exfiltration
+      risk: critical
+
+  # ── Bitwarden / Vaultwarden Session Theft ────────────────────
+  - id: hermes-bitwarden-session-steal
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: os.environ.get("BW_SESSION")
+          - pattern: os.environ["BW_SESSION"]
+          - pattern: os.getenv("BW_SESSION")
+          - pattern: os.environ.get("VAULTWARDEN_PASSWORD")
+          - pattern: os.environ["VAULTWARDEN_PASSWORD"]
+          - pattern: os.getenv("VAULTWARDEN_PASSWORD")
+          - pattern: os.environ.get("BW_CLIENTSECRET")
+          - pattern: os.environ.get("BW_CLIENTID")
+          - pattern: os.environ.get("BW_PASSWORD")
+    message: >
+      Attempt to read Bitwarden/Vaultwarden credentials from environment.
+      This is credential theft — plugins should never access the secret store directly.
+    severity: ERROR
+    metadata:
+      category: credential-access
+      threat: vaultwarden-compromise
+      risk: critical
+
+  # ── API Key Exfiltration via HTTP ────────────────────────────
+  - id: hermes-api-key-exfil
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              requests.post(..., json={..., "key": $K, ...})
+          - pattern: |
+              requests.post(..., data={..., "token": $T, ...})
+          - pattern: |
+              $HTTP.post(..., json={..., "api_key": $A, ...})
+          - pattern: |
+              requests.post("http://$HOST:$PORT", ...)
+          - pattern: |
+              requests.post("https://$HOST", json={..., "secret": $S, ...})
+    message: >
+      Possible API key or credential exfiltration via HTTP POST.
+      The plugin is sending data that may contain secrets to an external server.
+    severity: ERROR
+    metadata:
+      category: exfiltration
+      threat: credential-exfil
+      risk: critical
+
+  # ── Obfuscated Code Execution ────────────────────────────────
+  - id: hermes-obfuscated-exec
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              eval(base64.b64decode(...))
+          - pattern: |
+              exec(zlib.decompress(...))
+          - pattern: |
+              exec(bytes.fromhex(...).decode())
+          - pattern: |
+              exec(__import__("base64").b64decode(...))
+          - pattern: |
+              eval(compile(..., "<string>", "eval"))
+          - pattern: |
+              exec(compile(..., "<string>", "exec"))
+    message: >
+      Obfuscated or encoded code execution detected.
+      This is a common technique used by malware to hide malicious payloads.
+    severity: ERROR
+    metadata:
+      category: defense-evasion
+      threat: obfuscated-execution
+      risk: critical
+
+  # ── Dangerous Setup Scripts ──────────────────────────────────
+  - id: hermes-setup-script-dangerous
+    languages: [generic]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              curl ... | bash
+          - pattern: |
+              wget ... -O - | sh
+          - pattern: |
+              curl ... | $SHELL
+          # pip install without safe flags (-r, --requirement, -e, --upgrade)
+          - pattern: |
+              pip install $PACKAGE
+          - pattern: |
+              pip3 install $PACKAGE
+          - pattern: |
+              npm install -g $PACKAGE
+      - pattern-not: |
+          pip install -r ...
+      - pattern-not: |
+          pip install --requirement ...
+      - pattern-not: |
+          pip install -e ...
+      - pattern-not: |
+          pip3 install -r ...
+      - pattern-not: |
+          pip3 install --requirement ...
+      - pattern-not: |
+          pip3 install -e ...
+    paths:
+      include:
+        - "**/setup.sh"
+        - "**/install.sh"
+        - "**/bootstrap*"
+        - "**/setup.py"
+    message: >
+      Dangerous command detected in setup/install script.
+      This could install malicious packages or execute arbitrary code during plugin setup.
+    severity: ERROR
+    metadata:
+      category: execution
+      threat: malicious-setup
+      risk: critical
+
+  # ── Reverse Shell Patterns ───────────────────────────────────
+  - id: hermes-reverse-shell
+    languages: [python]
+    pattern-either:
+      - pattern: |
+          $SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          ...
+          $SOCK.connect(...)
+          ...
+          os.dup2($FD, 0)
+      - pattern: |
+          $SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          ...
+          $SOCK.connect(...)
+          ...
+          os.dup2($FD, 1)
+      - pattern: |
+          $SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          ...
+          $SOCK.connect(...)
+          ...
+          os.dup2($FD, 2)
+      - pattern: |
+          $SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          ...
+          $SOCK.connect(...)
+          ...
+          pty.spawn(...)
+      - pattern: |
+          $SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          ...
+          $SOCK.connect(...)
+          ...
+          subprocess.call(["/bin/sh", "-i"])
+      - pattern: |
+          $SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          ...
+          $SOCK.connect(...)
+          ...
+          subprocess.call(["/bin/bash", "-i"])
+    message: >
+      Reverse shell pattern detected. This code attempts to create an
+      interactive shell connection to a remote host.
+      NOTE: socket.socket alone is not sufficient — must be paired with
+      .connect() to a non-loopback address to trigger this rule.
+    severity: ERROR
+    metadata:
+      category: execution
+      threat: reverse-shell
+      risk: critical

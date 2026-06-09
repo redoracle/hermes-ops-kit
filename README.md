@@ -3,7 +3,7 @@
   <h1 align="center">Hermes Ops Kit</h1>
   <p align="center">
     <strong>Operational &amp; security plugin for Hermes Agent</strong><br>
-    secret lifecycle · provider health · route profiles · MCP audit · cost observability
+    secret lifecycle · provider health · route profiles · plugin security · MCP audit · cost observability
   </p>
 </p>
 
@@ -12,7 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.15.x-purple" alt="Hermes 0.15.x"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-92%20passed-brightgreen" alt="92 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-193%20passed-brightgreen" alt="193 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -41,7 +41,7 @@ plugs into the native Hermes plugin system and stays out of your way.
 
 | Command                       | What it shows                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `hermes-usage`                | Multi-provider health dashboard — online/offline status, rate limits, costs, and model inventory across all 5 providers |
+| `hermes-usage`                | Multi-provider health dashboard — online/offline status, rate limits, costs, and model inventory across all 6 providers |
 | `hermes-route-manager show`   | Current routing configuration — primary, utility, auxiliary, and fallback routes with provider assignments              |
 | `hermes-ops-kit image routes` | Image generation routes — local ComfyUI, Gemini, OpenAI, and FAL.ai backends with status and cost class                 |
 
@@ -58,6 +58,7 @@ plugs into the native Hermes plugin system and stays out of your way.
   - [Image routes](#image-routes)
   - [Assistant manager](#assistant-manager)
   - [MCP auditor](#mcp-auditor)
+  - [Plugin security scanner](#plugin-security-scanner)
 - [Secret backend](#secret-backend)
 - [Security](#security)
 - [Architecture](#architecture)
@@ -72,7 +73,7 @@ plugs into the native Hermes plugin system and stays out of your way.
 | Area              | Capabilities                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
 | **Secrets**       | Bitwarden/Vaultwarden-backed store · 3 auth modes · atomic chmod-600 writes · classification (admin/runtime/config) |
-| **Key Rotation**  | 5 providers · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode      |
+| **Key Rotation**  | 6 providers · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode      |
 | **Validation**    | Structured results (`reason_class`, `http_status`, `retry_recommended`) — "unusable" never "expired"                |
 | **Env Rendering** | 3-layer denylist gate — admin keys can never leak into `.env.generated`                                             |
 | **Health**        | Concurrent live probes across all providers · rate limits · costs                                                   |
@@ -80,6 +81,7 @@ plugs into the native Hermes plugin system and stays out of your way.
 | **Image Gen**     | Separate routing layer — ComfyUI · Gemini · DALL-E · FAL.ai                                                         |
 | **Assistants**    | Config-driven delegation to remote Hermes agents · policy engine                                                    |
 | **MCP Audit**     | Server discovery · tool risk classification · atomic whitelisting                                                   |
+| **Plugin Scan**   | Pre-execution security scan · entropy check · skill vs code detection · rule overrides · doc/test downgrades        |
 | **Security**      | 16-pattern redaction · secret scanner gate · safe `bw` CLI wrapper                                                  |
 
 ## What it does not replace
@@ -159,14 +161,14 @@ and 1 CLI command registered with the Hermes plugin loader at startup.
 ### Python dependencies
 
 All provider SDKs are included as core dependencies — `pip install hermes-ops-kit`
-installs everything needed for full functionality across all 5 providers.
+installs everything needed for full functionality across all 6 providers.
 
 | Package             | Required for                                                  |
 | ------------------- | ------------------------------------------------------------- |
 | `requests>=2.31`    | Google validation, admin API calls, GitHub curl fallback      |
 | `PyYAML>=6.0`       | Config parsing (assistants.yaml, routes.yaml, env_projection) |
 | `ruamel.yaml>=0.18` | YAML round-trip with comment preservation                     |
-| `openai>=2.0`       | OpenAI + DeepSeek validation & smoke test                     |
+| `openai>=2.0`       | OpenAI + DeepSeek validation, NVIDIA NIM API (OpenAI-compat)  |
 | `anthropic>=0.40`   | Anthropic validation & smoke test                             |
 | `google-auth>=2.0`  | Google auto-creation via API Keys API (ADC)                   |
 | `google-genai>=1.0` | Gemini image generation (Nano Banana)                         |
@@ -279,6 +281,7 @@ hermes/google/admin_key       ← admin (NEVER rendered 🛡️)
 hermes/google/project_number  ← config (rendered)
 hermes/deepseek/api_key       ← runtime (rendered)
 hermes/github/token           ← runtime (rendered)
+hermes/nvidia/api_key         ← runtime (rendered)
 ```
 
 Use `hermes-key-rotate --status` to see fingerprints and `render-env`
@@ -370,7 +373,42 @@ hermes-ops-kit mcp revoke                   # Clear all approvals
 
 Classifies MCP tools by capability: critical → blocked, high → approval
 required. Policy: [`policy/rules.yaml`](policy/rules.yaml), persisted as
-`~/.hermes/mcp_policy.json`.
+`~/.hermes/mcp_policy.json`. `hermes-ops-kit preflight` enforces the audit by
+disabling unsafe MCP servers before Hermes boots.
+
+### Plugin security scanner
+
+```bash
+hermes-ops-kit plugin scan                                    # Default startup scan
+hermes-ops-kit plugin scan --plugin <name> --force            # Single plugin, skip cache
+hermes-ops-kit plugin scan --profile manual --json            # Full scan, JSON output
+hermes-ops-kit plugin policy                                  # Show approval policy
+hermes-ops-kit plugin approve <plugin>                        # Approve entire plugin
+hermes-ops-kit plugin override <plugin> <rule> allow          # Whitelist a single rule
+hermes-ops-kit plugin override --show                         # List all overrides
+hermes-ops-kit preflight --dry-run                            # Preview enforcement (no changes)
+hermes-ops-kit preflight                                      # Scan + enforce config sync
+```
+
+Pre-execution security scan for all Hermes plugins. Detects hardcoded
+secrets, dangerous code patterns, and prompt injection using regex, AST
+analysis, and optional Semgrep/gitleaks/Bandit integration.
+
+**Anti-false-positive measures:** Shannon entropy check distinguishes
+real keys from test fixtures; doc/skill files get reduced severity;
+rule overrides provide fine-grained per-rule per-plugin control.
+
+**Preflight enforcement:** `hermes-ops-kit preflight` synchronizes scanner
+decisions with `~/.hermes/config.yaml` before Hermes boots — blocked plugins
+are excluded from loading. Adds ~12s to boot with cold cache, ~1-2s with
+warm cache. Skip with `hermes gateway run` directly if boot speed is critical.
+
+**Disable-by-default:** Medium+ risk plugins are disabled until approved.
+0 blocked plugins in the current production scan (down from 12 before tuning).
+
+Policy: [`policy/rules.yaml`](policy/rules.yaml) + `~/.hermes/ops-kit/plugin_policy.json`.
+Docs: [`docs/plugin-security-scanner.md`](docs/plugin-security-scanner.md).
+Test: `bash scripts/test-scanner.sh` (10-test integration suite).
 
 ## Secret backend
 
@@ -463,7 +501,14 @@ See [`skills/bw/SKILL.md`](skills/bw/SKILL.md) and
 
 ## Security
 
-Ops-kit ships with a defense-in-depth secret protection pipeline:
+> **Defense-in-depth, not a silver bullet.** Ops-kit adds multiple security
+> layers that were missing before — secret rotation, plugin scanning, MCP
+> auditing, redaction — but it cannot guarantee absolute protection. Every
+> layer reduces risk; none eliminates it. Treat this as one control in a
+> broader security posture, not a replacement for code review, network
+> segmentation, or the principle of least privilege.
+
+### Secret protection pipeline
 
 - **"Secret zero" architecture** — 4 bootstrap vars in `.env` unlock an
   AES-256 encrypted store; API keys never touch `.env` and can be rotated
@@ -487,8 +532,63 @@ Ops-kit ships with a defense-in-depth secret protection pipeline:
   custom fields
 - **Read-only by default** for remote assistants
 
+### Plugin security scanner
+
+Pre-execution scanning of all Hermes plugins and skills. Detects hardcoded
+secrets, dangerous code patterns, and prompt injection before plugins are
+loaded — plugins with critical findings are blocked from execution.
+
+- **Built-in detection:** 16 regex patterns + AST analysis + Shannon entropy
+  check + sequential/dummy pattern detection + prompt injection regex
+- **Optional external tools:** [gitleaks](https://github.com/gitleaks/gitleaks)
+  (150+ secret detectors), [Semgrep](https://semgrep.dev) (2,500+ SAST rules),
+  [Bandit](https://bandit.readthedocs.io) (Python security rules)
+- **Auto-detection:** the scanner checks for external tools at runtime and
+  uses them if available; degrades gracefully if they are not installed
+- **Skill vs Code:** auto-classifies plugins as code (executable) or skill
+  (AI context) and applies appropriate risk thresholds
+
+> **⚠️ External tools are NOT auto-installed.** `pip install hermes-ops-kit`
+> does not install gitleaks, Semgrep, or Bandit. These must be installed
+> separately if you want enhanced detection. See the platform-specific
+> guide: [`docs/external-security-tools.md`](docs/external-security-tools.md).
+
+### MCP security auditing
+
+Audits MCP (Model Context Protocol) tools across all configured servers for
+security risks before Hermes invokes them:
+
+- **Server discovery** — enumerates all configured MCP servers and their tools
+- **Capability classification** — network access, file system writes, shell
+  execution, credential access, dynamic imports
+- **Risk-based policy** — critical findings block the tool; high findings
+  require explicit approval; medium findings disable by default
+- **Atomic whitelisting** — `mcp approve --server <id>` permits all tools
+  from a server; `--tool <id>` permits individual tools; `revoke` clears all
+- **Pre-boot enforcement** — incomplete audits and unapproved high-risk tools
+  disable the server; critical tools block boot
+- **Policy persistence** — owner-only atomic `~/.hermes/mcp_policy.json`
+
+### What ops-kit cannot protect against
+
+Ops-kit scans source code at rest — it does not provide runtime monitoring,
+sandbox execution (Phase 3), or behavioral analysis. Specifically:
+
+- **Novel attacks** — zero-day exploits, polymorphic malware, and time bombs
+  may evade static analysis
+- **Supply chain** — compromised dependencies are not scanned in MVP (Phase 2)
+- **Runtime behavior** — the scanner cannot observe what a plugin does when
+  executed; Docker sandbox is a planned Phase 3 feature
+- **Trusted insider** — an operator with shell access and `bw unlock` can
+  read and exfiltrate secrets through the legitimate Bitwarden/Vaultwarden CLI
+
+These are inherent limitations of static analysis, not gaps unique to ops-kit.
+Every SAST tool has the same constraints.
+
 Report vulnerabilities via [`SECURITY.md`](SECURITY.md). Full security
 model and trust boundaries: [`docs/Threat Model.md`](docs/Threat%20Model.md).
+Scanner documentation: [`docs/plugin-security-scanner.md`](docs/plugin-security-scanner.md).
+External tools: [`docs/external-security-tools.md`](docs/external-security-tools.md).
 
 ## Architecture
 
@@ -503,9 +603,10 @@ hermes_export.py           Structured export (usage, security, audit, briefings)
 
 security/                  Bitwarden/Vaultwarden backend · redaction · fingerprints · lockfile
 env/                       Env loading · rendering (3-layer denylist) · atomic writes
-providers/                 5 LLM adapters + 5 rotators + state machine
+providers/                 6 LLM adapters + 6 rotators + state machine
 assistants/                Config-driven delegation (8 modules)
-image_routes/              Image gen routing + 4 adapters
+image_routes/              Image gen routing + 4 adapters (ComfyUI, Gemini, OpenAI, FAL)
+security/plugin_scanner/   Pre-execution plugin security scan (entropy, doc-mode, skill-mode)
 mcp/                       Tool auditor + risk classifier
 policy/                    Centralized engine + declarative rules
 audit/                     Sanitized JSONL audit logs (phase-tracked)
@@ -552,6 +653,8 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── Key Management Lifecycle.md         ← Secret lifecycle
 │   ├── Architecture Decisions.md           ← Key ADRs
 │   ├── Operations Runbook.md               ← Incident response
+│   ├── plugin-security-scanner.md          ← Scanner docs + anti-FP tuning
+│   ├── external-security-tools.md          ← Semgrep/gitleaks/Bandit install guide
 │   └── quickstart.md                       ← Getting started
 │
 ├── skills/                                 ← Bundled Hermes skills
@@ -561,7 +664,8 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   └── operator/                           ← Bitwarden/Vaultwarden operational guides
 │
 ├── scripts/
-│   └── preflight-scan.sh                   ← Pre-release secret audit
+│   ├── preflight-scan.sh                   ← Pre-release secret audit
+│   └── test-scanner.sh                     ← 10-test scanner integration suite
 │
 ├── hermes_patches/                         ← Hermes core bridge patches
 │   └── README.md
@@ -573,12 +677,13 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
 │
-├── tests/                                  ← 92 tests across 5 suites
-│   ├── test_security.py                    ← 33 tests
+├── tests/                                  ← 194 pytest tests + 8 simulator scenarios
+│   ├── test_security.py                    ← 32 tests
 │   ├── test_snapshots.py                   ← 14 tests
-│   ├── test_simulator.py                   ← 8 scenarios
-│   ├── test_route_runtime_harness.py       ← 5 tests
-│   ├── test_background_edit.py             ← 4 tests
+│   ├── test_simulator.py                   ← 8 scenarios (run separately)
+│   ├── test_plugin_scanner.py              ← 110 scanner tests
+│   ├── test_route_runtime_harness.py       ← 6 tests
+│   ├── test_background_edit.py             ← 4 tests (requires Pillow)
 │   └── cli/                                ← 28 CLI integration tests
 │
 └── policy/
@@ -596,6 +701,8 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 | [`docs/Key Management Lifecycle.md`](docs/Key%20Management%20Lifecycle.md) | Full secret inventory · 14-phase state machine · rotation modes · revocation matrix · env rendering pipeline                         |
 | [`docs/Architecture Decisions.md`](docs/Architecture%20Decisions.md)       | ADR-001 through ADR-005 — key architectural decisions with rationale                                                                 |
 | [`docs/Operations Runbook.md`](docs/Operations%20Runbook.md)               | Health checks · incident response · recovery procedures · log locations                                                              |
+| [`docs/external-security-tools.md`](docs/external-security-tools.md)       | Platform-specific install guide for gitleaks, Semgrep, and Bandit (macOS, Linux, Windows, Docker)                                    |
+| [`docs/plugin-security-scanner.md`](docs/plugin-security-scanner.md)       | Scanner architecture · entropy check · doc/skill mode · rule overrides · anti-FP tuning                                              |
 | [`docs/quickstart.md`](docs/quickstart.md)                                 | 10-minute setup — install, bootstrap, seed, verify                                                                                   |
 | [`CHANGELOG.md`](CHANGELOG.md)                                             | Release history with features, fixes, and breaking changes                                                                           |
 | [`SECURITY.md`](SECURITY.md)                                               | Vulnerability reporting · supported versions · disclosure policy · security design principles                                        |
@@ -605,8 +712,9 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -v               # 92 tests (security, snapshots, CLI)
+python3 -m pytest tests/ -v               # 194 tests (security, snapshots, scanner, CLI)
 python3 tests/test_simulator.py --all      # 8 failure scenarios (no real APIs)
+bash scripts/test-scanner.sh              # 10-test scanner integration suite
 bash scripts/preflight-scan.sh             # Pre-release secret audit
 ```
 
