@@ -144,9 +144,9 @@ def register(ctx):
 
     # ── Hooks ──
     try:
-        from .hooks import on_startup, on_post_tool_call
+        from .hooks import on_post_tool_call, on_session_start
 
-        ctx.register_hook("startup", on_startup)
+        ctx.register_hook("on_session_start", on_session_start)
         ctx.register_hook("post_tool_call", on_post_tool_call)
     except Exception:
         pass

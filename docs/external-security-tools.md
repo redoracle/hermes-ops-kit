@@ -1,11 +1,14 @@
 # External Security Tools — Installation Guide
 
-> **These tools are optional.** The Plugin Security Scanner works fully without them.
-> Installing them enhances detection coverage but is never required for operation.
+`install.sh` installs and verifies Semgrep and Bandit automatically. It also
+installs Gitleaks when Homebrew/Linuxbrew or Go is available. Go installations
+are pinned to `v8.30.1`; Homebrew/Linuxbrew installations use the
+package-managed version. The Plugin Security Scanner still works with built-in
+detectors when an external tool is unavailable.
 
 Hermes Ops Kit integrates with three industry-standard external security tools.
-They are **not bundled** and must be installed separately if you want the
-additional detection rules they provide.
+They are not bundled in the repository. The automated installer provisions
+them; use the commands below for manual installations.
 
 ---
 
@@ -51,11 +54,8 @@ bandit --version
 ### Linux (Debian / Ubuntu)
 
 ```bash
-# gitleaks — download the binary (no apt package)
-GITLEAKS_VERSION=8.24.0
-curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_amd64.tar.gz" | \
-  sudo tar -xz -C /usr/local/bin gitleaks
-sudo chmod +x /usr/local/bin/gitleaks
+# gitleaks — pinned Go build
+GOBIN="$HOME/.local/bin" go install github.com/zricethezav/gitleaks/v8@v8.30.1
 
 # Semgrep
 python3 -m pip install semgrep
@@ -67,11 +67,8 @@ python3 -m pip install bandit
 ### Linux (RHEL / Fedora / CentOS)
 
 ```bash
-# gitleaks
-GITLEAKS_VERSION=8.24.0
-curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_amd64.tar.gz" | \
-  sudo tar -xz -C /usr/local/bin gitleaks
-sudo chmod +x /usr/local/bin/gitleaks
+# gitleaks — pinned Go build
+GOBIN="$HOME/.local/bin" go install github.com/zricethezav/gitleaks/v8@v8.30.1
 
 # Semgrep
 python3 -m pip install semgrep
@@ -93,19 +90,16 @@ python3 -m pip install semgrep
 python3 -m pip install bandit
 ```
 
-### Windows
+### Windows / WSL
 
-```powershell
-# gitleaks — download from GitHub Releases
-# https://github.com/gitleaks/gitleaks/releases/latest
-# Download gitleaks_*_windows_amd64.zip, extract, add to PATH
+Run from Ubuntu/Debian WSL:
 
-# Semgrep
-pip install semgrep
-
-# Bandit
-pip install bandit
+```bash
+bash install-wsl.sh
 ```
+
+The WSL bootstrap installs Go, Python, pip, and Git through `apt-get`, then
+delegates to `install.sh`, which provisions all three scanners.
 
 ### Docker (any platform)
 
@@ -193,7 +187,7 @@ print(f"Bandit:   {_bandit_available()}")
 | Symptom                          | Likely Cause                | Fix                                       |
 | -------------------------------- | --------------------------- | ----------------------------------------- |
 | `semgrep: command not found`     | Not on PATH                 | `pip install semgrep` or use full path    |
-| `gitleaks: command not found`    | Not on PATH                 | `brew install gitleaks` or download binary |
+| `gitleaks: command not found`    | Go/Homebrew unavailable     | Install Go, then rerun `install.sh`         |
 | Semgrep scan timeout (60s)       | Too many files / large repo | Scanner auto-caps at 5MB per file         |
 | gitleaks returns empty on macOS  | No git repo (--no-git used) | Normal — scanner passes `--no-git` flag   |
 | Bandit import error              | Not installed               | `pip install bandit`                      |

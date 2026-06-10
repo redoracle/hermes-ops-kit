@@ -135,6 +135,22 @@ hermes-key-rotate --status
 
 <p><details><summary><b>All installation methods</b></summary>
 
+`install.sh` supports Linux, macOS, and Windows through WSL. It requires
+Python 3.11+, pip, Git, and Bash. Native Windows PowerShell/cmd is not
+supported by the Bash installer. When run inside a virtual environment, the
+installer keeps dependencies and generated CLI wrappers pinned to that
+environment; otherwise it uses the current user's Python package site.
+
+For Windows, clone the repository inside WSL and run `bash install-wsl.sh`.
+The WSL bootstrap installs Python, pip, Git, and Go through `apt-get`, then
+delegates to `install.sh`.
+
+The installer performs a complete self-scan before dependency installation.
+The official repository is trusted after a scan completes without errors
+because this security toolkit intentionally contains privileged operations and
+detector fixtures. Custom `HERMES_OPS_KIT_REPO` sources fail closed on risky
+findings unless the operator explicitly sets `HERMES_OPS_KIT_TRUST_REPO=true`.
+
 ```bash
 # Remote install (recommended)
 curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh | bash
@@ -158,10 +174,22 @@ bash uninstall.sh --purge-env   # Also remove ~/.hermes/.env (destructive)
 The [plugin manifest](plugin.yaml) (`plugin.yaml`) declares 7 tools, 2 hooks,
 and 1 CLI command registered with the Hermes plugin loader at startup.
 
+The installer enables the plugin, which automatically registers a cached,
+report-only security scan on Hermes `on_session_start`. No `hooks:` entry is
+added to `~/.hermes/config.yaml`; that block is reserved for shell-command
+hooks. To prevent unsafe plugins from loading, run `hermes-ops-kit preflight`
+before starting Hermes or configure it as a supervisor pre-start command.
+A normal `hermes gateway restart` does **not** run preflight. Use
+`hermes-ops-kit preflight && hermes gateway restart` for a one-off safe restart.
+
 ### Python dependencies
 
 All provider SDKs are included as core dependencies — `pip install hermes-ops-kit`
 installs everything needed for full functionality across all 6 providers.
+`install.sh` installs the `dev` extra as well and verifies both Pillow and
+`ruff`, plus Semgrep and Bandit. It also installs pinned Gitleaks `v8.30.1`
+through Go, or the package-managed Gitleaks version through
+Homebrew/Linuxbrew when Go is unavailable.
 
 | Package             | Required for                                                  |
 | ------------------- | ------------------------------------------------------------- |

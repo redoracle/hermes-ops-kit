@@ -20,7 +20,7 @@ provides_tools:
 
 provides_hooks:
   - post_tool_call
-  - startup
+  - on_session_start
 
 provides_commands:
   - ops-kit

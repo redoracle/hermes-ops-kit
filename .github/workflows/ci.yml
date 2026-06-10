@@ -7,6 +7,43 @@ on:
     branches: [main]
 
 jobs:
+  installer-validation:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate installer syntax
+        run: bash -n install.sh
+      - name: Install ShellCheck
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: Lint installer
+        if: runner.os == 'Linux'
+        run: shellcheck -s bash install.sh
+      - uses: actions/setup-go@v6
+        if: runner.os == 'Linux'
+        with:
+          go-version: stable
+      - name: End-to-end installer test
+        if: runner.os == 'Linux'
+        run: |
+          git branch -f installer-test HEAD
+          export HOME="$RUNNER_TEMP/hermes-install"
+          export HERMES_OPS_KIT_REPO="$GITHUB_WORKSPACE"
+          export HERMES_OPS_KIT_VERSION=installer-test
+          export HERMES_OPS_KIT_TRUST_REPO=true
+          bash install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          python3 -c "from PIL import Image; print(Image.__version__)"
+          python3 -m ruff --version
+          semgrep --version
+          bandit --version
+          gitleaks version
+          hermes-ops-kit --help >/dev/null
+          bash install.sh
+
   test:
     runs-on: ubuntu-latest
     strategy:

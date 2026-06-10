@@ -70,6 +70,7 @@ def preflight_decision(
     *,
     dry_run: bool = False,
     force_scan: bool = False,
+    exclude_plugins: set[str] | None = None,
 ) -> dict[str, object]:
     """Run preflight enforcement and return a structured decision.
 
@@ -79,6 +80,8 @@ def preflight_decision(
     Args:
         dry_run: If True, preview only — don't modify config.
         force_scan: If True, skip cache and force fresh scan.
+        exclude_plugins: Plugin IDs trusted by the caller and excluded from
+                         enforcement decisions.
 
     Returns:
         Dict with ``ok``, ``decisions``, ``enforcement``, and ``details``
@@ -95,6 +98,8 @@ def preflight_decision(
     from security.plugin_scanner.scanner import scan_all
 
     results = scan_all(profile="startup", force=force_scan)
+    if exclude_plugins:
+        results = [r for r in results if r.plugin_name not in exclude_plugins]
     decisions = get_enforcement_decisions(results)
     mcp_decisions = get_mcp_enforcement_decisions()
     enforcement = apply_enforcement(

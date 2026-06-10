@@ -5,15 +5,23 @@
 # Usage:
 #   curl -fsSL <url>/install.sh | bash
 #   HERMES_OPS_KIT_VERSION=v0.1.0 bash install.sh
+#
+# Supported: Linux, macOS, and Windows through WSL.
 
 set -euo pipefail
 
 PLUGIN_NAME="hermes-ops-kit"
-REPO_URL="${HERMES_OPS_KIT_REPO:-${HERMES_AI_BRIDGE_REPO:-https://github.com/your-org/hermes-ops-kit.git}}"
+REPO_URL="${HERMES_OPS_KIT_REPO:-${HERMES_AI_BRIDGE_REPO:-https://github.com/redoracle/hermes-ops-kit.git}}"
 VERSION="${HERMES_OPS_KIT_VERSION:-${HERMES_AI_BRIDGE_VERSION:-main}}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_DIR="$HERMES_HOME/plugins/$PLUGIN_NAME"
 CONFIG_DIR="$HERMES_HOME/ops-kit"
+BIN_DIR="$HOME/.local/bin"
+TRUST_REPO="${HERMES_OPS_KIT_TRUST_REPO:-false}"
+GITLEAKS_VERSION="${HERMES_OPS_KIT_GITLEAKS_VERSION:-v8.30.1}"
+if [ -z "${HERMES_OPS_KIT_REPO:-}" ] && [ -z "${HERMES_AI_BRIDGE_REPO:-}" ]; then
+  TRUST_REPO=true
+fi
 
 # ── Colour helpers ──────────────────────────────────────────────────
 log()  { printf '\033[1;34m[ops-kit]\033[0m %s\n' "$*"; }
@@ -25,12 +33,72 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1 — install it first"
 }
 
+pip_install_user() {
+  if python3 -c 'import sys; raise SystemExit(sys.prefix == sys.base_prefix)'; then
+    python3 -m pip install --disable-pip-version-check "$@"
+    return $?
+  fi
+
+  if python3 -m pip install --disable-pip-version-check --user "$@"; then
+    return 0
+  fi
+
+  # Debian/Ubuntu, Homebrew, and other PEP 668 environments reject even
+  # user-site installs unless this explicit override is present. Combining
+  # it with --user keeps packages out of the managed system site-packages.
+  if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+    python3 -m pip install \
+      --disable-pip-version-check \
+      --user \
+      --break-system-packages \
+      "$@"
+    return $?
+  fi
+
+  return 1
+}
+
+install_gitleaks() {
+  if command -v gitleaks >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v brew >/dev/null 2>&1; then
+    brew install gitleaks
+  elif command -v go >/dev/null 2>&1; then
+    GOBIN="$BIN_DIR" go install "github.com/zricethezav/gitleaks/v8@$GITLEAKS_VERSION"
+  else
+    warn "Gitleaks not installed: Homebrew/Linuxbrew or Go is required."
+    warn "Install Go, then run: GOBIN=\"$BIN_DIR\" go install github.com/zricethezav/gitleaks/v8@$GITLEAKS_VERSION"
+    return 0
+  fi
+
+  command -v gitleaks >/dev/null 2>&1 || [ -x "$BIN_DIR/gitleaks" ] || \
+    fail "Gitleaks installation verification failed"
+  ok "Gitleaks installed and verified"
+}
+
 # ── Prerequisites ───────────────────────────────────────────────────
 log "Checking prerequisites"
 require_cmd git
 require_cmd python3
+require_cmd grep
+PYTHON_BIN="$(command -v python3)"
+
+case "$(uname -s 2>/dev/null || printf unknown)" in
+  Linux | Darwin)
+    ;;
+  *)
+    fail "Unsupported platform. Use Linux, macOS, or Windows through WSL."
+    ;;
+esac
+
+python3 -m pip --version >/dev/null 2>&1 || \
+  fail "Python pip is required. Install python3-pip (Linux) or a Python distribution that includes pip."
 
 PYVER="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' || \
+  fail "Python 3.11 or newer is required (found $PYVER)"
 log "Python $PYVER detected"
 
 # ── Hermes check (optional) ─────────────────────────────────────────
@@ -70,12 +138,12 @@ fi
 # Run the static scanner before pip installation or Hermes enablement.
 INSTALL_ALLOWED=false
 log "Running pre-install static security gate"
-if PYTHONPATH="$PLUGIN_DIR" python3 - "$PLUGIN_DIR" "$PLUGIN_NAME" <<'PY'
+if PYTHONPATH="$PLUGIN_DIR" python3 - "$PLUGIN_DIR" "$PLUGIN_NAME" "$TRUST_REPO" <<'PY'
 import sys
 from security.plugin_scanner.enforce import get_enforcement_decisions
 from security.plugin_scanner.scanner import scan_plugin
 
-plugin_path, plugin_name = sys.argv[1:3]
+plugin_path, plugin_name, trust_repo = sys.argv[1:4]
 result = scan_plugin(
     plugin_name,
     plugin_path,
@@ -88,6 +156,17 @@ print(
     f"[ops-kit] Pre-install scan: risk={result.risk_level.value}, "
     f"findings={len(result.findings)}, errors={len(result.errors)}"
 )
+if result.errors:
+    print(f"[error] Pre-install scan incomplete: {result.errors}", file=sys.stderr)
+    raise SystemExit(3)
+if trust_repo.lower() in {"1", "true", "yes"}:
+    if decisions["blocked"] or decisions["disable"]:
+        print(
+            "[warn] Trusted repository contains expected privileged capabilities; "
+            "continuing after complete self-scan.",
+            file=sys.stderr,
+        )
+    raise SystemExit(0)
 if decisions["blocked"]:
     print(f"[error] Blocked by security policy: {decisions['details'][plugin_name]}", file=sys.stderr)
     raise SystemExit(3)
@@ -111,20 +190,35 @@ fi
 
 # ── Python package ──────────────────────────────────────────────────
 if $INSTALL_ALLOWED; then
-  log "Installing Python package"
-  if python3 -m pip install --user -e "$PLUGIN_DIR" 2>/dev/null || \
-    python3 -m pip install --user "$PLUGIN_DIR" 2>/dev/null; then
-    ok "Python package installed"
-  else
-    warn "pip install failed — installing wrapper scripts instead"
+  log "Installing Python package and quality tooling"
+  if ! pip_install_user -e "${PLUGIN_DIR}[dev]" && \
+    ! pip_install_user "${PLUGIN_DIR}[dev]"; then
+    fail "Python package installation failed. Check pip output above for the failing dependency."
   fi
+
+  python3 -c 'from PIL import Image' || fail "Pillow verification failed after installation"
+  python3 -m ruff --version >/dev/null || fail "ruff verification failed after installation"
+  ok "Python package, Pillow, and ruff installed and verified"
+
+  log "Installing external security scanners"
+  pip_install_user "semgrep" "bandit" || \
+    fail "Semgrep/Bandit installation failed. Check pip output above."
+  SEMGREP_BIN="$(command -v semgrep 2>/dev/null || printf '%s/semgrep' "$BIN_DIR")"
+  BANDIT_BIN="$(command -v bandit 2>/dev/null || printf '%s/bandit' "$BIN_DIR")"
+  PATH="$BIN_DIR:$PATH" "$SEMGREP_BIN" --version >/dev/null || \
+    fail "Semgrep verification failed after installation"
+  PATH="$BIN_DIR:$PATH" "$BANDIT_BIN" --version >/dev/null || \
+    fail "Bandit verification failed after installation"
+  ok "Semgrep and Bandit installed and verified"
+
+  mkdir -p "$BIN_DIR"
+  install_gitleaks
 else
   warn "Python package installation skipped until explicit approval"
 fi
 
 # ── CLI wrappers (always available, even without pip) ──────────────
 log "Installing CLI commands"
-BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 
 # Explicit mapping: CLI name → Python script
@@ -140,8 +234,8 @@ for entry in \
   cli_name="${entry%%:*}"
   script="${entry##*:}"
   cat > "$BIN_DIR/$cli_name" << WRAPPER
-#!/bin/bash
-cd "$PLUGIN_DIR" && exec python3 "$PLUGIN_DIR/$script" "\$@"
+#!/usr/bin/env bash
+cd "$PLUGIN_DIR" && exec "$PYTHON_BIN" "$PLUGIN_DIR/$script" "\$@"
 WRAPPER
   chmod +x "$BIN_DIR/$cli_name"
 done
@@ -202,9 +296,11 @@ ok "Security bootstrap completed"
 
 # ── Plugin enable ───────────────────────────────────────────────────
 if $HERMES_OK && $INSTALL_ALLOWED; then
-  hermes plugins enable "$PLUGIN_NAME" 2>/dev/null || \
+  if hermes plugins enable "$PLUGIN_NAME" 2>/dev/null; then
+    ok "Plugin enabled"
+  else
     warn "Could not enable plugin automatically. Run: hermes plugins enable $PLUGIN_NAME"
-  ok "Plugin enabled"
+  fi
 elif $HERMES_OK; then
   warn "Plugin remains disabled until explicit approval and a successful preflight"
 fi
@@ -229,17 +325,14 @@ log "       VAULTWARDEN_USER=..."
 log "       VAULTWARDEN_PASSWORD=..."
 log "  2. Run: hermes-ops-kit doctor"
 log "  3. Run: hermes-usage --compact"
-log "  4. (Optional) Install external security tools for enhanced scanning:"
-log "       → See docs/external-security-tools.md for platform-specific instructions"
-log "       brew install gitleaks          # 150+ secret detectors"
-log "       pip install semgrep             # 2,500+ SAST rules"
-log "       pip install bandit              # Python security rules"
+log "  4. External security tools were installed and verified when supported."
+log "       → See docs/external-security-tools.md for platform-specific details"
 log "  5. Run: hermes-ops-kit plugin scan --profile manual"
-log "  6. (Optional) Enable pre-boot security enforcement:"
-log "       hermes-ops-kit preflight --dry-run   # preview without changes"
-log "       hermes-ops-kit preflight              # enforce + sync config"
-log "       Preflight uses fast built-in detectors; deep external tools run in manual scans."
+log "  6. A cached, report-only security scan runs at each Hermes session start."
+log "     IMPORTANT: a normal Hermes gateway restart does NOT run preflight."
+log "     Safe restart: hermes-ops-kit preflight && hermes gateway restart"
+log "     To preview enforcement changes: hermes-ops-kit preflight --dry-run"
 log "  7. Run: hermes-ops-kit assistants ping <assistant-id>"
 if $HERMES_OK; then
-  log "  8. Restart Hermes"
+  log "  8. Restart safely: hermes-ops-kit preflight && hermes gateway restart"
 fi

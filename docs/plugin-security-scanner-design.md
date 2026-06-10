@@ -465,13 +465,13 @@ Store result in cache with new hashes
 
 Riprendendo e estendendo il sistema esistente in `mcp/classifier.py`:
 
-| Risk Level   | Criteri                                                                   | Azione Automatica                     |
-| ------------ | ------------------------------------------------------------------------- | ------------------------------------- |
-| **CRITICAL** | Secret in chiaro, reverse shell, `os.system` offuscato, import malevoli   | **BLOCK** — Plugin non caricato       |
+| Risk Level   | Criteri                                                                   | Azione Automatica                         |
+| ------------ | ------------------------------------------------------------------------- | ----------------------------------------- |
+| **CRITICAL** | Secret in chiaro, reverse shell, `os.system` offuscato, import malevoli   | **BLOCK** — Plugin non caricato           |
 | **HIGH**     | `exec()`/`eval()` dinamici, network exfil, file system write sospetti     | **DISABLE** — Richiede approval esplicita |
 | **MEDIUM**   | Codice offuscato (entropia >6.0), import sospetti, dipendenze vulnerabili | **DISABLE** — Richiede approval esplicita |
-| **LOW**      | Pattern minori, best practice non seguite                                 | **INFO** — Solo notifica              |
-| **NONE**     | Plugin pulito, tutti i layer passati                                      | **ALLOW** — Caricamento normale       |
+| **LOW**      | Pattern minori, best practice non seguite                                 | **INFO** — Solo notifica                  |
+| **NONE**     | Plugin pulito, tutti i layer passati                                      | **ALLOW** — Caricamento normale           |
 
 ### 6.1 Estensione del Policy Engine Esistente
 
@@ -1546,40 +1546,16 @@ hermes-ops-kit plugin cache stats                   # Statistiche cache SHA
 hermes-ops-kit plugin audit --json                  # Audit completo
 ```
 
-### 11.3 Hook di Integrazione (Hermes Startup)
+### 11.3 Hook di Integrazione (Hermes Session Start)
 
-Gli hook di Hermes usano i profili di scansione definiti in §10.3 invece
-di riferimenti diretti ai layer:
+Il plugin registra `plugin_security_scan` direttamente sull'evento Python
+`on_session_start`. La scansione usa il profilo `startup` con cache e segnala
+i plugin bloccati o differiti, ma non può impedirne il caricamento perché
+Hermes scopre i plugin prima di avviare la sessione.
 
-```yaml
-# ~/.hermes/config.yaml
-hooks:
-  on_startup:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: startup # secrets + policy + dependencies
-        block_on: [critical, high]
-        timeout_seconds: 12
-
-  on_plugin_install:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: install # + code + reputation
-        block_on: [critical, high]
-
-  on_plugin_update:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: update # + behavior (sandbox)
-        block_on: [critical, high]
-
-  on_plugin_uninstall:
-    - plugin: hermes-ops-kit
-      hook: plugin_cache_cleanup # Rimuove entry dalla cache
-```
+Il blocco `hooks:` in `~/.hermes/config.yaml` è riservato agli shell hook e
+non accetta voci `plugin:` / `hook:`. Per enforcement prima del caricamento,
+eseguire `hermes-ops-kit preflight` prima di avviare Hermes.
 
 ### 11.4 Riutilizzo Infrastruttura Esistente
 
@@ -1627,7 +1603,7 @@ Cache SHA popolata per tutti i plugin
 
 ```text
 1. Hermes starts
-2. Hook on_startup → plugin_security_scan
+2. Hook on_session_start → plugin_security_scan (report-only)
 3. Scanner enumera ~/.hermes/plugins/* e ~/.hermes/skills/*
 4. Per ogni plugin:
    a. Calcola git_commit_hash + file_tree_sha
@@ -1637,14 +1613,14 @@ Cache SHA popolata per tutti i plugin
    e. Se L1 o L2 falliscono → BLOCK, notifica utente
    f. Se passano → salva in cache, ALLOW
 5. Report riepilogativo a utente
-6. Hermes completa avvio solo con plugin allowed
+6. Per enforcement prima del caricamento, usare `hermes-ops-kit preflight`
 ```
 
 ### 12.2 All'installazione/aggiornamento di un plugin
 
 ```text
 1. Plugin installato/aggiornato (git pull / clone)
-2. Hook on_plugin_install/update → plugin_security_scan
+2. Scan esplicito con profilo install/update
 3. Scan completo (L0→L1→L2→L3 opzionale)
 4. Se passa → installato e attivato
 5. Se fallisce → installazione annullata, notifica con findings
@@ -1735,7 +1711,7 @@ Cache SHA popolata per tutti i plugin
 
 - Categoria `behavior`: Docker sandbox dry-run con profile hardened
 - Categoria `reputation`: VirusTotal API (hash lookup), Socket.dev (supply chain npm/PyPI)
-- Hook Hermes attivi: `on_startup`, `on_plugin_install`, `on_plugin_update`, `on_plugin_uninstall`
+- Hook Hermes attivo: `on_session_start` (report-only); enforcement tramite `preflight`
 - Scoring engine: weighted scoring algorithm con soglie configurabili (vedi §10.5)
 - Notifiche desktop + logging JSONL per ogni scansione
 

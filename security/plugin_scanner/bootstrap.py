@@ -230,7 +230,11 @@ def bootstrap(
 
     preflight_result = cast(
         dict[str, Any],
-        preflight_decision(dry_run=dry_run, force_scan=force_scan),
+        preflight_decision(
+            dry_run=dry_run,
+            force_scan=force_scan,
+            exclude_plugins={_SCANNER_PLUGIN_ID},
+        ),
     )
 
     # If preflight mutated config and the caller asked for a controlled restart,

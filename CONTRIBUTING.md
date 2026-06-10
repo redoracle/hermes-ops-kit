@@ -8,7 +8,7 @@ diagnostics, MCP auditing, and usage/cost observability.
 ## Development Setup
 
 ```bash
-git clone https://github.com/your-org/hermes-ops-kit.git
+git clone https://github.com/redoracle/hermes-ops-kit.git
 cd hermes-ops-kit
 pip install -e ".[dev]"
 ```

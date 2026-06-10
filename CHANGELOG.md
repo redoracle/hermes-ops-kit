@@ -4,6 +4,31 @@ All notable changes to Hermes Ops Kit.
 
 ## [Unreleased]
 
+### Security — Hermes Session Scan Integration
+
+- Register the cached plugin security scan on Hermes's supported
+  `on_session_start` lifecycle event.
+- Keep session scans report-only and document `hermes-ops-kit preflight` as the
+  required mechanism for excluding unsafe plugins before Hermes loads them.
+- Remove the invalid `config.yaml` plugin-hook installation guidance; Hermes
+  reserves the `hooks:` configuration block for executable shell hooks.
+- Install and verify the project `dev` extra from `install.sh`, ensuring Pillow
+  and `ruff` are available after an approved plugin installation.
+- Harden `install.sh` for Linux/macOS/WSL with platform, Python, and pip checks,
+  PEP 668-safe user installs, virtual-environment support, and portable
+  `/usr/bin/env bash` wrappers pinned to the installation interpreter.
+- Add Ubuntu and macOS CI validation for installer Bash syntax, plus ShellCheck
+  and an idempotent end-to-end installation test on Linux.
+- Resolve the fresh-install self-scan trust loop: complete scans of the official
+  repository may proceed despite expected privileged findings, while custom
+  repository overrides remain fail-closed unless explicitly trusted.
+- Install and verify Semgrep and Bandit automatically, and install Gitleaks
+  through Homebrew/Linuxbrew or pinned Go module version `v8.30.1`.
+- Add `install-wsl.sh` to bootstrap Ubuntu/Debian WSL prerequisites before
+  delegating to the cross-platform installer.
+- Make installer and quickstart output explicit that a normal gateway restart
+  does not run preflight, and show the safe restart command.
+
 ### Vault Management
 
 - **`backup-vault`** — exports all Bitwarden/Vaultwarden refs to a fingerprint-only JSON
@@ -174,4 +199,4 @@ pipeline with 23 env var → secret ref mappings.
 **Tests** — 92 tests across security, snapshots, CLI integration, and
 simulator scenarios.
 
-[0.2.0]: https://github.com/your-org/hermes-ops-kit/releases/tag/v0.2.0
+[0.2.0]: https://github.com/redoracle/hermes-ops-kit/releases/tag/v0.2.0

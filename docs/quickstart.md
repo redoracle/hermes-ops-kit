@@ -11,7 +11,9 @@ Get Hermes Ops Kit running in under 10 minutes.
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.11+
+- Linux, macOS, or Windows through WSL for `install.sh`
+- pip, Git, and Bash
 - A running Bitwarden/Vaultwarden server (self-hosted or cloud)
 - `bw` CLI installed and in PATH: `npm install -g @bitwarden/cli` (or `brew install bitwarden-cli`)
 - Hermes Agent 0.15.x installed and configured
@@ -28,6 +30,19 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+The automated `install.sh` path installs the project `dev` extra and verifies
+Pillow and `ruff`. For this manual virtual-environment path, install the same
+tooling with `pip install -e '.[dev]'`.
+
+On Windows, run this repository from WSL:
+
+```bash
+bash install-wsl.sh
+```
+
+The WSL bootstrap installs the required Ubuntu/Debian packages, including Go
+for the pinned Gitleaks installation, then delegates to `install.sh`.
 
 ## Bootstrap Secrets
 
@@ -92,7 +107,21 @@ image_gen:
   model: auto
 ```
 
-Restart Hermes Agent.
+Restart Hermes Agent with preflight enforcement:
+
+```bash
+hermes-ops-kit preflight && hermes gateway restart
+```
+
+The plugin automatically runs a cached, report-only plugin security scan when
+each Hermes session starts. No `hooks:` entry is required in
+`~/.hermes/config.yaml`. A normal `hermes gateway restart` does not run
+preflight. To preview or apply security decisions before plugins load:
+
+```bash
+hermes-ops-kit preflight --dry-run
+hermes-ops-kit preflight && hermes gateway restart
+```
 
 ## Verify
 

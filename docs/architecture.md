@@ -267,9 +267,9 @@ hermes-ops-kit preflight
 1. Hermes starts → loads plugin manifest (`plugin.yaml`)
 2. Calls `register(ctx)` in `__init__.py`
 3. Ops Kit registers 7 tools, 2 hooks, 1 CLI command, 1 skill
-4. Startup hook: checks `~/.hermes/.env` permissions (must be chmod 600)
+4. Session-start hook: checks permissions and reports cached plugin scan decisions
 5. Post-tool-call hook: redacts output for every tool call
-6. Preflight hook (optional): scans all plugins → blocks unsafe ones from loading
+6. Preflight command (optional): scans all plugins → blocks unsafe ones from loading
 
 ## Subprocess Adapter Pattern
 

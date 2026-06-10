@@ -1,6 +1,6 @@
 # Hermes Hook Integration — Plugin Security Scanner
 
-> How to wire the plugin scanner into Hermes startup, install, and update hooks.
+> How the plugin scanner integrates with Hermes sessions and preflight.
 
 ---
 
@@ -8,62 +8,30 @@
 
 Hermes lifecycle hooks can run the scanner for reporting and post-load checks:
 
-- **on_startup** — Report on loaded plugins; cannot gate plugin loading
-- **on_plugin_install** — Deep scan on first install
-- **on_plugin_update** — Force rescan on git pull / update
+- **on_session_start** — Report on loaded plugins; cannot gate plugin loading
+- **install.sh security gate** — Deep scan before first install
+- **manual update scan** — Force rescan after git pull / update
 
 For actual boot enforcement, use the preflight command documented below.
+A normal `hermes gateway restart` does not run preflight; it only triggers the
+report-only session hook after plugins load.
 
 ## Configuration
 
-Add to `~/.hermes/config.yaml`:
+No hook configuration is required. When `hermes-ops-kit` is enabled, its
+Python plugin registration subscribes `plugin_security_scan` to Hermes
+`on_session_start`.
 
-```yaml
-hooks:
-  # ── Startup: fast scan of all plugins ──
-  on_startup:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: startup
-        block_on: [critical, high]
-        timeout_seconds: 12
-      on_failure: warn # Warn but don't block Hermes startup
-
-  # ── Install: deep scan of new plugin ──
-  on_plugin_install:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: install
-        block_on: [critical, high]
-        timeout_seconds: 60
-      on_failure: block # Block install if scan fails critically
-
-  # ── Update: force rescan on git pull ──
-  on_plugin_update:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: update
-        block_on: [critical, high]
-        timeout_seconds: 60
-      on_failure: block
-
-  # ── Uninstall: cleanup cache ──
-  on_plugin_uninstall:
-    - plugin: hermes-ops-kit
-      hook: plugin_cache_cleanup
-```
+Do not add `plugin:` / `hook:` entries under `~/.hermes/config.yaml` `hooks:`.
+That block configures shell-command hooks and requires a `command` field.
 
 ## Hook Behavior by Profile
 
-| Hook                | Profile | Categories      | Timeout | On Blocked         |
-| ------------------- | ------- | --------------- | ------- | ------------------ |
-| on_startup          | startup | secrets, policy | 12s     | Warn, skip plugin  |
-| on_plugin_install   | install | secrets, policy | 60s     | Block installation |
-| on_plugin_update    | update  | secrets, policy | 60s     | Block update       |
-| on_plugin_uninstall | —       | —               | —       | Clean cache entry  |
+| Trigger                    | Profile | Categories      | Timeout | Behavior           |
+| -------------------------- | ------- | --------------- | ------- | ------------------ |
+| `on_session_start`         | startup | secrets, policy | 12s     | Report only        |
+| `install.sh` security gate | install | secrets, policy | 60s     | Block installation |
+| Manual update scan         | update  | secrets, policy | 60s     | Report / exit code |
 
 ## CI/CD Usage
 
@@ -107,9 +75,9 @@ approval:
   mode: auto
 ```
 
-## Legacy Startup Hook Flow
+## Session Start Hook Flow
 
-The startup hook is informational because Hermes loads plugins before firing it:
+The session hook is informational because Hermes loads plugins before firing it:
 
 ```text
 Hermes starts
@@ -118,10 +86,12 @@ Hermes starts
 Hermes loads configured plugins
     │
     ▼
-on_startup hook reports findings
+on_session_start hook reports findings
 ```
 
 Use `hermes-ops-kit preflight && hermes gateway run` to gate loading.
+For a one-off safe restart, run
+`hermes-ops-kit preflight && hermes gateway restart`.
 
 ## Manual Scan After Approval
 
@@ -189,9 +159,10 @@ classified as topic content (INFO), not attacks (ERROR).
 
 ## Pre-Boot Enforcement (Preflight)
 
-> **Hermes `startup` hooks fire AFTER plugin loading.** The scanner cannot
-> block plugins at runtime because by the time the hook fires, plugins are
-> already loaded. Instead, ops-kit provides a **preflight command** that runs
+> **Hermes session hooks fire AFTER plugin loading.** The scanner cannot block
+> plugins at runtime because by the time the hook fires, plugins are already
+> loaded. A normal gateway restart does not run preflight. Instead, ops-kit
+> provides a **preflight command** that runs
 > before Hermes boots and synchronizes scanner decisions with
 > `~/.hermes/config.yaml`.
 
@@ -232,6 +203,9 @@ hermes-ops-kit preflight --json
 
 # Safe boot: preflight gates Hermes startup
 alias hermes-safe='hermes-ops-kit preflight && hermes gateway run'
+
+# Safe one-off gateway restart
+hermes-ops-kit preflight && hermes gateway restart
 ```
 
 ### Supervisor Integration
@@ -257,15 +231,15 @@ ExecStart=/usr/local/bin/hermes gateway run
 
 ### Enforcement Rules
 
-| Risk Level | Approved? | Action                                         |
-| ---------- | --------- | ---------------------------------------------- |
-| NONE / LOW | —         | Existing opt-in state preserved                |
-| MEDIUM     | No        | Added to `plugins.disabled`                    |
-| MEDIUM     | Yes       | Existing opt-in state preserved                |
-| HIGH       | No        | Added to `plugins.disabled`                    |
-| HIGH       | Yes       | Existing opt-in state preserved                |
-| CRITICAL   | No        | **Blocks boot** (exit 2)                       |
-| CRITICAL   | Yes       | **Still blocks boot**; use a rule override     |
+| Risk Level | Approved? | Action                                     |
+| ---------- | --------- | ------------------------------------------ |
+| NONE / LOW | —         | Existing opt-in state preserved            |
+| MEDIUM     | No        | Added to `plugins.disabled`                |
+| MEDIUM     | Yes       | Existing opt-in state preserved            |
+| HIGH       | No        | Added to `plugins.disabled`                |
+| HIGH       | Yes       | Existing opt-in state preserved            |
+| CRITICAL   | No        | **Blocks boot** (exit 2)                   |
+| CRITICAL   | Yes       | **Still blocks boot**; use a rule override |
 
 ### MCP Enforcement Rules
 

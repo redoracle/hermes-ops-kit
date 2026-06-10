@@ -106,7 +106,7 @@ infrastructure configuration. This document catalogs threats and mitigations.
   fine-grained whitelisting without blanket plugin approval
 - **Policy engine integration** (`check_plugin_security()`): centralized risk evaluation with
   declarative rules in `policy/rules.yaml`
-- **Scan profiles**: startup (12s fast scan on Hermes boot), install/update (60s deep scan),
+- **Scan profiles**: startup (12s cached scan on Hermes session start), install/update (60s deep scan),
   manual (120s adversarial scan), ci (60s CI/CD pipeline scan)
 - **Anti-false-positive measures** (v0.2.0):
   - Shannon entropy analysis: keys with <3.2 bits/char entropy are downgraded (real keys are random)

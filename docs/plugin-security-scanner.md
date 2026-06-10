@@ -150,7 +150,7 @@ A single CRITICAL finding always results in CRITICAL overall (no cap applies).
 
 | Profile | Categories                 | Timeout | Cache TTL | Blocks on      | Use Case                 |
 | ------- | -------------------------- | ------- | --------- | -------------- | ------------------------ |
-| startup | secrets, policy (built-in) | 12s     | 7 days    | critical, high | Every Hermes start       |
+| startup | secrets, policy (built-in) | 12s     | 7 days    | critical, high | Every Hermes session     |
 | install | secrets, policy            | 60s     | 0 (fresh) | critical, high | First plugin install     |
 | update  | secrets, policy            | 60s     | 0 (fresh) | critical, high | Plugin git pull / update |
 | manual  | secrets, policy            | 120s    | 0 (fresh) | critical       | On-demand full scan      |
@@ -359,18 +359,15 @@ python3 tests/test_simulator.py --all
 
 ## Integration with Hermes
 
-The scanner is designed to run as a hook during Hermes startup:
+The plugin registers `plugin_security_scan` on Hermes `on_session_start`
+automatically when it loads. The hook uses the cached `startup` profile and
+reports blocked or deferred plugins, but it cannot prevent plugins from
+loading because session hooks run after plugin discovery.
 
-```yaml
-# ~/.hermes/config.yaml
-hooks:
-  on_startup:
-    - plugin: hermes-ops-kit
-      hook: plugin_security_scan
-      config:
-        profile: startup
-        block_on: [critical, high]
-```
+Do not add a `plugin:` / `hook:` entry under `~/.hermes/config.yaml` `hooks:`.
+Hermes reserves that configuration block for executable shell hooks.
+
+Use `hermes-ops-kit preflight` before Hermes starts for actual enforcement.
 
 ## Limitations
 

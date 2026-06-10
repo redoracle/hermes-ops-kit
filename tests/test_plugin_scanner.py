@@ -1274,6 +1274,55 @@ class TestPreflightEnforcement:
         decisions_module.preflight_decision(dry_run=True, force_scan=True)
         assert calls == [True]
 
+    def test_programmatic_preflight_excludes_trusted_plugins(self, monkeypatch):
+        import policy.decisions as decisions_module
+        import security.plugin_scanner.enforce as enforce
+        import security.plugin_scanner.scanner as scanner
+
+        captured: list[str] = []
+        monkeypatch.setattr(
+            scanner,
+            "scan_all",
+            lambda **_kwargs: [
+                self._result("hermes-ops-kit", RiskLevel.CRITICAL),
+                self._result("other-plugin", RiskLevel.LOW),
+            ],
+        )
+
+        def fake_decisions(results):
+            captured.extend(result.plugin_name for result in results)
+            return {
+                "ok": True,
+                "allowed": captured,
+                "approved": [],
+                "deferred": [],
+                "blocked": [],
+                "details": {},
+                "scan_duration_ms": 0,
+            }
+
+        monkeypatch.setattr(enforce, "get_enforcement_decisions", fake_decisions)
+        monkeypatch.setattr(
+            enforce,
+            "get_mcp_enforcement_decisions",
+            lambda: {
+                "ok": True,
+                "allowed": [],
+                "approved": [],
+                "disable": [],
+                "blocked": [],
+            },
+        )
+        monkeypatch.setattr(enforce, "apply_enforcement", lambda *args, **kwargs: {})
+
+        result = decisions_module.preflight_decision(
+            dry_run=True,
+            exclude_plugins={"hermes-ops-kit"},
+        )
+
+        assert captured == ["other-plugin"]
+        assert result["ok"] is True
+
     def test_mcp_critical_blocks_even_when_approved(self):
         from security.plugin_scanner.enforce import get_mcp_enforcement_decisions
 
@@ -1829,7 +1878,7 @@ class TestBootstrapFlow:
         monkeypatch.setattr(
             bootstrap,
             "preflight_decision",
-            lambda dry_run, force_scan: {
+            lambda dry_run, force_scan, exclude_plugins=None: {
                 "ok": True,
                 "decisions": {
                     "allowed": [],
