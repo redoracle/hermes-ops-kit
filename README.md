@@ -137,9 +137,13 @@ hermes-key-rotate --status
 
 `install.sh` supports Linux, macOS, and Windows through WSL. It requires
 Python 3.11+, pip, Git, and Bash. Native Windows PowerShell/cmd is not
-supported by the Bash installer. When run inside a virtual environment, the
-installer keeps dependencies and generated CLI wrappers pinned to that
-environment; otherwise it uses the current user's Python package site.
+supported by the Bash installer. The plugin package is installed into the
+active Python environment used by Hermes. Optional Python scanners are kept in
+an isolated environment under `~/.local/share/hermes-ops-kit` (or
+`$XDG_DATA_HOME/hermes-ops-kit`) so their dependencies cannot modify the active
+Hermes, Conda, system, or user-site Python environment. Upgrades automatically
+migrate legacy Semgrep versions with conflicting dependencies out of the active
+Python environment while preserving compatible existing tools.
 
 For Windows, clone the repository inside WSL and run `bash install-wsl.sh`.
 The WSL bootstrap installs Python, pip, Git, and Go through `apt-get`, then
@@ -187,22 +191,22 @@ A normal `hermes gateway restart` does **not** run preflight. Use
 All provider SDKs are included as core dependencies — `pip install hermes-ops-kit`
 installs everything needed for full functionality across all 6 providers.
 `install.sh` installs the `dev` extra as well and verifies both Pillow and
-`ruff`, plus Semgrep and Bandit. It also installs pinned Gitleaks `v8.30.1`
-through Go, or the package-managed Gitleaks version through
-Homebrew/Linuxbrew when Go is unavailable.
+`ruff`, plus Semgrep and Bandit in an isolated scanner environment. It also
+installs pinned Gitleaks `v8.30.1` through Go, or the package-managed Gitleaks
+version through Homebrew/Linuxbrew when Go is unavailable.
 
-| Package             | Required for                                                  |
-| ------------------- | ------------------------------------------------------------- |
-| `requests>=2.31`    | Google validation, admin API calls, GitHub curl fallback      |
-| `PyYAML>=6.0`       | Config parsing (assistants.yaml, routes.yaml, env_projection) |
-| `ruamel.yaml>=0.18` | YAML round-trip with comment preservation                     |
-| `openai>=2.0`       | OpenAI + DeepSeek validation, NVIDIA NIM API (OpenAI-compat)  |
-| `anthropic>=0.40`   | Anthropic validation & smoke test                             |
-| `google-auth>=2.0`  | Google auto-creation via API Keys API (ADC)                   |
-| `google-genai>=1.0` | Gemini image generation (Nano Banana)                         |
-| `PyJWT>=2.8`        | GitHub App RS256 JWT token minting                            |
-| `Pillow>=10.0`      | Image metadata and format handling                            |
-| `fal-client>=0.6`   | FAL.ai Flux/Stable Diffusion cloud fallback                   |
+| Package                    | Required for                                                  |
+| -------------------------- | ------------------------------------------------------------- |
+| `requests>=2.31`           | Google validation, admin API calls, GitHub curl fallback      |
+| `PyYAML>=6.0`              | Config parsing (assistants.yaml, routes.yaml, env_projection) |
+| `ruamel.yaml>=0.18,<0.19`  | YAML round-trip with comment preservation                     |
+| `openai>=2.0`              | OpenAI + DeepSeek validation, NVIDIA NIM API (OpenAI-compat)  |
+| `anthropic>=0.40`          | Anthropic validation & smoke test                             |
+| `google-auth>=2.0`         | Google auto-creation via API Keys API (ADC)                   |
+| `google-genai>=1.0`        | Gemini image generation (Nano Banana)                         |
+| `PyJWT>=2.8`               | GitHub App RS256 JWT token minting                            |
+| `Pillow>=10.0`             | Image metadata and format handling                            |
+| `fal-client>=0.6`          | FAL.ai Flux/Stable Diffusion cloud fallback                   |
 
 ```bash
 pip install hermes-ops-kit  # everything included

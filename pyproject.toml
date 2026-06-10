@@ -7,7 +7,7 @@ dependencies = [
   # Core
   "requests>=2.31",       # Google validation, admin API calls, GitHub curl fallback
   "PyYAML>=6.0",          # Config parsing (assistants.yaml, routes.yaml, env_projection)
-  "ruamel.yaml>=0.18",    # YAML round-trip with comment preservation (assistant manager)
+  "ruamel.yaml>=0.18,<0.19",  # YAML round-trip; compatible with current Conda releases
   # Provider SDKs — all 5 providers, full validation + smoke test coverage
   "openai>=2.0",          # OpenAI + DeepSeek validation (DeepSeek is OpenAI-compatible)
   "anthropic>=0.40",      # Anthropic validation + smoke test

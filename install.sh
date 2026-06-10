@@ -17,6 +17,8 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_DIR="$HERMES_HOME/plugins/$PLUGIN_NAME"
 CONFIG_DIR="$HERMES_HOME/ops-kit"
 BIN_DIR="$HOME/.local/bin"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/$PLUGIN_NAME"
+SCANNER_ROOT="$DATA_DIR/scanners"
 TRUST_REPO="${HERMES_OPS_KIT_TRUST_REPO:-false}"
 GITLEAKS_VERSION="${HERMES_OPS_KIT_GITLEAKS_VERSION:-v8.30.1}"
 if [ -z "${HERMES_OPS_KIT_REPO:-}" ] && [ -z "${HERMES_AI_BRIDGE_REPO:-}" ]; then
@@ -33,21 +35,25 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1 — install it first"
 }
 
-pip_install_user() {
-  if python3 -c 'import sys; raise SystemExit(sys.prefix == sys.base_prefix)'; then
-    python3 -m pip install --disable-pip-version-check "$@"
+python_is_runtime() {
+  "$PYTHON_BIN" -c 'import pathlib, sys; raise SystemExit(not (sys.prefix != sys.base_prefix or pathlib.Path(sys.prefix, "conda-meta").is_dir()))'
+}
+
+pip_install_package() {
+  if python_is_runtime; then
+    "$PYTHON_BIN" -m pip install --disable-pip-version-check "$@"
     return $?
   fi
 
-  if python3 -m pip install --disable-pip-version-check --user "$@"; then
+  if "$PYTHON_BIN" -m pip install --disable-pip-version-check --user "$@"; then
     return 0
   fi
 
   # Debian/Ubuntu, Homebrew, and other PEP 668 environments reject even
   # user-site installs unless this explicit override is present. Combining
   # it with --user keeps packages out of the managed system site-packages.
-  if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
-    python3 -m pip install \
+  if "$PYTHON_BIN" -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+    "$PYTHON_BIN" -m pip install \
       --disable-pip-version-check \
       --user \
       --break-system-packages \
@@ -56,6 +62,104 @@ pip_install_user() {
   fi
 
   return 1
+}
+
+create_scanner_venv() {
+  local command_name="$1"
+  local scanner_venv="$SCANNER_ROOT/$command_name"
+
+  if [ -x "$scanner_venv/bin/python" ]; then
+    return 0
+  fi
+
+  log "Creating isolated $command_name environment at $scanner_venv"
+  mkdir -p "$SCANNER_ROOT"
+  if ! "$PYTHON_BIN" -m venv "$scanner_venv"; then
+    warn "Could not create the isolated $command_name environment."
+    warn "On Debian/Ubuntu, install it with: sudo apt-get install python3-venv"
+    return 1
+  fi
+}
+
+reset_scanner_venv() {
+  local command_name="$1"
+
+  rm -rf "${SCANNER_ROOT:?}/$command_name"
+  create_scanner_venv "$command_name"
+}
+
+scanner_works() {
+  local command_name="$1"
+
+  "$SCANNER_ROOT/$command_name/bin/$command_name" --version >/dev/null 2>&1
+}
+
+external_scanner_works() {
+  local command_name="$1"
+  local executable
+
+  executable="$(command -v "$command_name" 2>/dev/null)" &&
+    "$executable" --version >/dev/null 2>&1
+}
+
+install_scanner() {
+  local command_name="$1"
+  local scanner_bin="$SCANNER_ROOT/$command_name/bin"
+  shift
+
+  create_scanner_venv "$command_name" &&
+    "$scanner_bin/python" -m pip install --disable-pip-version-check "$@" &&
+    "$scanner_bin/$command_name" --version >/dev/null 2>&1
+}
+
+publish_scanner() {
+  local command_name="$1"
+  local launcher="$BIN_DIR/$command_name"
+  local target="$SCANNER_ROOT/$command_name/bin/$command_name"
+
+  mkdir -p "$BIN_DIR"
+  if [ -e "$launcher" ] || [ -L "$launcher" ]; then
+    if [ -L "$launcher" ] && [ "$(readlink "$launcher")" = "$target" ]; then
+      return 0
+    fi
+    warn "Not replacing existing executable: $launcher"
+    warn "The isolated $command_name binary is available at: $target"
+    return 1
+  fi
+
+  ln -s "$target" "$launcher"
+}
+
+migrate_legacy_semgrep() {
+  if ! "$PYTHON_BIN" - <<'PY'
+from importlib import metadata
+
+try:
+    requirements = metadata.requires("semgrep") or []
+except metadata.PackageNotFoundError:
+    raise SystemExit(1)
+
+normalized = [requirement.lower().replace(" ", "") for requirement in requirements]
+conflicts = any(
+    requirement.startswith("ruamel.yaml") and "<0.18" in requirement
+    for requirement in normalized
+)
+raise SystemExit(not conflicts)
+PY
+  then
+    return 0
+  fi
+
+  log "Migrating legacy Semgrep out of the active Python environment"
+  "$PYTHON_BIN" -m pip uninstall --disable-pip-version-check -y semgrep ||
+    fail "Could not remove the legacy Semgrep package."
+
+  # Older Semgrep releases pin boltons~=21.0, which breaks current Conda.
+  # Restore Conda's requirement after removing the legacy scanner package.
+  if [ -d "$("$PYTHON_BIN" -c 'import sys; print(sys.prefix)')/conda-meta" ]; then
+    pip_install_package "boltons>=23" ||
+      fail "Could not restore Conda's boltons dependency after scanner migration."
+  fi
 }
 
 install_gitleaks() {
@@ -138,7 +242,7 @@ fi
 # Run the static scanner before pip installation or Hermes enablement.
 INSTALL_ALLOWED=false
 log "Running pre-install static security gate"
-if PYTHONPATH="$PLUGIN_DIR" python3 - "$PLUGIN_DIR" "$PLUGIN_NAME" "$TRUST_REPO" <<'PY'
+if PYTHONPATH="$PLUGIN_DIR" "$PYTHON_BIN" - "$PLUGIN_DIR" "$PLUGIN_NAME" "$TRUST_REPO" <<'PY'
 import sys
 from security.plugin_scanner.enforce import get_enforcement_decisions
 from security.plugin_scanner.scanner import scan_plugin
@@ -190,87 +294,63 @@ fi
 
 # ── Python package ──────────────────────────────────────────────────
 if $INSTALL_ALLOWED; then
+  migrate_legacy_semgrep
+
   log "Installing Python package and quality tooling"
-  if ! pip_install_user -e "${PLUGIN_DIR}[dev]" && \
-    ! pip_install_user "${PLUGIN_DIR}[dev]"; then
+  if ! pip_install_package -e "${PLUGIN_DIR}[dev]" && \
+    ! pip_install_package "${PLUGIN_DIR}[dev]"; then
     fail "Python package installation failed. Check pip output above for the failing dependency."
   fi
 
-  python3 -c 'from PIL import Image' || fail "Pillow verification failed after installation"
-  python3 -m ruff --version >/dev/null || fail "ruff verification failed after installation"
+  "$PYTHON_BIN" -c 'from PIL import Image' || fail "Pillow verification failed after installation"
+  "$PYTHON_BIN" -m ruff --version >/dev/null || fail "ruff verification failed after installation"
   ok "Python package, Pillow, and ruff installed and verified"
 
   log "Installing external security scanners"
 
-  # Bandit — pure Python, always reliable
-  pip_install_user "bandit" || \
-    fail "Bandit installation failed. Check pip output above."
-  BANDIT_BIN="$(command -v bandit 2>/dev/null || printf '%s/bandit' "$BIN_DIR")"
-  PATH="$BIN_DIR:$PATH" "$BANDIT_BIN" --version >/dev/null || \
-    fail "Bandit verification failed after installation"
-  ok "Bandit installed and verified"
-
-  # Semgrep — bundles a native `semgrep-core` binary.  Pip wheels don't
-  # always ship it correctly (especially in conda or on platforms without
-  # prebuilt wheels).  The scanner degrades gracefully when semgrep is
-  # absent, so we try hard but don't hard-fail.
-  _install_semgrep() {
-    local _semgrep_bin
-    _semgrep_bin="$(command -v semgrep 2>/dev/null || printf '%s/semgrep' "$BIN_DIR")"
-
-    # Attempt 1: pip install (fast, works when a wheel is available)
-    if pip_install_user "semgrep"; then
-      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
-        return 0
-      fi
-      warn "Semgrep installed but 'semgrep --version' failed — semgrep-core may be missing"
+  # Older Semgrep releases conflict with ops-kit's ruamel.yaml requirement.
+  # Give every optional scanner its own environment so neither the application
+  # nor another scanner can be modified by its dependency resolver.
+  if scanner_works bandit; then
+    if publish_scanner bandit; then
+      ok "Bandit installed, verified, and published (isolated)"
     fi
-
-    # Attempt 2: force-reinstall without cache (re-fetches the wheel)
-    log "Retrying: pip install --force-reinstall --no-cache-dir semgrep"
-    if pip_install_user --force-reinstall --no-cache-dir "semgrep"; then
-      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
-        return 0
-      fi
+  elif external_scanner_works bandit; then
+    ok "Using existing Bandit installation"
+  elif install_scanner bandit "bandit"; then
+    if publish_scanner bandit; then
+      ok "Bandit installed, verified, and published (isolated)"
     fi
-
-    # Attempt 3: try python3 -m pip install (bypass conda wrapper)
-    log "Retrying: python3 -m pip install --force-reinstall --no-cache-dir semgrep"
-    if python3 -m pip install --disable-pip-version-check --force-reinstall --no-cache-dir "semgrep" 2>&1; then
-      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
-        return 0
-      fi
-    fi
-
-    # Attempt 4: pin to a glibc-2.31-compatible semgrep version.
-    # Semgrep ≥ 1.97.0 ships only manylinux_2_34 wheels (glibc ≥ 2.34).
-    # On older glibc systems the wheel installs but semgrep-core is missing
-    # or broken (e.g. a Windows .exe bundled in a Linux wheel).
-    log "Retrying: semgrep==1.96.0 (last manylinux_2_31 wheel, works with glibc ≥ 2.31)"
-    if python3 -m pip install --disable-pip-version-check --force-reinstall --no-cache-dir "semgrep==1.96.0" 2>&1; then
-      # semgrep 1.96.0 depends on old opentelemetry which needs pkg_resources
-      python3 -m pip install --disable-pip-version-check "setuptools>=65,<70" 2>/dev/null || true
-      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
-        return 0
-      fi
-    fi
-
-    return 1
-  }
-
-  if _install_semgrep; then
-    ok "Semgrep installed and verified"
-    # Semgrep 1.96.0 drags in old ruamel.yaml — restore the ops-kit requirement
-    python3 -m pip install --disable-pip-version-check "ruamel-yaml>=0.18" 2>/dev/null || true
   else
-    warn "Semgrep installation failed — plugin scanner will still work with built-in detectors."
-    warn "Semgrep is an optional enhancement (see docs/external-security-tools.md)."
-    warn "You can retry later: pip install --force-reinstall --no-cache-dir semgrep"
-    warn "Or use the official installer: curl -fsSL https://semgrep.dev/install | python3 -"
+    warn "Bandit installation failed; the plugin scanner will use built-in detectors."
+  fi
+
+  if scanner_works semgrep; then
+    if publish_scanner semgrep; then
+      ok "Semgrep installed, verified, and published (isolated)"
+    fi
+  elif external_scanner_works semgrep; then
+    ok "Using existing Semgrep installation"
+  elif install_scanner semgrep "semgrep"; then
+    if publish_scanner semgrep; then
+      ok "Semgrep installed, verified, and published (isolated)"
+    fi
+  else
+    warn "Latest Semgrep is unavailable; trying Semgrep 1.96.0 for older Linux systems."
+    if reset_scanner_venv semgrep &&
+      install_scanner semgrep "semgrep==1.96.0" "setuptools>=65,<70"; then
+      if publish_scanner semgrep; then
+        ok "Semgrep 1.96.0 installed, verified, and published (isolated)"
+      fi
+    else
+      warn "Semgrep installation failed; the plugin scanner will use built-in detectors."
+      warn "See docs/external-security-tools.md for platform-specific options."
+    fi
   fi
 
   mkdir -p "$BIN_DIR"
   install_gitleaks
+  export PATH="$BIN_DIR:$PATH"
 else
   warn "Python package installation skipped until explicit approval"
 fi
@@ -293,6 +373,7 @@ for entry in \
   script="${entry##*:}"
   cat > "$BIN_DIR/$cli_name" << WRAPPER
 #!/usr/bin/env bash
+export PATH="$BIN_DIR:\$PATH"
 cd "$PLUGIN_DIR" && exec "$PYTHON_BIN" "$PLUGIN_DIR/$script" "\$@"
 WRAPPER
   chmod +x "$BIN_DIR/$cli_name"
@@ -349,7 +430,7 @@ ok "$HERMES_HOME/.env permissions set"
 
 # ── Security bootstrap ──────────────────────────────────────────────
 log "Running first-install security bootstrap"
-python3 "$PLUGIN_DIR/security/plugin_scanner/bootstrap.py" --headless --force
+"$PYTHON_BIN" "$PLUGIN_DIR/security/plugin_scanner/bootstrap.py" --headless --force
 ok "Security bootstrap completed"
 
 # ── Plugin enable ───────────────────────────────────────────────────
@@ -368,7 +449,7 @@ log "Running doctor"
 if command -v hermes-ops-kit >/dev/null 2>&1; then
   hermes-ops-kit doctor 2>/dev/null || true
 elif [ -x "$PLUGIN_DIR/hermes_key_rotate.py" ]; then
-  python3 "$PLUGIN_DIR/hermes_key_rotate.py" --doctor-secrets 2>/dev/null || true
+  "$PYTHON_BIN" "$PLUGIN_DIR/hermes_key_rotate.py" --doctor-secrets 2>/dev/null || true
 fi
 
 # ── Done ────────────────────────────────────────────────────────────

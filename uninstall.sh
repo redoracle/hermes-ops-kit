@@ -13,6 +13,9 @@ PLUGIN_NAME="hermes-ops-kit"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_DIR="$HERMES_HOME/plugins/$PLUGIN_NAME"
 CONFIG_DIR="$HERMES_HOME/ops-kit"
+BIN_DIR="$HOME/.local/bin"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/$PLUGIN_NAME"
+SCANNER_ROOT="$DATA_DIR/scanners"
 PURGE=false
 PURGE_ENV=false
 
@@ -55,6 +58,18 @@ if python3 -m pip show hermes-ops-kit >/dev/null 2>&1; then
   ok "Python package uninstalled"
 fi
 
+# ── Managed scanner environment ─────────────────────────────────────
+for tool in bandit semgrep; do
+  if [ -L "$BIN_DIR/$tool" ] && [ "$(readlink "$BIN_DIR/$tool")" = "$SCANNER_ROOT/$tool/bin/$tool" ]; then
+    rm -f "$BIN_DIR/$tool"
+  fi
+done
+if [ -d "$SCANNER_ROOT" ]; then
+  rm -rf "$SCANNER_ROOT"
+  rmdir "$DATA_DIR" 2>/dev/null || true
+  ok "Isolated scanner environment removed"
+fi
+
 # ── Config (optional purge) ─────────────────────────────────────────
 if $PURGE; then
   if [ -d "$CONFIG_DIR" ]; then
@@ -82,7 +97,7 @@ if $PURGE_ENV; then
     log "Env files preserved (confirmation not given)"
   fi
 else
-  log "~/.hermes/.env preserved (use --purge-env to remove)"
+  log "$HERMES_HOME/.env preserved (use --purge-env to remove)"
 fi
 
 echo

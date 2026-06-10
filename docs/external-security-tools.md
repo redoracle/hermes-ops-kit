@@ -1,10 +1,16 @@
 # External Security Tools — Installation Guide
 
-`install.sh` installs and verifies Semgrep and Bandit automatically. It also
+`install.sh` installs and verifies Semgrep and Bandit automatically in an
+isolated scanner environment under `~/.local/share/hermes-ops-kit` (or
+`$XDG_DATA_HOME/hermes-ops-kit`). This is required because Semgrep releases can
+have Python dependencies that conflict with Hermes Ops Kit or Conda. It also
 installs Gitleaks when Homebrew/Linuxbrew or Go is available. Go installations
 are pinned to `v8.30.1`; Homebrew/Linuxbrew installations use the
 package-managed version. The Plugin Security Scanner still works with built-in
-detectors when an external tool is unavailable.
+detectors when an external tool is unavailable. When upgrading from an older
+installer, Semgrep versions with a conflicting `ruamel.yaml<0.18` requirement
+are migrated out of the active Python environment. Compatible existing tools
+are preserved and reused.
 
 Hermes Ops Kit integrates with three industry-standard external security tools.
 They are not bundled in the repository. The automated installer provisions
@@ -59,11 +65,13 @@ bandit --version
 # gitleaks — pinned Go build
 GOBIN="$HOME/.local/bin" go install github.com/zricethezav/gitleaks/v8@v8.30.1
 
-# Semgrep
-python3 -m pip install semgrep
-
-# Bandit
-python3 -m pip install bandit
+# Semgrep + Bandit in separate isolated environments
+python3 -m venv "$HOME/.local/share/hermes-ops-kit/scanners/semgrep"
+python3 -m venv "$HOME/.local/share/hermes-ops-kit/scanners/bandit"
+"$HOME/.local/share/hermes-ops-kit/scanners/semgrep/bin/python" -m pip install semgrep
+"$HOME/.local/share/hermes-ops-kit/scanners/bandit/bin/python" -m pip install bandit
+ln -sfn "$HOME/.local/share/hermes-ops-kit/scanners/semgrep/bin/semgrep" "$HOME/.local/bin/semgrep"
+ln -sfn "$HOME/.local/share/hermes-ops-kit/scanners/bandit/bin/bandit" "$HOME/.local/bin/bandit"
 ```
 
 ### Linux (RHEL / Fedora / CentOS)
@@ -188,11 +196,11 @@ print(f"Bandit:   {_bandit_available()}")
 
 ## Troubleshooting
 
-| Symptom                         | Likely Cause                                        | Fix                                                                                                                                          |
-| ------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `semgrep: command not found`    | Not on PATH                                         | `pip install semgrep` or use full path                                                                                                       |
-| `Failed to find semgrep-core`   | Wheel didn't bundle native binary (common in conda) | `pip install --force-reinstall --no-cache-dir semgrep`, or use the official installer: `curl -fsSL https://semgrep.dev/install \| python3 -` |
-| `gitleaks: command not found`   | Go/Homebrew unavailable                             | Install Go, then rerun `install.sh`                                                                                                          |
-| Semgrep scan timeout (60s)      | Too many files / large repo                         | Scanner auto-caps at 5MB per file                                                                                                            |
-| gitleaks returns empty on macOS | No git repo (--no-git used)                         | Normal — scanner passes `--no-git` flag                                                                                                      |
-| Bandit import error             | Not installed                                       | `pip install bandit`                                                                                                                         |
+| Symptom                         | Likely Cause                               | Fix                                                                             |
+| ------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------- |
+| `semgrep: command not found`    | `~/.local/bin` is not on PATH              | Add `export PATH="$HOME/.local/bin:$PATH"` to the shell profile                 |
+| `Failed to find semgrep-core`   | No compatible Semgrep wheel                | Rerun `install.sh`; it retries with the older-Linux-compatible Semgrep `1.96.0` |
+| `gitleaks: command not found`   | Go/Homebrew unavailable                    | Install Go, then rerun `install.sh`                                             |
+| Semgrep scan timeout (60s)      | Too many files / large repo                | Scanner auto-caps at 5MB per file                                               |
+| gitleaks returns empty on macOS | No git repo (--no-git used)                | Normal — scanner passes `--no-git` flag                                         |
+| Bandit import error             | Isolated scanner environment is incomplete | Remove `~/.local/share/hermes-ops-kit/scanners`, then rerun `install.sh`        |
