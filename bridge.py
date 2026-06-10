@@ -317,6 +317,26 @@ def main():
         help="setup, doctor, or repair arguments",
     )
 
+    # Plugin security scanner
+    pl = sub.add_parser("plugin", help="Plugin security scanner")
+    pl.add_argument(
+        "plugin_action",
+        nargs="?",
+        default="scan",
+        choices=[
+            "scan",
+            "policy",
+            "approve",
+            "revoke",
+            "override",
+            "disable",
+            "enable",
+            "cache",
+            "rules",
+        ],
+    )
+    pl.add_argument("plugin_args", nargs=argparse.REMAINDER, default=[])
+
     # Plugin security preflight
     pf = sub.add_parser("preflight", help="Scan + enforce plugin security before boot")
     pf.add_argument(
@@ -353,6 +373,7 @@ def main():
         "install",
         "route-test",
         "preflight",
+        "plugin",
     ):
         # Delegate to commands.py plugin handler
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -368,6 +389,7 @@ def main():
             "budget": "budget_action",
             "maintenance": "maintenance_action",
             "image": "image_action",
+            "plugin": "plugin_action",
         }
         attr = action_map.get(args.command, "")
         if attr and hasattr(args, attr):
@@ -376,6 +398,8 @@ def main():
             cmd_args.extend(getattr(args, "assistant_args", []))
         if args.command == "mcp":
             cmd_args.extend(getattr(args, "mcp_args", []))
+        if args.command == "plugin":
+            cmd_args.extend(getattr(args, "plugin_args", []))
         if args.command == "image":
             cmd_args.extend(getattr(args, "image_args", []))
         if args.command == "install":
