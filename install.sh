@@ -260,6 +260,8 @@ if $INSTALL_ALLOWED; then
 
   if _install_semgrep; then
     ok "Semgrep installed and verified"
+    # Semgrep 1.96.0 drags in old ruamel.yaml — restore the ops-kit requirement
+    python3 -m pip install --disable-pip-version-check "ruamel-yaml>=0.18" 2>/dev/null || true
   else
     warn "Semgrep installation failed — plugin scanner will still work with built-in detectors."
     warn "Semgrep is an optional enhancement (see docs/external-security-tools.md)."
