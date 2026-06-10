@@ -614,10 +614,12 @@ def _cmd_rules(args: list[str]) -> int:
             # Check available tools
             semgrep_ok = _check_semgrep()
             gitleaks_ok = _check_gitleaks()
+            bandit_ok = _check_bandit()
 
             result = {
                 "semgrep_available": semgrep_ok,
                 "gitleaks_available": gitleaks_ok,
+                "bandit_available": bandit_ok,
                 "custom_rules": _list_custom_rules(),
                 "message": "Custom rules are bundled with the scanner. "
                 "Run `semgrep --config security/plugin_scanner/rules/` to use them.",
@@ -632,6 +634,9 @@ def _cmd_rules(args: list[str]) -> int:
                 )
                 console.print(
                     f"  gitleaks: {'available' if gitleaks_ok else 'not installed'}"
+                )
+                console.print(
+                    f"  Bandit:   {'available' if bandit_ok else 'not installed'}"
                 )
                 console.print(f"  Custom rules: {len(result['custom_rules'])} files")
                 for r in result["custom_rules"]:
@@ -675,6 +680,17 @@ def _check_gitleaks() -> bool:
 
     try:
         r = _sp.run(["gitleaks", "version"], capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _check_bandit() -> bool:
+    """Check if bandit is available."""
+    import subprocess as _sp
+
+    try:
+        r = _sp.run(["bandit", "--version"], capture_output=True, text=True, timeout=10)
         return r.returncode == 0
     except Exception:
         return False
