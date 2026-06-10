@@ -1,6 +1,7 @@
 # Hermes Ops Kit
 
-Multi-provider AI orchestration with key rotation, usage metrics, and remote assistant delegation.
+Operational and security workflows for provider routing, secret and key lifecycle, preflight
+plugin scanning, MCP auditing, cost governance, diagnostics, and remote assistant delegation.
 
 ## First-run setup
 

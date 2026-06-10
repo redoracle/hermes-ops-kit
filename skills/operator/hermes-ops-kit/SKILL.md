@@ -1,6 +1,6 @@
 ---
 name: hermes-ops-kit
-description: Hermes Ops Kit plugin workflows for secret storage, key rotation, usage metrics, and operator diagnostics.
+description: Hermes Ops Kit workflows for provider routing, secret and key lifecycle, preflight plugin scanning, MCP auditing, cost governance, and operator diagnostics.
 version: 1.0.0
 author: Hermes Agent
 license: MIT
@@ -11,16 +11,20 @@ metadata:
 
 # Hermes Ops Kit
 
-Use this skill when working with the `hermes-ops-kit` plugin: checking status, inspecting its secret store, rotating provider keys, rendering env projections, or creating new Vaultwarden items that the plugin can later consume.
+Use this skill when working with the `hermes-ops-kit` plugin: checking status, running preflight
+security checks, auditing plugins and MCP servers, inspecting its secret store, rotating provider
+keys, reviewing cost and usage metrics, or rendering environment projections.
 
 ## What this plugin is for
 
-Hermes Ops Kit is the bridge between Hermes and a Vaultwarden/Bitwarden-backed secret store. In this setup it provides:
+Hermes Ops Kit is the operational and security companion for Hermes Agent. In this setup it provides:
 
 - secret backend health checks
 - key rotation orchestration
 - secret listing / env rendering
-- usage metrics and assistant routing helpers
+- provider routing, usage metrics, and cost governance
+- plugin preflight enforcement and MCP auditing
+- operator diagnostics and remote assistant delegation
 
 It does *not* currently expose a dedicated generic `add-secret` subcommand. When you need to store a new credential for Hermes Ops Kit, use Bitwarden CLI item creation directly and verify the item afterwards.
 

@@ -3,7 +3,7 @@
   <h1 align="center">Hermes Ops Kit</h1>
   <p align="center">
     <strong>Operational &amp; security plugin for Hermes Agent</strong><br>
-    secret lifecycle · provider health · route profiles · plugin security · MCP audit · cost observability
+    provider routing · secret &amp; key lifecycle · preflight plugin security · MCP audit · cost governance · diagnostics
   </p>
 </p>
 

@@ -1,13 +1,12 @@
 # Hermes Ops Kit — Plugin Manifest
-# Portable Hermes plugin for AI provider routing, remote assistants,
-# usage metrics, key rotation, and Vaultwarden-backed secrets.
+# Portable Hermes operations and security plugin.
 
 name: hermes-ops-kit
 version: "0.2.0"
 description: >
-  Multi-provider AI orchestration with key rotation,
-  usage metrics, and remote assistant delegation — backed by
-  a self-hosted Vaultwarden secret store.
+  Operational and security plugin for Hermes Agent: provider routing,
+  secret and key lifecycle, preflight plugin scanning, MCP auditing,
+  cost governance, diagnostics, and remote assistant delegation.
 
 provides_tools:
   - ai_provider_invoke
