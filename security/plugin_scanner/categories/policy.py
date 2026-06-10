@@ -36,6 +36,17 @@ from security.plugin_scanner.findings import (  # pyright: ignore[reportMissingI
 
 # ── Constants ────────────────────────────────────────────────────────
 
+# Setup/install files that are expected to contain pip/npm/curl commands.
+# Findings in these files get one severity-level downgrade, same as doc files.
+_SETUP_FILE_NAMES: frozenset[str] = frozenset(
+    {
+        "install.sh",
+        "setup.sh",
+        "bootstrap.sh",
+        "uninstall.sh",
+    }
+)
+
 # Dangerous modules that indicate high-risk behavior
 DANGEROUS_IMPORTS: dict[str, tuple[str, RiskLevel]] = {
     "subprocess": ("shell-execution-capability", RiskLevel.HIGH),
@@ -627,6 +638,19 @@ def _semgrep_findings_to_our_model(
             risk = RiskLevel.MEDIUM
         else:
             risk = RiskLevel.LOW
+
+        # ── Downgrade findings in setup/install/doc files ──────────
+        fname = os.path.basename(path)
+        is_setup_file = fname in _SETUP_FILE_NAMES
+        if is_setup_file:
+            if severity == Severity.ERROR:
+                severity = Severity.WARNING
+                risk = RiskLevel.MEDIUM
+                message += " [downgraded: setup_file]"
+            elif severity == Severity.WARNING:
+                severity = Severity.INFO
+                risk = RiskLevel.LOW
+                message += " [downgraded: setup_file]"
 
         findings.append(
             Finding(
