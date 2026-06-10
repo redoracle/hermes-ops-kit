@@ -81,6 +81,8 @@ def _plugin_usage() -> int:
     print()
     print("  hermes-ops-kit plugin scan [--profile <name>] [--category <cats>]")
     print("  hermes-ops-kit plugin scan --plugin <name-or-path> [--force] [--json]")
+    print("  hermes-ops-kit plugin scan --use-bandit --use-gitleaks --use-semgrep")
+    print("  hermes-ops-kit plugin scan --no-bandit  # disable external tools")
     print("  hermes-ops-kit plugin approve <plugin>")
     print("  hermes-ops-kit plugin approve <plugin> --category <category>")
     print("  hermes-ops-kit plugin approve --finding <finding-id>")
@@ -115,6 +117,9 @@ def _cmd_scan(args: list[str]) -> int:
     profile = "startup"
     plugin_name: str | None = None
     categories_str: str | None = None
+    use_semgrep: bool | None = None
+    use_bandit: bool | None = None
+    use_gitleaks: bool | None = None
 
     # Parse arguments
     i = 0
@@ -129,6 +134,24 @@ def _cmd_scan(args: list[str]) -> int:
         elif a == "--category" and i + 1 < len(args):
             categories_str = args[i + 1]
             i += 2
+        elif a == "--use-semgrep":
+            use_semgrep = True
+            i += 1
+        elif a == "--no-semgrep":
+            use_semgrep = False
+            i += 1
+        elif a == "--use-bandit":
+            use_bandit = True
+            i += 1
+        elif a == "--no-bandit":
+            use_bandit = False
+            i += 1
+        elif a == "--use-gitleaks":
+            use_gitleaks = True
+            i += 1
+        elif a == "--no-gitleaks":
+            use_gitleaks = False
+            i += 1
         elif a in ("--json", "--force"):
             i += 1
         else:
@@ -138,6 +161,15 @@ def _cmd_scan(args: list[str]) -> int:
     categories: list[str] | None = None
     if categories_str:
         categories = [c.strip() for c in categories_str.split(",") if c.strip()]
+
+    # Build scanner kwargs from CLI flags
+    scan_kwargs: dict[str, Any] = {}
+    if use_semgrep is not None:
+        scan_kwargs["use_semgrep"] = use_semgrep
+    if use_bandit is not None:
+        scan_kwargs["use_bandit"] = use_bandit
+    if use_gitleaks is not None:
+        scan_kwargs["use_gitleaks"] = use_gitleaks
 
     console = Console(json_mode=json_mode)
 
@@ -167,6 +199,7 @@ def _cmd_scan(args: list[str]) -> int:
                 categories=categories,
                 profile=profile,
                 force=force,
+                **scan_kwargs,
             )
             results = [result]
         else:
@@ -175,6 +208,7 @@ def _cmd_scan(args: list[str]) -> int:
                 categories=categories,
                 profile=profile,
                 force=force,
+                **scan_kwargs,
             )
 
         if json_mode:
