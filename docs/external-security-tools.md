@@ -14,13 +14,14 @@ them; use the commands below for manual installations.
 
 ## Quick Summary
 
-| Tool     | Category        | Detects                                          | Install time | Runtime overhead |
-| -------- | --------------- | ------------------------------------------------ | ------------ | ---------------- |
+| Tool     | Category        | Detects                                           | Install time | Runtime overhead |
+| -------- | --------------- | ------------------------------------------------- | ------------ | ---------------- |
 | gitleaks | secrets         | 150+ secret types (API keys, tokens, credentials) | ~30s         | +5-15s per scan  |
-| Semgrep  | policy          | 2,500+ community SAST rules (OWASP, CWE, etc.)   | ~60s         | +10-30s per scan |
-| Bandit   | policy (Python) | Python-specific security issues (B1xx-B8xx)      | ~15s         | +5-10s per scan  |
+| Semgrep  | policy          | 2,500+ community SAST rules (OWASP, CWE, etc.)    | ~60s         | +10-30s per scan |
+| Bandit   | policy (Python) | Python-specific security issues (B1xx-B8xx)       | ~15s         | +5-10s per scan  |
 
 **Without these tools**, the scanner still provides:
+
 - 16-pattern regex secret detection (API keys, tokens, private keys, webhooks)
 - AST-based dangerous code analysis (shell exec, dynamic imports, network access)
 - Shannon entropy analysis for distinguishing real keys from test fixtures
@@ -45,6 +46,7 @@ pip install bandit
 ```
 
 Verify:
+
 ```bash
 gitleaks version
 semgrep --version
@@ -160,6 +162,7 @@ hermes-ops-kit plugin rules update
 ```
 
 Output shows which tools are available:
+
 ```
 Plugin Scanner Rules
   Semgrep:  available
@@ -170,6 +173,7 @@ Plugin Scanner Rules
 ```
 
 Or programmatically:
+
 ```python
 from security.plugin_scanner.categories.policy import _semgrep_available
 from security.plugin_scanner.categories.secrets import _gitleaks_available
@@ -184,10 +188,11 @@ print(f"Bandit:   {_bandit_available()}")
 
 ## Troubleshooting
 
-| Symptom                          | Likely Cause                | Fix                                       |
-| -------------------------------- | --------------------------- | ----------------------------------------- |
-| `semgrep: command not found`     | Not on PATH                 | `pip install semgrep` or use full path    |
-| `gitleaks: command not found`    | Go/Homebrew unavailable     | Install Go, then rerun `install.sh`         |
-| Semgrep scan timeout (60s)       | Too many files / large repo | Scanner auto-caps at 5MB per file         |
-| gitleaks returns empty on macOS  | No git repo (--no-git used) | Normal — scanner passes `--no-git` flag   |
-| Bandit import error              | Not installed               | `pip install bandit`                      |
+| Symptom                         | Likely Cause                                        | Fix                                                                                                                                          |
+| ------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `semgrep: command not found`    | Not on PATH                                         | `pip install semgrep` or use full path                                                                                                       |
+| `Failed to find semgrep-core`   | Wheel didn't bundle native binary (common in conda) | `pip install --force-reinstall --no-cache-dir semgrep`, or use the official installer: `curl -fsSL https://semgrep.dev/install \| python3 -` |
+| `gitleaks: command not found`   | Go/Homebrew unavailable                             | Install Go, then rerun `install.sh`                                                                                                          |
+| Semgrep scan timeout (60s)      | Too many files / large repo                         | Scanner auto-caps at 5MB per file                                                                                                            |
+| gitleaks returns empty on macOS | No git repo (--no-git used)                         | Normal — scanner passes `--no-git` flag                                                                                                      |
+| Bandit import error             | Not installed                                       | `pip install bandit`                                                                                                                         |

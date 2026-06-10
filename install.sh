@@ -201,15 +201,71 @@ if $INSTALL_ALLOWED; then
   ok "Python package, Pillow, and ruff installed and verified"
 
   log "Installing external security scanners"
-  pip_install_user "semgrep" "bandit" || \
-    fail "Semgrep/Bandit installation failed. Check pip output above."
-  SEMGREP_BIN="$(command -v semgrep 2>/dev/null || printf '%s/semgrep' "$BIN_DIR")"
+
+  # Bandit — pure Python, always reliable
+  pip_install_user "bandit" || \
+    fail "Bandit installation failed. Check pip output above."
   BANDIT_BIN="$(command -v bandit 2>/dev/null || printf '%s/bandit' "$BIN_DIR")"
-  PATH="$BIN_DIR:$PATH" "$SEMGREP_BIN" --version >/dev/null || \
-    fail "Semgrep verification failed after installation"
   PATH="$BIN_DIR:$PATH" "$BANDIT_BIN" --version >/dev/null || \
     fail "Bandit verification failed after installation"
-  ok "Semgrep and Bandit installed and verified"
+  ok "Bandit installed and verified"
+
+  # Semgrep — bundles a native `semgrep-core` binary.  Pip wheels don't
+  # always ship it correctly (especially in conda or on platforms without
+  # prebuilt wheels).  The scanner degrades gracefully when semgrep is
+  # absent, so we try hard but don't hard-fail.
+  _install_semgrep() {
+    local _semgrep_bin
+    _semgrep_bin="$(command -v semgrep 2>/dev/null || printf '%s/semgrep' "$BIN_DIR")"
+
+    # Attempt 1: pip install (fast, works when a wheel is available)
+    if pip_install_user "semgrep"; then
+      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
+        return 0
+      fi
+      warn "Semgrep installed but 'semgrep --version' failed — semgrep-core may be missing"
+    fi
+
+    # Attempt 2: force-reinstall without cache (re-fetches the wheel)
+    log "Retrying: pip install --force-reinstall --no-cache-dir semgrep"
+    if pip_install_user --force-reinstall --no-cache-dir "semgrep"; then
+      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+
+    # Attempt 3: try python3 -m pip install (bypass conda wrapper)
+    log "Retrying: python3 -m pip install --force-reinstall --no-cache-dir semgrep"
+    if python3 -m pip install --disable-pip-version-check --force-reinstall --no-cache-dir "semgrep" 2>&1; then
+      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+
+    # Attempt 4: pin to a glibc-2.31-compatible semgrep version.
+    # Semgrep ≥ 1.97.0 ships only manylinux_2_34 wheels (glibc ≥ 2.34).
+    # On older glibc systems the wheel installs but semgrep-core is missing
+    # or broken (e.g. a Windows .exe bundled in a Linux wheel).
+    log "Retrying: semgrep==1.96.0 (last manylinux_2_31 wheel, works with glibc ≥ 2.31)"
+    if python3 -m pip install --disable-pip-version-check --force-reinstall --no-cache-dir "semgrep==1.96.0" 2>&1; then
+      # semgrep 1.96.0 depends on old opentelemetry which needs pkg_resources
+      python3 -m pip install --disable-pip-version-check "setuptools>=65,<70" 2>/dev/null || true
+      if PATH="$BIN_DIR:$PATH" "$_semgrep_bin" --version >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+
+    return 1
+  }
+
+  if _install_semgrep; then
+    ok "Semgrep installed and verified"
+  else
+    warn "Semgrep installation failed — plugin scanner will still work with built-in detectors."
+    warn "Semgrep is an optional enhancement (see docs/external-security-tools.md)."
+    warn "You can retry later: pip install --force-reinstall --no-cache-dir semgrep"
+    warn "Or use the official installer: curl -fsSL https://semgrep.dev/install | python3 -"
+  fi
 
   mkdir -p "$BIN_DIR"
   install_gitleaks
