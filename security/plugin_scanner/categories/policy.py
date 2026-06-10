@@ -569,6 +569,12 @@ def _run_semgrep(plugin_path: str, rules_paths: list[str]) -> list[dict[str, Any
         "--no-git-ignore",
         "--max-target-bytes",
         "5000000",
+        "--exclude", ".venv",
+        "--exclude", "venv",
+        "--exclude", "__pycache__",
+        "--exclude", "node_modules",
+        "--exclude", ".git",
+        "--exclude", ".tox",
     ]
     for rp in rules_paths:
         if os.path.exists(rp):
@@ -673,6 +679,7 @@ def _run_bandit(plugin_path: str) -> list[dict[str, Any]]:
                 "json",
                 "-ll",  # Low severity threshold
                 "--quiet",
+                "--exclude", ".venv,venv,__pycache__,node_modules,.git,.tox",
             ],
             capture_output=True,
             text=True,
