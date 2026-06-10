@@ -627,11 +627,11 @@ def get_plugin_status(plugin_name: str, risk_level: str = "none") -> dict[str, A
 
     approved, reason = is_approved(plugin_name)
 
-    if approved:
-        return {"status": "enabled", "reason": reason, "action": "allow"}
-
     if should_block(risk_level):
         return {"status": "blocked", "reason": f"risk_{risk_level}", "action": "block"}
+
+    if approved:
+        return {"status": "enabled", "reason": reason, "action": "allow"}
 
     if should_disable(risk_level, approved):
         return {"status": "disabled", "reason": reason, "action": "disable"}

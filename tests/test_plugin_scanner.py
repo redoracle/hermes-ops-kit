@@ -756,6 +756,48 @@ class TestApprovalPolicy:
 
 
 class TestCLI:
+    def test_scan_approved_medium_is_enabled_in_row_and_summary(
+        self, monkeypatch, capsys
+    ):
+        """Approved findings must not be presented or counted as disabled."""
+        import security.plugin_scanner.cli as cli
+        from security.plugin_scanner.policy import approve_plugin
+
+        result = ScanResult(
+            plugin_name="cli-approved-medium",
+            plugin_path="/tmp/cli-approved-medium",
+            risk_level=RiskLevel.MEDIUM,
+        )
+        approve_plugin(result.plugin_name)
+        monkeypatch.setattr(cli, "scan_all", lambda **_kwargs: [result])
+
+        exit_code = cli.handle_plugin(["scan", "--force"])
+        output = capsys.readouterr().out
+
+        assert exit_code == 0
+        assert "ENABLED ✓" in output
+        assert "Enabled: 1  |  Disabled: 0  |  Blocked: 0" in output
+
+    def test_scan_approved_critical_remains_blocked(self, monkeypatch, capsys):
+        """Approval cannot override the critical-risk block."""
+        import security.plugin_scanner.cli as cli
+        from security.plugin_scanner.policy import approve_plugin
+
+        result = ScanResult(
+            plugin_name="cli-approved-critical",
+            plugin_path="/tmp/cli-approved-critical",
+            risk_level=RiskLevel.CRITICAL,
+        )
+        approve_plugin(result.plugin_name)
+        monkeypatch.setattr(cli, "scan_all", lambda **_kwargs: [result])
+
+        exit_code = cli.handle_plugin(["scan", "--force"])
+        output = capsys.readouterr().out
+
+        assert exit_code == 1
+        assert "BLOCKED ✗" in output
+        assert "Enabled: 0  |  Disabled: 0  |  Blocked: 1" in output
+
     def test_plugin_scan_json_output(self, safe_plugin_dir):
         """Scan --json should produce valid JSON envelope."""
         from security.plugin_scanner.cli import handle_plugin
@@ -894,15 +936,17 @@ class TestEndToEnd:
         approved, reason = is_approved("e2e-test")
         assert approved is True
 
-        # 5. Status check
+        # 5. Critical risk remains blocked even after operator approval
+        assert result.risk_level == RiskLevel.CRITICAL
         status = get_plugin_status("e2e-test", risk_level=result.risk_level.value)
-        assert status["status"] == "enabled"
-        assert status["action"] == "allow"
+        assert status["status"] == "blocked"
+        assert status["action"] == "block"
 
     def test_critical_is_blocked(self):
         """Critical risk should result in blocked status."""
-        from security.plugin_scanner.policy import get_plugin_status
+        from security.plugin_scanner.policy import approve_plugin, get_plugin_status
 
+        approve_plugin("evil-plugin")
         status = get_plugin_status("evil-plugin", risk_level="critical")
         assert status["status"] == "blocked"
         assert status["action"] == "block"
@@ -1203,6 +1247,42 @@ class TestPreflightEnforcement:
 
         assert enforcement["changes"]["enabled_added"] == []
         assert config["plugins"]["enabled"] == ["existing"]
+
+    def test_summary_counts_mutually_exclusive_plugin_states(self, capsys):
+        import security.plugin_scanner.enforce as enforce
+
+        decisions = {
+            "ok": True,
+            "details": {
+                "low-approved": "LOW risk — allowed",
+                "medium-approved": "MEDIUM risk but explicitly approved",
+                "clean": "NONE risk — allowed",
+            },
+            "allowed": ["clean", "low-approved"],
+            "approved": ["low-approved", "medium-approved"],
+            "enforce": ["clean", "low-approved", "medium-approved"],
+            "deferred": [],
+            "blocked": [],
+        }
+        enforcement = {
+            "changes": {
+                "enabled_added": [],
+                "enabled_removed": [],
+                "disabled_added": [],
+                "disabled_removed": [],
+                "mcp_disabled": [],
+            },
+            "dry_run": True,
+        }
+
+        enforce._print_summary(decisions, enforcement)
+        output = capsys.readouterr().out
+
+        assert "Scanned:   3 plugins" in output
+        assert "Allowed:   2 (NONE/LOW risk)" in output
+        assert (
+            "Approved:  1 (MEDIUM/HIGH risk, explicitly approved by operator)" in output
+        )
 
     def test_preflight_disables_unsafe_enabled_plugin(self, tmp_path, monkeypatch):
         import security.plugin_scanner.enforce as enforce

@@ -37,6 +37,7 @@ from security.plugin_scanner.policy import (  # pyright: ignore[reportMissingImp
     set_rule_override,
     remove_rule_override,
     get_rule_overrides,
+    get_plugin_status,
 )
 
 
@@ -211,6 +212,8 @@ def _cmd_scan(args: list[str]) -> int:
                 **scan_kwargs,
             )
 
+        policy_statuses = [_scan_policy_status(r) for r in results]
+
         if json_mode:
             console.print_json(
                 ok_envelope(
@@ -222,17 +225,17 @@ def _cmd_scan(args: list[str]) -> int:
                 )
             )
         else:
-            _print_scan_results(results, console)
-            # Summary
-            enabled_count = sum(1 for r in results if r.is_clean)
-            disabled_count = sum(1 for r in results if not r.is_clean)
-            blocked_count = sum(1 for r in results if r.is_blocked)
+            _print_scan_results(results, policy_statuses, console)
+            statuses = [status["status"] for status in policy_statuses]
+            enabled_count = statuses.count("enabled")
+            disabled_count = statuses.count("disabled")
+            blocked_count = statuses.count("blocked")
             console.print(
                 f"\n  Enabled: {enabled_count}  |  Disabled: {disabled_count}  |  Blocked: {blocked_count}"
             )
 
-        # Return non-zero if any blocked
-        return 1 if any(r.is_blocked for r in results) else 0
+        # Return non-zero if effective scanner policy blocks any plugin.
+        return 1 if any(s["status"] == "blocked" for s in policy_statuses) else 0
 
     except Exception as exc:
         if json_mode:
@@ -247,9 +250,11 @@ def _cmd_scan(args: list[str]) -> int:
         return 1
 
 
-def _print_scan_results(results: list[Any], console: Console) -> None:
+def _print_scan_results(
+    results: list[Any], policy_statuses: list[dict[str, Any]], console: Console
+) -> None:
     """Pretty-print scan results."""
-    for r in results:
+    for r, policy_status in zip(results, policy_statuses, strict=True):
         risk_icon = {
             "none": "✅",
             "low": "ℹ️ ",
@@ -258,14 +263,23 @@ def _print_scan_results(results: list[Any], console: Console) -> None:
             "critical": "⛔",
         }.get(r.risk_level.value, "❓")
 
-        status = "ENABLED" if r.is_clean else "DISABLED"
-        if r.is_blocked:
-            status = "BLOCKED"
+        if policy_status["status"] == "enabled":
+            status = (
+                "ENABLED ✓"
+                if policy_status["reason"] == "plugin_approved"
+                else "ENABLED"
+            )
+        elif policy_status["status"] == "blocked":
+            status = "BLOCKED ✗"
+        elif policy_status["status"] == "disabled":
+            status = "DISABLED"
+        else:
+            status = policy_status["status"].upper()
 
         cache_tag = " [cache]" if r.cache_hit else ""
         console.print(
             f"{risk_icon} {r.plugin_name:<30} {r.risk_level.value.upper():<10} "
-            f"{status:<10} ({len(r.findings)} findings){cache_tag}"
+            f"{status:<12} ({len(r.findings)} findings){cache_tag}"
         )
 
         if r.cache_hit:
@@ -284,6 +298,11 @@ def _print_scan_results(results: list[Any], console: Console) -> None:
 
         if len(r.findings) > 5:
             console.print(f"   ... and {len(r.findings) - 5} more findings")
+
+
+def _scan_policy_status(result: Any) -> dict[str, Any]:
+    """Return the scanner policy status implied by a scan result."""
+    return get_plugin_status(result.plugin_name, result.risk_level.value)
 
 
 # ── Approve Command ─────────────────────────────────────────────────

@@ -594,11 +594,17 @@ def _print_summary(
     mcp_decisions: dict[str, Any] | None = None,
 ) -> None:
     """Human-readable preflight output."""
+    allowed = set(decisions["allowed"])
+    approved_exceptions = (
+        set(decisions["approved"]) & set(decisions["enforce"])
+    ) - allowed
+
     print("Hermes Ops Kit — Preflight Plugin Security")
     print(f"  Scanned:   {len(decisions['details'])} plugins")
-    print(f"  Allowed:   {len(decisions['allowed'])}")
+    print(f"  Allowed:   {len(allowed)} (NONE/LOW risk)")
     print(
-        f"  Approved:  {len(decisions['approved'])} (explicitly approved by operator)"
+        f"  Approved:  {len(approved_exceptions)} "
+        "(MEDIUM/HIGH risk, explicitly approved by operator)"
     )
     print(
         f"  Deferred:  {len(decisions['deferred'])} (MEDIUM/HIGH risk, requires approval)"
