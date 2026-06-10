@@ -331,6 +331,7 @@ def main():
             "override",
             "disable",
             "enable",
+            "block",
             "cache",
             "rules",
         ],

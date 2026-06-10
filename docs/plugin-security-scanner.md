@@ -440,7 +440,7 @@ NEW/MODIFIED (0.2.0):
   docs/plugin-security-scanner.md # This file — complete 0.2.0 refresh
 ```
 
-## Follow-Up Recommendations
+## Follow-Up Roadmap
 
 1. **Phase 2:** Implement `code` and `dependencies` scan categories
 2. **Phase 3:** Add Docker sandbox (`behavior`) and external threat intel (`reputation`)
