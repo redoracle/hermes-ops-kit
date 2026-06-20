@@ -95,7 +95,7 @@ def on_session_start(**kwargs: object) -> None:
     plugin_security_scan(**kwargs)
 
 
-def on_post_tool_call(tool_name: str, result: str) -> str:
+def on_post_tool_call(tool_name: str, result: str, **kwargs: object) -> str:
     """Redact any secrets that may have leaked in tool output.
 
     Called after every tool invocation. Returns the redacted result.
