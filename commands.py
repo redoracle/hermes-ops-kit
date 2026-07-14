@@ -48,6 +48,8 @@ def handle_ops_kit_command(args: list[str]) -> int:
         return _handle_audit(rest)
     elif subcmd == "image":
         return _handle_image(rest)
+    elif subcmd == "headroom":
+        return _handle_headroom(rest)
     elif subcmd == "install":
         return _handle_install(rest)
     elif subcmd == "route-test":
@@ -78,6 +80,9 @@ def _usage() -> int:
     print('  hermes-ops-kit image test "prompt"        Test image generation')
     print("  hermes-ops-kit image doctor               Validate image backends")
     print("  hermes-ops-kit route-test [--fallback]  Verify route selection")
+    print("  hermes-ops-kit headroom status            Headroom proxy overlay status")
+    print("  hermes-ops-kit headroom enable|disable    Toggle proxied primary route")
+    print("  hermes-ops-kit headroom doctor            Headroom health + invariants")
     print("  hermes-ops-kit install setup             First-install security bootstrap")
     print("  hermes-ops-kit install doctor            Install checks")
     print("  hermes-ops-kit plugin scan               Plugin security scanner")
@@ -1060,6 +1065,21 @@ def _handle_image(args: list[str]) -> int:
     return _run_script(script_dir, "image_routes/manager.py", args)
 
 
+def _handle_headroom(args: list[str]) -> int:
+    """Handle `hermes-ops-kit headroom ...` subcommand.
+
+    Delegates to headroom_ops/manager.py with the provided arguments.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    manager = os.path.join(script_dir, "headroom_ops", "manager.py")
+
+    if not os.path.exists(manager):
+        print(f"Headroom manager not found: {manager}")
+        return 1
+
+    return _run_script(script_dir, "headroom_ops/manager.py", args)
+
+
 def _handle_install(_args: list[str]) -> int:
     """Handle install setup / doctor / repair flow."""
     if not _args:
@@ -1123,6 +1143,16 @@ def _handle_install(_args: list[str]) -> int:
 
     bw = shutil.which("bw")
     checks.append(("bw CLI", bw is not None, bw or "not found"))
+
+    # Headroom proxy (optional — informational only, never blocks install)
+    headroom_bin = shutil.which("headroom")
+    checks.append(
+        (
+            "headroom (optional)",
+            True,
+            headroom_bin or "not installed (pipx install headroom-ai)",
+        )
+    )
 
     # Env file permissions — check .env.generated first, then .env
     generated = os.path.expanduser("~/.hermes/.env.generated")

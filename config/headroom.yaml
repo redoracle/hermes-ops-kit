@@ -1,0 +1,49 @@
+# Hermes Ops Kit — Headroom proxy integration (bundled defaults).
+#
+# Deployed copy: ~/.hermes/ops-kit/headroom.yaml (seeded on first use).
+# This file holds the DESIRED state + ops-kit knobs only.  It is NEVER a
+# second source of truth for routing: the live route always lives in
+# ~/.hermes/config.yaml, and `hermes-ops-kit headroom reconcile` is the
+# only writer that aligns the two.
+#
+# Robustness contract ("Hermes never dies"):
+#   - fallback_providers in config.yaml are never touched: if the proxy
+#     dies, Hermes core degrades to direct providers on its own.
+#   - reconcile patches the proxied route only after the proxy passes a
+#     live health check; otherwise the route stays (or reverts to) direct.
+
+headroom:
+  # Desired state. `headroom enable` / `disable` flip this; preflight
+  # reconciles config.yaml to match (best-effort, never blocks boot).
+  enabled: false
+
+  port: 8790
+  base_url: "http://127.0.0.1:8790/v1"
+
+  upstream:
+    # provider — Headroom forwards straight to the primary provider's
+    #            OpenAI-compatible endpoint (default; no extra daemons).
+    # litellm  — reserved for multi-provider aliasing/aggregation; not
+    #            managed by ops-kit yet (bring your own LiteLLM).
+    mode: provider
+    litellm_url: "http://127.0.0.1:8799/v1"
+
+  # Flags always passed to `headroom proxy`. The no-coding profile
+  # (--no-code-aware, never --code-graph/serena) is enforced by the
+  # daemon manager on top of these.
+  proxy_flags:
+    - "--mode"
+    - "token"
+    - "--memory"
+    - "--memory-storage"
+    - "project"
+    - "--no-telemetry"
+  memory_project_root: "~/.hermes"
+
+  apply:
+    model: true        # patch the primary model route
+    aux_routes: []     # opt-in only (e.g. [compression]) — never default
+
+  startup_timeout_seconds: 20
+  run_dir: "~/.hermes/ops-kit/run"
+  state_file: "~/.hermes/ops-kit/headroom_prev_route.json"

@@ -162,6 +162,46 @@ PY
   fi
 }
 
+headroom_proxy_ready() {
+  # True only when the `headroom proxy` runtime deps (fastapi/uvicorn) are
+  # importable by the interpreter behind the launcher.  A bare `headroom-ai`
+  # install (without the [proxy] extra) ships the binary but crashes on
+  # `proxy` with "No module named 'fastapi'".
+  local launcher pybin
+  launcher="$(command -v headroom)" || return 1
+  pybin="$(head -1 "$launcher" 2>/dev/null | sed 's/^#!//' | awk '{print $1}')"
+  [ -x "$pybin" ] || return 1
+  "$pybin" -c 'import fastapi, uvicorn' >/dev/null 2>&1
+}
+
+install_headroom() {
+  # Headroom proxy (PyPI: headroom-ai) — optional optimization layer for
+  # `hermes-ops-kit headroom`.  Non-fatal: ops-kit works without it and
+  # the reconciler keeps routes direct when the binary is missing.
+  # The [proxy] extra is required: without it `headroom proxy` cannot bind.
+  # LiteLLM is intentionally NOT installed: upstream.mode=provider needs
+  # no aggregator; bring your own LiteLLM for upstream.mode=litellm.
+  if command -v headroom >/dev/null 2>&1 && headroom_proxy_ready; then
+    ok "Using existing Headroom installation ($(headroom --version 2>/dev/null || echo '?'))"
+    return 0
+  fi
+
+  if command -v pipx >/dev/null 2>&1; then
+    if pipx install --force "headroom-ai[proxy]" >/dev/null 2>&1; then
+      ok "Headroom installed via pipx and verified"
+      return 0
+    fi
+  fi
+  if pip_install_package "headroom-ai[proxy]" && headroom_proxy_ready; then
+    ok "Headroom installed via pip and verified"
+    return 0
+  fi
+
+  warn "Headroom not installed: the 'hermes-ops-kit headroom' overlay stays inactive."
+  warn "Install later with: pipx install 'headroom-ai[proxy]'"
+  return 0
+}
+
 install_gitleaks() {
   if command -v gitleaks >/dev/null 2>&1; then
     return 0
@@ -350,6 +390,7 @@ if $INSTALL_ALLOWED; then
 
   mkdir -p "$BIN_DIR"
   install_gitleaks
+  install_headroom
   export PATH="$BIN_DIR:$PATH"
 else
   warn "Python package installation skipped until explicit approval"

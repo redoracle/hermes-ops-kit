@@ -88,7 +88,27 @@ def _tool_availability() -> dict[str, bool]:
         "semgrep": shutil.which("semgrep") is not None,
         "bandit": shutil.which("bandit") is not None,
         "gitleaks": shutil.which("gitleaks") is not None,
+        "headroom": shutil.which("headroom") is not None,
     }
+
+
+def _seed_headroom_config() -> None:
+    """Seed ~/.hermes/ops-kit/headroom.yaml (disabled) on first install.
+
+    Enabling the proxied route stays an explicit operator action:
+    `hermes-ops-kit headroom enable`.
+    """
+    try:
+        ops_kit_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        if ops_kit_root not in sys.path:
+            sys.path.insert(0, ops_kit_root)
+        from headroom_ops.settings import seed_deployed  # pyright: ignore[reportMissingImports]
+
+        seed_deployed()
+    except Exception:
+        pass
 
 
 def _disclaimer_block() -> list[str]:
@@ -204,6 +224,8 @@ def bootstrap(
 ) -> dict[str, Any]:
     """Run the first-install setup flow and return a structured report."""
     setup = _ensure_default_scanner_config(dry_run=dry_run)
+    if not dry_run:
+        _seed_headroom_config()
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     report_stem = f"bootstrap-{timestamp.replace(':', '').replace('-', '')}"
     wrappers = [

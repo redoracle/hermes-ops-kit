@@ -42,6 +42,7 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
     "openai": {"provider": "openai", "status": "online", "api_latency_ms": 598},
     "anthropic": {"provider": "anthropic", "status": "online", "api_latency_ms": 447},
     "deepseek": {"provider": "deepseek", "status": "online", "api_latency_ms": 503},
+    "nvidia": {"provider": "nvidia", "status": "online", "api_latency_ms": 520},
     "_assistants": {},
 }
 
@@ -154,6 +155,16 @@ def _build_route_entries(
     primary = hermes_cfg.get("model", {})
     primary_provider = primary.get("provider", "copilot")
     primary_model = primary.get("default", "gpt-5.4-mini")
+    if str(primary_provider).strip().lower() == "headroom":
+        # Headroom overlay: the expected route is the real upstream provider.
+        try:
+            from headroom_ops.reconcile import (  # pyright: ignore[reportMissingImports]
+                resolve_primary_provider,
+            )
+
+            primary_provider, _ = resolve_primary_provider(hermes_cfg)
+        except Exception:
+            pass
     primary_actual = (
         route_data.get("routes", [{}])[0] if route_data.get("routes") else {}
     )

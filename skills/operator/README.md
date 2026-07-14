@@ -16,6 +16,9 @@ the plugin loader; treat them as reference documentation and as the deploy sourc
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hermes-ops-kit/`             | Operator workflow for inspecting the secret store, rotating keys, and creating/verifying Vaultwarden items via `bw`. Includes `references/` for inventory and unlock recipes. |
 | `hermes-ops-kit-vaultwarden/` | `bw`-first item-level CRUD against Vaultwarden/Bitwarden, with collection/visibility gotchas.                                                                                 |
+| `review-response/`            | Systematic workflow for receiving, verifying, and responding to PR review feedback — especially hermes-sweeper automated reviews. Distilled from PRs #38823 and #38853.               |
+| `credential-leak-audit/`      | Find and fix credential leaks in log/display output. Covers the URL sanitization pattern (`user:pass@host`, `?api_key=`) applied to `logger.info`, `print`, and `check_info` calls.   |
+| `rebase-conflict/`            | Systematic approach to rebasing a stale PR branch onto a diverged upstream. Covers parser extraction, function reordering, and same-region addition conflict patterns.                |
 
 ## Conventions (must stay true for any edit)
 
