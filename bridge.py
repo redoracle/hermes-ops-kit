@@ -309,6 +309,14 @@ def main():
     rt.add_argument("--fallback", action="store_true", help="Fallback chain cascade")
     rt.add_argument("--json", action="store_true", help="JSON output")
 
+    hr = sub.add_parser("headroom", help="Headroom proxy route overlay")
+    hr.add_argument(
+        "headroom_args",
+        nargs=argparse.REMAINDER,
+        default=[],
+        help="status, doctor, up, down, enable, disable, reconcile, stats, export",
+    )
+
     install = sub.add_parser("install", help="First-install setup and repair")
     install.add_argument(
         "install_args",
@@ -371,6 +379,7 @@ def main():
         "budget",
         "maintenance",
         "image",
+        "headroom",
         "install",
         "route-test",
         "preflight",
@@ -403,6 +412,8 @@ def main():
             cmd_args.extend(getattr(args, "plugin_args", []))
         if args.command == "image":
             cmd_args.extend(getattr(args, "image_args", []))
+        if args.command == "headroom":
+            cmd_args.extend(getattr(args, "headroom_args", []))
         if args.command == "install":
             cmd_args.extend(getattr(args, "install_args", []))
         if args.command == "route-test":

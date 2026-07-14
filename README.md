@@ -12,7 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.15.x-purple" alt="Hermes 0.15.x"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-193%20passed-brightgreen" alt="193 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-212%20passed-brightgreen" alt="212 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -56,6 +56,7 @@ plugs into the native Hermes plugin system and stays out of your way.
   - [Usage metrics](#usage-metrics)
   - [Route manager](#route-manager)
   - [Image routes](#image-routes)
+  - [Headroom proxy](#headroom-proxy)
   - [Assistant manager](#assistant-manager)
   - [MCP auditor](#mcp-auditor)
   - [Plugin security scanner](#plugin-security-scanner)
@@ -70,19 +71,20 @@ plugs into the native Hermes plugin system and stays out of your way.
 
 ## What it does
 
-| Area              | Capabilities                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Secrets**       | Bitwarden/Vaultwarden-backed store · 3 auth modes · atomic chmod-600 writes · classification (admin/runtime/config) |
-| **Key Rotation**  | 6 providers · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode      |
-| **Validation**    | Structured results (`reason_class`, `http_status`, `retry_recommended`) — "unusable" never "expired"                |
-| **Env Rendering** | 3-layer denylist gate — admin keys can never leak into `.env.generated`                                             |
-| **Health**        | Concurrent live probes across all providers · rate limits · costs                                                   |
-| **Routing**       | Profile presets (cheap / balanced / max-quality) · fallback chains                                                  |
-| **Image Gen**     | Separate routing layer — ComfyUI · Gemini · DALL-E · FAL.ai                                                         |
-| **Assistants**    | Config-driven delegation to remote Hermes agents · policy engine                                                    |
-| **MCP Audit**     | Server discovery · tool risk classification · atomic whitelisting                                                   |
-| **Plugin Scan**   | Pre-execution security scan · entropy check · skill vs code detection · rule overrides · doc/test downgrades        |
-| **Security**      | 16-pattern redaction · secret scanner gate · safe `bw` CLI wrapper                                                  |
+| Area              | Capabilities                                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Secrets**       | Bitwarden/Vaultwarden-backed store · 3 auth modes · atomic chmod-600 writes · classification (admin/runtime/config)   |
+| **Key Rotation**  | 6 providers · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode        |
+| **Validation**    | Structured results (`reason_class`, `http_status`, `retry_recommended`) — "unusable" never "expired"                  |
+| **Env Rendering** | 3-layer denylist gate — admin keys can never leak into `.env.generated`                                               |
+| **Health**        | Concurrent live probes across all providers · rate limits · costs                                                     |
+| **Routing**       | Profile presets (cheap / balanced / max-quality) · fallback chains                                                    |
+| **Image Gen**     | Separate routing layer — ComfyUI · Gemini · DALL-E · FAL.ai                                                           |
+| **Headroom**      | Token-compression proxy as a reconciled route overlay — fallbacks always direct · drift self-healing · exact rollback |
+| **Assistants**    | Config-driven delegation to remote Hermes agents · policy engine                                                      |
+| **MCP Audit**     | Server discovery · tool risk classification · atomic whitelisting                                                     |
+| **Plugin Scan**   | Pre-execution security scan · entropy check · skill vs code detection · rule overrides · doc/test downgrades          |
+| **Security**      | 16-pattern redaction · secret scanner gate · safe `bw` CLI wrapper                                                    |
 
 ## What it does not replace
 
@@ -195,18 +197,18 @@ installs everything needed for full functionality across all 6 providers.
 installs pinned Gitleaks `v8.30.1` through Go, or the package-managed Gitleaks
 version through Homebrew/Linuxbrew when Go is unavailable.
 
-| Package                    | Required for                                                  |
-| -------------------------- | ------------------------------------------------------------- |
-| `requests>=2.31`           | Google validation, admin API calls, GitHub curl fallback      |
-| `PyYAML>=6.0`              | Config parsing (assistants.yaml, routes.yaml, env_projection) |
-| `ruamel.yaml>=0.18,<0.19`  | YAML round-trip with comment preservation                     |
-| `openai>=2.0`              | OpenAI + DeepSeek validation, NVIDIA NIM API (OpenAI-compat)  |
-| `anthropic>=0.40`          | Anthropic validation & smoke test                             |
-| `google-auth>=2.0`         | Google auto-creation via API Keys API (ADC)                   |
-| `google-genai>=1.0`        | Gemini image generation (Nano Banana)                         |
-| `PyJWT>=2.8`               | GitHub App RS256 JWT token minting                            |
-| `Pillow>=10.0`             | Image metadata and format handling                            |
-| `fal-client>=0.6`          | FAL.ai Flux/Stable Diffusion cloud fallback                   |
+| Package                   | Required for                                                  |
+| ------------------------- | ------------------------------------------------------------- |
+| `requests>=2.31`          | Google validation, admin API calls, GitHub curl fallback      |
+| `PyYAML>=6.0`             | Config parsing (assistants.yaml, routes.yaml, env_projection) |
+| `ruamel.yaml>=0.18,<0.20` | YAML round-trip with comment preservation                     |
+| `openai>=2.0`             | OpenAI + DeepSeek validation, NVIDIA NIM API (OpenAI-compat)  |
+| `anthropic>=0.40`         | Anthropic validation & smoke test                             |
+| `google-auth>=2.0`        | Google auto-creation via API Keys API (ADC)                   |
+| `google-genai>=1.0`       | Gemini image generation (Nano Banana)                         |
+| `PyJWT>=2.8`              | GitHub App RS256 JWT token minting                            |
+| `Pillow>=10.0`            | Image metadata and format handling                            |
+| `fal-client>=0.6`         | FAL.ai Flux/Stable Diffusion cloud fallback                   |
 
 ```bash
 pip install hermes-ops-kit  # everything included
@@ -373,6 +375,42 @@ fallback). Priority-based with `prefer_local` policy.
 Configuration: [`config/image_routes.yaml`](config/image_routes.yaml).
 The `OpsKitRouterProvider` (in `image_routes/hermes_provider.py`) self-registers
 via the plugin's `register()` function — no separate plugin needed.
+
+### Headroom proxy
+
+```bash
+hermes-ops-kit headroom status               # Desired + actual route + proxy health
+hermes-ops-kit headroom doctor               # Health + invariant checks
+hermes-ops-kit headroom enable [--dry-run]   # Route the primary through the proxy
+hermes-ops-kit headroom disable [--dry-run]  # Restore the direct route (exact)
+hermes-ops-kit headroom reconcile [--dry-run]# Align config.yaml to desired state
+hermes-ops-kit headroom stats                # Token savings from /stats
+```
+
+Optional token-compression proxy ([headroom-ai](https://pypi.org/project/headroom-ai/))
+on the primary LLM route, managed as a **reconciled overlay**: the proxied
+route is applied only after a live health check, `fallback_providers` are
+never touched (Hermes degrades to direct providers on its own if the proxy
+dies), and `preflight` re-aligns route and upstream before every gateway
+restart. Not a provider, not a dependency — on hosts without Headroom the
+route simply stays direct.
+
+**Prerequisite:** the primary provider's `providers` entry in `config.yaml`
+must declare `base_url` and `api_key_env` so the proxy can resolve an
+OpenAI-compatible upstream:
+
+```yaml
+providers:
+  deepseek:
+    api_key_env: DEEPSEEK_API_KEY
+    base_url: https://api.deepseek.com/v1
+```
+
+All URL output from headroom commands (`status`, `doctor`, `enable`) is
+sanitized — userinfo, query strings, and fragments are stripped before
+terminal display, JSON export, and on-disk metadata.
+
+Operator guide: [`docs/Headroom.md`](docs/Headroom.md).
 
 ### Assistant manager
 
@@ -735,6 +773,8 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 | [`docs/Operations Runbook.md`](docs/Operations%20Runbook.md)               | Health checks · incident response · recovery procedures · log locations                                                              |
 | [`docs/external-security-tools.md`](docs/external-security-tools.md)       | Platform-specific install guide for gitleaks, Semgrep, and Bandit (macOS, Linux, Windows, Docker)                                    |
 | [`docs/plugin-security-scanner.md`](docs/plugin-security-scanner.md)       | Scanner architecture · entropy check · doc/skill mode · rule overrides · anti-FP tuning                                              |
+| [`docs/Headroom.md`](docs/Headroom.md)                                     | Headroom operator guide — purpose · configuration · administration · model/provider switching · troubleshooting                      |
+| [`docs/headroom-integration.md`](docs/headroom-integration.md)             | Headroom design spec — reconciled route overlay · robustness contract · daemon lifecycle · doctor checks                             |
 | [`docs/quickstart.md`](docs/quickstart.md)                                 | 10-minute setup — install, bootstrap, seed, verify                                                                                   |
 | [`CHANGELOG.md`](CHANGELOG.md)                                             | Release history with features, fixes, and breaking changes                                                                           |
 | [`SECURITY.md`](SECURITY.md)                                               | Vulnerability reporting · supported versions · disclosure policy · security design principles                                        |

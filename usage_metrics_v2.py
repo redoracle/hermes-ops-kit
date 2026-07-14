@@ -1004,6 +1004,37 @@ def check_assistant(aid: str) -> dict:
     return client.healthcheck()
 
 
+def check_headroom() -> dict:
+    """Headroom proxy overlay status (not a billing provider).
+
+    Mirrors the `_assistants` pattern: a non-provider health section
+    surfaced in the default view and in `--json` as `_headroom`.
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from headroom_ops import daemon, reconcile as _rec  # pyright: ignore[reportMissingImports]
+        from headroom_ops.settings import load_settings  # pyright: ignore[reportMissingImports]
+
+        settings = load_settings()
+        hermes_cfg = _get_hermes_config()
+        healthy = daemon.is_healthy(settings, timeout=2.0)
+        info: dict = {
+            "desired": "enabled" if settings.get("enabled") else "disabled",
+            "proxied": _rec.is_proxied(hermes_cfg, settings),
+            "healthy": healthy,
+            "port": settings.get("port"),
+            "collisions": _rec.collision_findings(hermes_cfg, settings),
+        }
+        if healthy:
+            stats = daemon.get_stats(settings) or {}
+            for key in ("total_tokens_saved", "tokens_saved", "requests"):
+                if key in stats:
+                    info[key] = stats[key]
+        return info
+    except Exception as e:
+        return {"status": "error", "error": redact(str(e))}
+
+
 def check_all_assistants() -> dict[str, dict]:
     """Run all registered assistant healthchecks concurrently."""
     results: dict[str, dict] = {}
@@ -1324,6 +1355,17 @@ def build_routes(results: dict) -> dict:
     model_cfg = hermes_cfg.get("model", {})
     primary_provider_raw = model_cfg.get("provider", "copilot")
     primary_model = model_cfg.get("default", "gpt-5.4-mini")
+    if str(primary_provider_raw).strip().lower() == "headroom":
+        # Headroom overlay: report the real upstream route, not the proxy.
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from headroom_ops.reconcile import (  # pyright: ignore[reportMissingImports]
+                resolve_primary_provider,
+            )
+
+            primary_provider_raw, _ = resolve_primary_provider(hermes_cfg)
+        except Exception:
+            pass
     primary_provider = _PROVIDER_NORMALIZE.get(
         primary_provider_raw, primary_provider_raw
     )
@@ -1755,6 +1797,22 @@ def fmt_rich(results: dict) -> str:
             lines.append(
                 f"  {r['role']:<10s} {r['route']:<36s} {'':>6s}  {'OFFLINE':<9s} {r['reason']}"
             )
+
+    # HEADROOM — proxy overlay on the primary route (shown when relevant)
+    hr = results.get("_headroom") or {}
+    if hr.get("desired") == "enabled" or hr.get("proxied") or hr.get("collisions"):
+        proxy_state = "🟢 healthy" if hr.get("healthy") else "🔴 down"
+        route_state = "proxied" if hr.get("proxied") else "direct"
+        saved = hr.get("total_tokens_saved") or hr.get("tokens_saved")
+        saved_note = f" · saved {saved}" if saved is not None else ""
+        lines.append("")
+        lines.append("HEADROOM")
+        lines.append(
+            f"  port {hr.get('port', '?')} · {proxy_state} · "
+            f"route {route_state} · desired {hr.get('desired', '?')}{saved_note}"
+        )
+        for c in hr.get("collisions", []):
+            lines.append(f"  ⚠️  {c}")
 
     if fb_routes:
         lines.append("")
@@ -2453,6 +2511,7 @@ def main():
     tasks["_bridge"] = check_bridge_health
     tasks["_hermes"] = check_hermes_status
     tasks["_assistants"] = check_all_assistants
+    tasks["_headroom"] = check_headroom
     results = {}
     with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
         futures = {ex.submit(fn): name for name, fn in tasks.items()}

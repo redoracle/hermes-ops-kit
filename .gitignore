@@ -16,11 +16,17 @@
 # Python
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 *.pyc
 
 # IDE
 .vscode/
 .idea/
+
+# Local agent/MCP tooling state (never ship: local paths + memory DBs)
+.serena/
+.headroom/
+.mcp.json
 
 # Stray literal-path artifacts (unexpanded $HOME / ~ from a misconfigured env var)
 /$HOME/

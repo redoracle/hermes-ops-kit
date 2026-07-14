@@ -554,6 +554,12 @@ def main(argv: list[str] | None = None) -> int:
             decisions, mcp_decisions=mcp_decisions, dry_run=args.dry_run
         )
 
+        # 4. Headroom route reconciliation (best-effort).  Runs after
+        # enforcement because the gateway is typically restarted right
+        # after preflight; never affects the security exit codes — a
+        # proxy that won't start means the route stays direct.
+        headroom_result = _reconcile_headroom(dry_run=args.dry_run)
+
         if args.json:
             output = {
                 "ok": decisions["ok"] and mcp_decisions["ok"],
@@ -567,11 +573,13 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 "mcp_decisions": mcp_decisions,
                 "enforcement": enforcement,
+                "headroom": headroom_result,
                 "details": decisions["details"],
             }
             print(json.dumps(output, indent=2, sort_keys=True))
         else:
             _print_summary(decisions, enforcement, mcp_decisions)
+            _print_headroom_summary(headroom_result)
 
         return 2 if not decisions["ok"] or not mcp_decisions["ok"] else 0
 
@@ -586,6 +594,43 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Preflight error: {exc}", file=sys.stderr)
         return 3
+
+
+def _reconcile_headroom(dry_run: bool = False) -> dict[str, Any]:
+    """Best-effort Headroom route reconciliation (see headroom_ops).
+
+    Any failure is folded into the returned dict — preflight security
+    semantics (exit codes 0/2/3) must never depend on the proxy.
+    """
+    try:
+        ops_kit_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        if ops_kit_root not in sys.path:
+            sys.path.insert(0, ops_kit_root)
+        from headroom_ops.reconcile import reconcile  # pyright: ignore[reportMissingImports]
+
+        return reconcile(dry_run=dry_run)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "action": "skipped",
+            "warnings": [],
+            "errors": [f"headroom reconcile unavailable: {exc}"],
+        }
+
+
+def _print_headroom_summary(result: dict[str, Any]) -> None:
+    action = result.get("action", "?")
+    if action in ("noop", "already_direct", "skipped") and not result.get(
+        "warnings"
+    ) and not result.get("errors"):
+        return
+    print(f"\nHeadroom: {action}")
+    for w in result.get("warnings", []):
+        print(f"  ⚠️  {w}")
+    for e in result.get("errors", []):
+        print(f"  ❌ {e}")
 
 
 def _print_summary(
