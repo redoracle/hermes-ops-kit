@@ -24,6 +24,11 @@ dev = [
   "pytest>=8",
   "ruff>=0.5",
 ]
+# Headroom compression proxy for `hermes-ops-kit headroom` (install.sh
+# prefers pipx for the CLI binary; this extra covers venv installs).
+headroom = [
+  "headroom-ai[proxy]>=0.24",
+]
 
 [project.scripts]
 hermes-ops-kit = "bridge:main"

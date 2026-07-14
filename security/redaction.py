@@ -60,6 +60,32 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
+def sanitize_url_for_display(url: str) -> str:
+    """Strip userinfo, query, and fragment from a URL for terminal display.
+
+    Prevents credential leaks when a ``base_url`` from config carries embedded
+    credentials (``user:pass@host`` in the netloc, ``?api_key=sk-...`` in the
+    query string).  Fragments are stripped as a defence-in-depth measure
+    (rarely sensitive but never useful in diagnostic output).
+
+    Returns ``<url-redacted>`` on parse failure — never the raw URL.
+    Callers that need the raw URL for actual HTTP requests must call this
+    ONLY for the display/log copy, not for the connection copy.
+    """
+    if not url:
+        return url
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+        netloc = parsed.netloc
+        if "@" in netloc:
+            netloc = netloc.split("@")[-1]
+        sanitized = parsed._replace(netloc=netloc, query="", fragment="")
+        return urlunparse(sanitized)
+    except Exception:
+        return "<url-redacted>"
+
+
 def redact(text: str) -> str:
     """Redact all known secret patterns from *text*.
 

@@ -38,6 +38,7 @@ from typing import Any
 
 from ui.console import Console
 from ui.json_output import ok_envelope
+from security.redaction import sanitize_url_for_display
 from config.route_map import AUX_SHORT_KEYS, aux_config_key, aux_hermes_path
 
 HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
@@ -99,34 +100,36 @@ BUILTIN_PROFILES = {
 # ─── YAML Helpers ─────────────────────────────────────────────────────
 
 
-def _load_yaml(path: str) -> dict:
-    if not os.path.exists(path):
-        return {}
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        with open(path) as f:
-            return _yaml.safe_load(f) or {}
-    except ImportError:
-        return {}
-
-
-def _save_yaml(path: str, data: dict) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        with open(tmp, "w") as f:
-            _yaml.safe_dump(data, f, indent=2, sort_keys=False)
-    except ImportError:
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+from ops_config_io import load_yaml as _load_yaml, save_yaml as _save_yaml  # noqa: E402
 
 
 # ─── Commands ──────────────────────────────────────────────────────────
+
+
+def _headroom_overlay(hc: dict) -> dict[str, Any] | None:
+    """Headroom route-overlay info when the primary is proxied.
+
+    The overlay applied by `hermes-ops-kit headroom enable` is expected
+    state, not drift: show/doctor render it as `via headroom(port) →
+    upstream` instead of treating the provider swap as an anomaly.
+    """
+    model = hc.get("model", {}) if isinstance(hc, dict) else {}
+    if str(model.get("provider", "")).strip().lower() != "headroom":
+        return None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from headroom_ops.reconcile import load_snapshot  # pyright: ignore[reportMissingImports]
+        from headroom_ops.settings import load_settings  # pyright: ignore[reportMissingImports]
+
+        settings = load_settings()
+        snap_model = (load_snapshot(settings) or {}).get("model") or {}
+        return {
+            "port": settings.get("port"),
+            "upstream_provider": snap_model.get("provider", "?"),
+            "managed": bool(snap_model.get("provider")),
+        }
+    except Exception:
+        return {"port": "?", "upstream_provider": "?", "managed": False}
 
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -169,6 +172,8 @@ def cmd_show(args: argparse.Namespace) -> None:
     }
 
     # ── JSON output ────────────────────────────────────────────────
+    overlay = _headroom_overlay(hc)
+
     if args.json:
         envelope = ok_envelope(
             command="show",
@@ -176,6 +181,7 @@ def cmd_show(args: argparse.Namespace) -> None:
                 "primary": {
                     "provider": model.get("provider", "copilot"),
                     "model": model.get("default", "gpt-5.4-mini"),
+                    "headroom_overlay": overlay,
                 },
                 "fallbacks": fb,
                 "auxiliary": aux_data,
@@ -190,8 +196,17 @@ def cmd_show(args: argparse.Namespace) -> None:
 
     # ── Terminal output ────────────────────────────────────────────
     con.print(con.header("=== Primary Model ==="))
-    con.print(f"  provider: {con.green(model.get('provider', 'copilot'))}")
+    if overlay:
+        via = con.dim(f"via headroom({overlay['port']})")
+        con.print(f"  provider: {con.green(overlay['upstream_provider'])} {via}")
+    else:
+        con.print(f"  provider: {con.green(model.get('provider', 'copilot'))}")
     con.print(f"  model:    {con.bold(model.get('default', 'gpt-5.4-mini'))}")
+    if overlay and not overlay["managed"]:
+        con.print_warning(
+            "primary points at headroom without an ops-kit snapshot — "
+            "run: hermes-ops-kit headroom reconcile"
+        )
     con.print()
 
     con.print(con.header("=== Fallback Chain ==="))
@@ -247,6 +262,32 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                     "No fallback providers configured. Run: hermes fallback",
                 )
             )
+        overlay = _headroom_overlay(hc)
+        if overlay:
+            if overlay["managed"]:
+                print(
+                    f"ℹ headroom overlay active: primary via "
+                    f"headroom({overlay['port']}) → {overlay['upstream_provider']}"
+                )
+            else:
+                issues.append(
+                    (
+                        "headroom_unmanaged",
+                        "primary points at headroom without an ops-kit "
+                        "snapshot — run: hermes-ops-kit headroom reconcile",
+                    )
+                )
+        # Fallbacks must never resolve through the local proxy.
+        for i, f in enumerate(hc.get("fallback_providers") or []):
+            base = str(f.get("base_url", "") or "") if isinstance(f, dict) else ""
+            if "127.0.0.1" in base or "localhost" in base:
+                issues.append(
+                    (
+                        "fallback_via_proxy",
+                        f"fallback_providers[{i}] targets a local proxy "
+                        f"({sanitize_url_for_display(base)}) — graceful degradation is lost",
+                    )
+                )
 
     if issues:
         for code, msg in issues:
