@@ -28,6 +28,9 @@ __pycache__/
 .headroom/
 .mcp.json
 
+# Local operator playbooks (hand-authored, personal — local-only, not shipped)
+skills/operator/
+
 # Stray literal-path artifacts (unexpanded $HOME / ~ from a misconfigured env var)
 /$HOME/
 /~/
