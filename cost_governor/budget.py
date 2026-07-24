@@ -30,7 +30,7 @@ DEFAULT_BUDGET = {
     "enforcement_mode": "advisory",
     "provider_classes": {
         "free_or_included": ["github", "gemini"],
-        "paid_low": ["deepseek"],
+        "paid_low": ["deepseek", "fireworks", "deepinfra"],
         "paid_standard": ["openai"],
         "paid_premium": ["anthropic"],
     },
@@ -74,8 +74,10 @@ def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[st
     """Evaluate current budget status."""
     cfg = _load_budget()
     thresholds = cfg.get("thresholds", {})
-    daily_budget = cfg.get("daily_usd", 5.0)
-    monthly_budget = cfg.get("monthly_usd", 100.0)
+    # budget.yaml nests these under `budgets:`; fall back to top-level then DEFAULT.
+    _b = cfg.get("budgets", {})
+    daily_budget = _b.get("daily_usd", cfg.get("daily_usd", 5.0))
+    monthly_budget = _b.get("monthly_usd", cfg.get("monthly_usd", 100.0))
 
     daily_pct = round(daily_spend / daily_budget * 100, 1) if daily_budget else 0
     monthly_pct = (
@@ -102,6 +104,21 @@ def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[st
     if status == "blocked":
         actions.append("block_paid_providers")
 
+    # ── Nous plan allowance (best-effort; integrates core hermes_cli.nous_account) ──
+    try:
+        from cost_governor.plan_status import get_plan_allowance
+
+        allowance = get_plan_allowance().as_dict()
+    except Exception:
+        allowance = {"available": False, "exhausted": False}
+
+    # Classes to block when the budget is exhausted — single source of truth
+    # from config/budget.yaml actions.block.block_classes (default premium+standard).
+    block_classes = (
+        cfg.get("actions", {}).get("block", {}).get("block_classes")
+        or ["paid_premium", "paid_standard"]
+    )
+
     return {
         "ok": status != "blocked",
         "budget_status": status,
@@ -118,6 +135,8 @@ def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[st
             "free_or_included", []
         )
         + cfg.get("provider_classes", {}).get("paid_low", []),
+        "plan_allowance": allowance,
+        "block_classes": block_classes,
     }
 
 
@@ -127,6 +146,7 @@ def check_route_allowed(
     """Check if a route is allowed under current budget policy."""
     status = evaluate_budget()
     pclass = _provider_class(provider)
+    block_classes = status.get("block_classes") or ["paid_premium", "paid_standard"]
     mode = status.get("enforcement_mode", "advisory")
 
     if mode == "report_only":
@@ -134,8 +154,25 @@ def check_route_allowed(
             True, status["budget_status"], f"report_only mode: {provider} allowed"
         )
 
+    # ── Allowance-aware gating: block the configured block_classes when the Nous plan is exhausted ──
+    # Uses the same block_classes as the spend-based block below (single source of
+    # truth: config/budget.yaml actions.block.block_classes). Default = premium+standard,
+    # so paid_low (direct API keys, not Nous credits) stays allowed.
+    plan = status.get("plan_allowance") or {}
+    if plan.get("exhausted") and pclass in block_classes:
+        return BudgetDecision(
+            False,
+            "blocked",
+            f"{provider} blocked: Nous plan allowance exhausted",
+            recommended_provider="gemini",
+            requires_override=True,
+            warnings=[
+                "Nous plan allowance exhausted — use the free tier or /billing to top up"
+            ],
+        )
+
     if (
-        pclass in ("paid_premium", "paid_standard")
+        pclass in block_classes
         and status["budget_status"] == "blocked"
     ):
         return BudgetDecision(
@@ -147,6 +184,8 @@ def check_route_allowed(
             warnings=["Budget blocked — use hermes-ops-kit budget allow"],
         )
 
+    # Stricter premium-only warn under restrict/throttle (paid_standard is NOT
+    # warned here — intentional). block_classes above governs the hard block.
     if pclass in ("paid_premium",) and status["budget_status"] in (
         "restrict",
         "throttle",

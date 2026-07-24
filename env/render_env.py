@@ -16,6 +16,7 @@ Safety gates:
 from __future__ import annotations
 
 import os
+import re
 
 
 # ── Denylist loader ─────────────────────────────────────────────────────
@@ -61,6 +62,52 @@ def _load_deny_render() -> set[str]:
 
 
 DENY_RENDER: set[str] = _load_deny_render()
+
+
+# ── env_projection loader ─────────────────────────────────────────────
+# Loads the env_projection: map from config/env_projection.yaml so YAML edits
+# take effect. Previously only deny_render was parsed and the projection fell
+# back to DEFAULT_PROJECTION, silently ignoring env_projection.yaml additions
+# (e.g. FIREWORKS_API_KEY / DEEPINFRA_API_KEY were never rendered).
+_KEY_VAL_RE = re.compile(r"^\s{2,}([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(\S+)\s*$")
+
+
+def _load_env_projection() -> dict[str, str]:
+    """Load the env_projection mapping from config/env_projection.yaml (manual parse)."""
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config",
+        "env_projection.yaml",
+    )
+    proj: dict[str, str] = {}
+    try:
+        with open(config_path) as f:
+            in_proj = False
+            for line in f:
+                s = line.rstrip("\n")
+                stripped = s.strip()
+                if stripped.startswith("env_projection:"):
+                    in_proj = True
+                    continue
+                if not in_proj:
+                    continue
+                # A new top-level key (col 0, non-comment) ends the section.
+                if s and not s[0].isspace() and not stripped.startswith("#"):
+                    break
+                if not stripped or stripped.startswith("#"):
+                    continue
+                m = _KEY_VAL_RE.match(s)
+                if m:
+                    key = m.group(1)
+                    val = m.group(2).strip('"').strip("'")
+                    if key and val:
+                        proj[key] = val
+    except (FileNotFoundError, OSError):
+        pass
+    return proj
+
+
+ENV_PROJECTION: dict[str, str] = _load_env_projection()
 
 # Also block by ref keyword — any ref containing these path segments is admin
 ADMIN_PATH_SEGMENTS: frozenset[str] = frozenset(
@@ -122,7 +169,18 @@ def render_env_content(
 
     Returns the rendered content as a string.  Never prints it.
     """
-    mapping = projection or DEFAULT_PROJECTION
+    mapping = projection or {**DEFAULT_PROJECTION, **ENV_PROJECTION}
+
+    # Best-effort provenance from core's SecretSource (Bitwarden/1Password/…).
+    # When core also provides a var, annotate it — core's apply_all runs at Hermes
+    # startup and wins over .env.generated at runtime, so this surfaces the
+    # split-brain rather than silently duplicating core's read path.
+    try:
+        from security.secret_source_bridge import core_secret_sources
+
+        _core_sources = core_secret_sources()
+    except Exception:
+        _core_sources = {}
 
     lines: list[str] = [
         "# ~/.hermes/.env.generated",
@@ -164,7 +222,11 @@ def render_env_content(
 
             value = secret.value
             fp, last4 = secret_fingerprint(value)
-            lines.append(f"# fingerprint={fp} last4={last4}")
+            src = f"vaultwarden:{secret_ref}"
+            core_label = _core_sources.get(env_var)
+            if core_label:
+                src += f" (also core:{core_label} — core wins at runtime)"
+            lines.append(f"# fingerprint={fp} last4={last4} source={src}")
             lines.append(f'{env_var}="{value}"')
             rendered_count += 1
         else:

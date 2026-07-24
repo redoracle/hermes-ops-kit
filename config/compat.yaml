@@ -1,0 +1,90 @@
+# Hermes Ops Kit — Compatibility Manifest
+#
+# Records the target Hermes Agent version and per-feature coverage status.
+# Consumed by:
+#   - skills/hermes-compat-audit/SKILL.md   (the multi-pass audit skill)
+#   - scripts/hermes_compat_audit.py         (grounded release fetcher)
+#
+# status values:
+#   covered            — ops-kit implements this in its own lane
+#   partial            — ops-kit implements part; remainder is core-lane or TODO
+#   missing            — gap; ops-kit should add it (or core-lane, see note)
+#   not-ops-kit-lane   — Hermes core owns this; ops-kit must NOT reimplement it
+
+target_hermes_version: "0.19.0"   # Hermes Agent Quicksilver (v2026.7.20)
+target_hermes_codename: "Quicksilver"
+ops_kit_version: "0.2.0"
+releases_url: "https://github.com/NousResearch/hermes-agent/releases"
+releases_api: "https://api.github.com/repos/NousResearch/hermes-agent/releases"
+
+# Mapping of hermes-agent changelog feature areas → ops-kit lane + coverage.
+features:
+  - area: "SecretSource (Bitwarden + 1Password op://, multi-vault, precedence, provenance)"
+    lane: "secret & key lifecycle"
+    status: partial
+    note: "security/secret_source_bridge.py queries core SecretSource provenance; render_env annotates # source= + core-conflict (read-path integration). WRITES stay on Vaultwarden (core has no write API). Full retirement deferred."
+
+  - area: "Fireworks AI provider"
+    lane: "provider routing"
+    status: covered
+    note: "providers/fireworks_adapter.py + fireworks_rotator.py + registry wired"
+
+  - area: "DeepInfra provider"
+    lane: "provider routing"
+    status: covered
+    note: "providers/deepinfra_adapter.py + deepinfra_rotator.py + registry wired"
+
+  - area: "Upstage Solar provider"
+    lane: "provider routing"
+    status: missing
+    note: "not present in core checkout; re-check when core adds the adapter"
+
+  - area: "Reasoning effort tiers (max/ultra, per-model)"
+    lane: "route config"
+    status: covered
+    note: "REASONING_EFFORTS + BUILTIN_PROFILES + --effort flag writes agent.reasoning_effort"
+
+  - area: "Fireworks redaction prefixes (fw-/fw_/fpk_)"
+    lane: "redaction"
+    status: covered
+    note: "security/redaction.py mirrors core agent/redact.py"
+
+  - area: "Shared credential-read guard (image-gen local-file reads)"
+    lane: "security"
+    status: covered
+    note: "security/credential_read_guard.py mirrors core agent/file_safety.raise_if_read_blocked (pinned #57698); dual-root + skills/.hub parity; drift detector in tests/test_credential_read_guard.py"
+
+  - area: "Nous plan allowance governance"
+    lane: "cost governance"
+    status: covered
+    note: "cost_governor/plan_status.py integrates core hermes_cli.nous_account.get_nous_portal_account_info"
+
+  - area: "Delivery-obligation ledger (state.db, redelivery on boot)"
+    lane: "messaging"
+    status: not-ops-kit-lane
+    note: "Hermes core gateway concern; ops-kit must not touch messaging"
+
+  - area: "Sessions export (Quarto/HTML/HuggingFace/prompt-only/--redact/lineage)"
+    lane: "conversation export"
+    status: not-ops-kit-lane
+    note: "Hermes core hermes sessions export; ops-kit hermes_export.py is operational reports only"
+
+  - area: "Smart approvals (LLM reviewer, deny rules, /deny, yolo, per-command verdict)"
+    lane: "runtime command approval"
+    status: not-ops-kit-lane
+    note: "Hermes core tools/approval.py; ops-kit policy engine is pre-flight plugin/MCP security"
+
+  - area: "Profile-based message routing (multiplexed gateway, isolated secrets)"
+    lane: "gateway"
+    status: not-ops-kit-lane
+    note: "Hermes core gateway; shared boundary for per-profile secret rendering (future)"
+
+  - area: "LM Studio JIT model loading"
+    lane: "model dispatch"
+    status: not-ops-kit-lane
+    note: "Hermes core model dispatch"
+
+  - area: "Live transcripts + durable background delegation (delegate_task)"
+    lane: "assistant delegation"
+    status: partial
+    note: "ops-kit ai_assistant_delegate is remote-HTTP (distinct from core in-process delegate_task); durable ledger is core-lane"

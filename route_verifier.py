@@ -217,11 +217,13 @@ def check_credential_gaps(
         """Check if a provider has credentials in the env."""
         provider_lower = provider.lower()
         env_map = {
-            "gemini": ("GEMINI_API_KEY",),
+            "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
             "openai": ("OPENAI_API_KEY",),
             "anthropic": ("ANTHROPIC_API_KEY",),
             "deepseek": ("DEEPSEEK_API_KEY",),
+            "nvidia": ("NVIDIA_API_KEY",),
             "openrouter": ("OPENROUTER_API_KEY",),
+            "zai": ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
             "github": ("GITHUB_TOKEN", "GH_TOKEN"),
             "copilot": ("GITHUB_TOKEN", "GH_TOKEN"),
         }

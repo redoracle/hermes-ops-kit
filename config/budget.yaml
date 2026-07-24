@@ -24,6 +24,8 @@ provider_classes:
 
   paid_low:
     - deepseek
+    - fireworks
+    - deepinfra
 
   paid_standard:
     - openai
@@ -45,6 +47,8 @@ actions:
       - github
       - gemini
       - deepseek
+      - fireworks
+      - deepinfra
     avoid:
       - anthropic
       - openai
