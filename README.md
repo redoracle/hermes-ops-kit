@@ -193,7 +193,7 @@ A normal `hermes gateway restart` does **not** run preflight. Use
 ### Python dependencies
 
 All provider SDKs are included as core dependencies — `pip install hermes-ops-kit`
-installs everything needed for full functionality across all 6 providers.
+installs everything needed for full functionality across all 8 providers.
 `install.sh` installs the `dev` extra as well and verifies both Pillow and
 `ruff`, plus Semgrep and Bandit in an isolated scanner environment. It also
 installs pinned Gitleaks `v8.30.1` through Go, or the package-managed Gitleaks
@@ -349,6 +349,7 @@ hermes-route-manager show                          # Current routing config
 hermes-route-manager apply-profile cheap           # Budget-optimized
 hermes-route-manager apply-profile balanced        # Default all-rounder
 hermes-route-manager apply-profile max-quality     # Best available models
+hermes-route-manager apply-profile cheap --effort high  # Override profile reasoning effort (max/ultra tiers)
 hermes-route-manager set-primary copilot gpt-5.4-mini
 hermes-route-manager fallback add openai gpt-5.4-mini
 hermes-route-manager doctor                        # Validate configuration
@@ -587,7 +588,7 @@ See [`skills/bw/SKILL.md`](skills/bw/SKILL.md) and
   without editing files
 - **3-layer admin denylist** — `hermes/*/admin_key` refs can never leak into
   `.env.generated` (YAML blocklist + path classification + metadata flag)
-- **16-pattern redaction** — all stdout/stderr/logs pass through
+- **27-pattern redaction** — all stdout/stderr/logs pass through
   `security/redaction.py`
 - **Secret scanner gate** — `assert_clean()` blocks any content containing
   secret-like patterns before reaching disk
@@ -673,13 +674,13 @@ hermes_assistant_manager.py Assistant registry + ping + discover
 hermes_skill_factory.py    SKILL.md generator
 hermes_export.py           Structured export (usage, security, audit, briefings)
 
-security/                  Bitwarden/Vaultwarden backend · redaction · fingerprints · lockfile
+security/                  Bitwarden/Vaultwarden backend · redaction · fingerprints · credential-read guard · SecretSource bridge · lockfile
 env/                       Env loading · rendering (3-layer denylist) · atomic writes
-providers/                 6 LLM adapters + 6 rotators + state machine
+providers/                 8 LLM adapters + 8 rotators + shared OpenAI-compat base + state machine
 assistants/                Config-driven delegation (8 modules)
 image_routes/              Image gen routing + 4 adapters (ComfyUI, Gemini, OpenAI, FAL)
 security/plugin_scanner/   Pre-execution plugin security scan (entropy, doc-mode, skill-mode)
-mcp/                       Tool auditor + risk classifier
+mcp_auditor/               Tool auditor + risk classifier
 policy/                    Centralized engine + declarative rules
 audit/                     Sanitized JSONL audit logs (phase-tracked)
 cost_governor/             Budget enforcement
@@ -707,7 +708,8 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── routes.yaml                         ← Route profiles + labels
 │   ├── image_routes.yaml                   ← Image generation routes
 │   ├── env_projection.yaml                 ← Env-var → secret-ref mapping
-│   └── budget.yaml                         ← Cost limits
+│   ├── budget.yaml                         ← Cost limits + provider cost classes
+│   └── compat.yaml                         ← Hermes compat manifest (target version + coverage)
 │
 ├── examples/                               ← Annotated config templates
 │   ├── assistants.yaml
@@ -727,17 +729,20 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── Operations Runbook.md               ← Incident response
 │   ├── plugin-security-scanner.md          ← Scanner docs + anti-FP tuning
 │   ├── external-security-tools.md          ← Semgrep/gitleaks/Bandit install guide
+│   ├── compat-audit.md                     ← Living Hermes compat audit report
 │   └── quickstart.md                       ← Getting started
 │
 ├── skills/                                 ← Bundled Hermes skills
 │   ├── hermes-ops-kit/SKILL.md             ← Operator workflows
 │   ├── hermes-key-rotate/SKILL.md          ← Key rotation guide
+│   ├── hermes-compat-audit/SKILL.md        ← Hermes release compat audit (3-pass)
 │   ├── bw/SKILL.md                         ← Bitwarden CLI reference
 │   └── operator/                           ← Bitwarden/Vaultwarden operational guides
 │
 ├── scripts/
 │   ├── preflight-scan.sh                   ← Pre-release secret audit
-│   └── test-scanner.sh                     ← 10-test scanner integration suite
+│   ├── test-scanner.sh                     ← 10-test scanner integration suite
+│   └── hermes_compat_audit.py              ← Grounded GitHub-release fetcher + compat comparison
 │
 ├── hermes_patches/                         ← Hermes core bridge patches
 │   └── README.md
@@ -749,14 +754,20 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
 │
-├── tests/                                  ← 194 pytest tests + 8 simulator scenarios
-│   ├── test_security.py                    ← 32 tests
+├── tests/                                  ← 283 pytest tests + 8 simulator scenarios
+│   ├── test_security.py                    ← 38 tests
 │   ├── test_snapshots.py                   ← 14 tests
 │   ├── test_simulator.py                   ← 8 scenarios (run separately)
-│   ├── test_plugin_scanner.py              ← 110 scanner tests
+│   ├── test_plugin_scanner.py              ← 114 scanner tests
+│   ├── test_providers_adapter.py           ← 7 adapter tests
+│   ├── test_providers_rotator.py           ← 10 rotator tests
+│   ├── test_credential_read_guard.py       ← 10 credential-read guard tests
+│   ├── test_plan_status.py                 ← 7 Nous allowance tests
+│   ├── test_budget_allowance.py            ← 10 budget allowance tests
+│   ├── test_compat_audit.py                ← 4 compat-audit tests
 │   ├── test_route_runtime_harness.py       ← 6 tests
 │   ├── test_background_edit.py             ← 4 tests (requires Pillow)
-│   └── cli/                                ← 28 CLI integration tests
+│   └── cli/                                ← 43 CLI integration tests
 │
 └── policy/
     └── rules.yaml                          ← Declarative security rules
@@ -778,6 +789,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 | [`docs/Headroom.md`](docs/Headroom.md)                                     | Headroom operator guide — purpose · configuration · administration · model/provider switching · troubleshooting                      |
 | [`docs/headroom-integration.md`](docs/headroom-integration.md)             | Headroom design spec — reconciled route overlay · robustness contract · daemon lifecycle · doctor checks                             |
 | [`docs/quickstart.md`](docs/quickstart.md)                                 | 10-minute setup — install, bootstrap, seed, verify                                                                                   |
+| [`docs/compat-audit.md`](docs/compat-audit.md)                            | Living Hermes compat audit — coverage map · gap analysis · implementation plan (produced by the `hermes-compat-audit` skill)          |
 | [`CHANGELOG.md`](CHANGELOG.md)                                             | Release history with features, fixes, and breaking changes                                                                           |
 | [`SECURITY.md`](SECURITY.md)                                               | Vulnerability reporting · supported versions · disclosure policy · security design principles                                        |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md)                                       | Development setup · code style · running tests · PR checklist · project boundaries                                                   |
@@ -786,7 +798,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -v               # 194 tests (security, snapshots, scanner, CLI)
+python3 -m pytest tests/ -v               # 283 tests (security, snapshots, scanner, CLI)
 python3 tests/test_simulator.py --all      # 8 failure scenarios (no real APIs)
 bash scripts/test-scanner.sh              # 10-test scanner integration suite
 bash scripts/preflight-scan.sh             # Pre-release secret audit
