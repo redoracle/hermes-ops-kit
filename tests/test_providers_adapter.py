@@ -141,3 +141,47 @@ def test_adapter_rotator_shared_attrs_in_sync() -> None:
         assert adapter.base_url_env == rotator.base_url_env
         assert adapter.provider == rotator.provider
         assert adapter.provider_label == rotator.provider_label
+
+
+def test_extract_handles_none_api_content(monkeypatch, capsys) -> None:
+    # op_extract must not crash when the API returns null content —
+    # json.loads(None) raises TypeError (not JSONDecodeError); catching it keeps
+    # the successful response (ok=True) with a parse_error structured field.
+    import types as _types
+
+    mod = _types.ModuleType("openai")
+    for n in ("AuthenticationError", "RateLimitError", "APITimeoutError",
+              "APIConnectionError", "InternalServerError", "PermissionDeniedError"):
+        setattr(mod, n, type(n, (Exception,), {}))
+
+    _msg = _types.SimpleNamespace(content=None)
+    _choice = _types.SimpleNamespace(message=_msg)
+    _resp = _types.SimpleNamespace(choices=[_choice], usage=None, id="req-1")
+
+    class _Completions:
+        @staticmethod
+        def create(**kw):
+            return _resp
+
+    class _Client:
+        def __init__(self, **kw):
+            pass
+
+        models = _types.SimpleNamespace(data=["m"])
+        chat = _types.SimpleNamespace(completions=_Completions())
+
+    mod.OpenAI = _Client
+    monkeypatch.setitem(sys.modules, "openai", mod)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy")
+    monkeypatch.setattr(
+        sys, "argv",
+        ["deepseek_adapter.py", "--operation", "extract", "--prompt", "x",
+         "--model", "deepseek-v4-flash", "--schema", '{"type":"object"}'],
+    )
+    from providers._openai_compat_ops import run_cli  # pyright: ignore[reportMissingImports]
+    from providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
+
+    run_cli(DeepSeekAdapter)
+    d = json.loads(capsys.readouterr().out)
+    assert d["ok"] is True  # API succeeded — must not crash on null content
+    assert d["result"]["structured"]["parse_error"] is True

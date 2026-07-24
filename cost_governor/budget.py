@@ -114,10 +114,9 @@ def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[st
 
     # Classes to block when the budget is exhausted — single source of truth
     # from config/budget.yaml actions.block.block_classes (default premium+standard).
-    block_classes = (
-        cfg.get("actions", {}).get("block", {}).get("block_classes")
-        or ["paid_premium", "paid_standard"]
-    )
+    block_classes = cfg.get("actions", {}).get("block", {}).get("block_classes")
+    if block_classes is None:
+        block_classes = ["paid_premium", "paid_standard"]
 
     return {
         "ok": status != "blocked",
@@ -146,7 +145,9 @@ def check_route_allowed(
     """Check if a route is allowed under current budget policy."""
     status = evaluate_budget()
     pclass = _provider_class(provider)
-    block_classes = status.get("block_classes") or ["paid_premium", "paid_standard"]
+    block_classes = status.get("block_classes")
+    if block_classes is None:
+        block_classes = ["paid_premium", "paid_standard"]
     mode = status.get("enforcement_mode", "advisory")
 
     if mode == "report_only":

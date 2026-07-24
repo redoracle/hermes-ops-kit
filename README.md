@@ -12,7 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-280%20passed-brightgreen" alt="280 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-283%20passed-brightgreen" alt="283 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
