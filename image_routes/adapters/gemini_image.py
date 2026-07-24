@@ -97,6 +97,12 @@ class GeminiImageAdapter(BaseImageAdapter):
                 import mimetypes
 
                 resolved = os.path.expanduser(image_path)
+                # Shared credential-read guard (mirrors Hermes core
+                # agent/file_safety.raise_if_read_blocked, #57698): refuse
+                # model/user-supplied paths that target credential stores.
+                from security.credential_read_guard import raise_if_read_blocked
+
+                raise_if_read_blocked(resolved)
                 mime_type, _ = mimetypes.guess_type(resolved)
                 if not mime_type or not mime_type.startswith("image/"):
                     mime_type = "image/png"

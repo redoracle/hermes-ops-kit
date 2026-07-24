@@ -36,9 +36,9 @@ from typing import List
 # Every "which providers exist" decision derives from here so a new provider
 # can't silently vanish from one view while showing in another.
 
-PROVIDERS = ["openai", "anthropic", "github", "gemini", "deepseek", "nvidia"]
-# Display order: free/included first, then paid.
-DISPLAY_ORDER = ["github", "gemini", "nvidia", "openai", "anthropic", "deepseek"]
+PROVIDERS = ["openai", "anthropic", "github", "gemini", "deepseek", "nvidia", "fireworks", "deepinfra"]
+# Display order: free/included first, then paid_low, then paid_standard/premium.
+DISPLAY_ORDER = ["github", "gemini", "nvidia", "deepseek", "fireworks", "deepinfra", "openai", "anthropic"]
 PROVIDER_NAMES = {
     "openai": "OPENAI",
     "anthropic": "ANTHROPIC",
@@ -46,6 +46,8 @@ PROVIDER_NAMES = {
     "gemini": "GEMINI",
     "deepseek": "DEEPSEEK",
     "nvidia": "NVIDIA",
+    "fireworks": "FIREWORKS",
+    "deepinfra": "DEEPINFRA",
 }
 
 # Per-provider display metadata: curated model ranking + honest cost fallback.
@@ -80,6 +82,22 @@ PROVIDER_META = {
             "nemotron-3-ultra-550b-a55b",
         ],
         "cost_default": "DEV",
+    },
+    "fireworks": {
+        "preferred_models": [
+            "accounts/fireworks/models/glm-5p2",
+            "accounts/fireworks/models/kimi-k2p6",
+            "accounts/fireworks/models/kimi-k2p7-code",
+        ],
+        "cost_default": "UNKN",
+    },
+    "deepinfra": {
+        "preferred_models": [
+            "deepseek-ai/DeepSeek-V4-Flash",
+            "Qwen/Qwen3-235B-A22B-Instruct-2507",
+            "Qwen/Qwen3-30B",
+        ],
+        "cost_default": "UNKN",
     },
 }
 
@@ -332,7 +350,7 @@ def check_anthropic(api_key: str | None = None) -> dict:
         resp = _urlopen(req)
         data = json.loads(resp.read().decode())
         models, cats = [], {"opus": [], "sonnet": [], "haiku": []}
-        for m in data.get("data", []):
+        for m in (data.get("data", []) if isinstance(data, dict) else []):
             mid = m.get("id", "")
             info = {
                 "id": mid,
@@ -613,9 +631,10 @@ def check_deepseek(api_key: str | None = None) -> dict:
     # Fire the two independent reads concurrently: models (status gate) + balance.
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_balance = ex.submit(_fetch_deepseek_balance, key)
+        base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         try:
             req = urllib.request.Request(
-                "https://api.deepseek.com/models",
+                f"{base}/models",
                 headers={"Authorization": f"Bearer {key}"},
             )
             resp = _urlopen(req)
@@ -638,7 +657,7 @@ def check_deepseek(api_key: str | None = None) -> dict:
             }
         models = [
             {"id": m.get("id", ""), "owned_by": m.get("owned_by", "deepseek")}
-            for m in data.get("data", [])
+            for m in (data.get("data", []) if isinstance(data, dict) else [])
             if m.get("id")
         ]
         balance = f_balance.result()
@@ -733,7 +752,7 @@ def check_nvidia(api_key: str | None = None) -> dict:
 
             page_models = [
                 {"id": m.get("id", ""), "owned_by": m.get("owned_by", "nvidia")}
-                for m in data.get("data", [])
+                for m in (data.get("data", []) if isinstance(data, dict) else [])
                 if m.get("id")
             ]
             all_models.extend(page_models)
@@ -787,6 +806,116 @@ def check_nvidia(api_key: str | None = None) -> dict:
         }
 
 
+def check_fireworks(api_key: str | None = None) -> dict:
+    """Check Fireworks AI API health via the OpenAI-compatible /v1/models endpoint.
+
+    Fireworks exposes no dedicated billing endpoint; pricing is read from
+    /models metadata and models.dev by Hermes core, so has_cost_api=False here.
+    """
+    key = api_key or os.environ.get("FIREWORKS_API_KEY", "")
+    if not key:
+        return {
+            "provider": "fireworks",
+            "status": "offline",
+            "error": "FIREWORKS_API_KEY not set",
+        }
+    t0 = time.time()
+    base = os.environ.get("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
+    try:
+        req = urllib.request.Request(
+            f"{base}/models",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        resp = _urlopen(req)
+        data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300] if e.fp else ""
+        return {
+            "provider": "fireworks",
+            "status": "error",
+            "http_status": e.code,
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "error": redact(body),
+        }
+    except Exception as e:
+        return {
+            "provider": "fireworks",
+            "status": "error",
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "error": str(e),
+        }
+    models = [
+        {"id": m.get("id", ""), "owned_by": m.get("owned_by", "fireworks")}
+        for m in (data.get("data", []) if isinstance(data, dict) else [])
+        if m.get("id")
+    ]
+    return {
+        "provider": "fireworks",
+        "status": "online",
+        "api_latency_ms": int((time.time() - t0) * 1000),
+        "models": models,
+        "model_count": len(models),
+        "has_cost_api": False,
+        "has_quota_api": False,
+        "quota_url": "app.fireworks.ai/settings/users/api-keys",
+    }
+
+
+def check_deepinfra(api_key: str | None = None) -> dict:
+    """Check DeepInfra API health via the OpenAI-compatible /v1/openai/models endpoint.
+
+    DeepInfra exposes no separate billing endpoint; pricing is embedded in the
+    catalog metadata.pricing, so has_cost_api=False here.
+    """
+    key = api_key or os.environ.get("DEEPINFRA_API_KEY", "")
+    if not key:
+        return {
+            "provider": "deepinfra",
+            "status": "offline",
+            "error": "DEEPINFRA_API_KEY not set",
+        }
+    t0 = time.time()
+    base = os.environ.get("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
+    try:
+        req = urllib.request.Request(
+            f"{base}/models",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        resp = _urlopen(req)
+        data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:300] if e.fp else ""
+        return {
+            "provider": "deepinfra",
+            "status": "error",
+            "http_status": e.code,
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "error": redact(body),
+        }
+    except Exception as e:
+        return {
+            "provider": "deepinfra",
+            "status": "error",
+            "api_latency_ms": int((time.time() - t0) * 1000),
+            "error": str(e),
+        }
+    models = [
+        {"id": m.get("id", ""), "owned_by": m.get("owned_by", "deepinfra")}
+        for m in (data.get("data", []) if isinstance(data, dict) else [])
+        if m.get("id")
+    ]
+    return {
+        "provider": "deepinfra",
+        "status": "online",
+        "api_latency_ms": int((time.time() - t0) * 1000),
+        "models": models,
+        "model_count": len(models),
+        "has_cost_api": False,
+        "has_quota_api": False,
+        "quota_url": "deepinfra.com/dash/api_keys",
+    }
+
+
 # ─── Bridge health ──────────────────────────────────────────────
 
 
@@ -800,6 +929,8 @@ def check_bridge_health() -> dict:
         ("gemini", "gemini_adapter.py"),
         ("deepseek", "deepseek_adapter.py"),
         ("nvidia", "nvidia_adapter.py"),
+        ("fireworks", "fireworks_adapter.py"),
+        ("deepinfra", "deepinfra_adapter.py"),
     ]:
         fp = os.path.join(d, f)
         adapters[p] = os.path.exists(fp) and os.access(fp, os.X_OK)
@@ -2504,6 +2635,8 @@ def main():
         "gemini": check_gemini,
         "deepseek": check_deepseek,
         "nvidia": check_nvidia,
+        "fireworks": check_fireworks,
+        "deepinfra": check_deepinfra,
     }
     # Run all probes concurrently — total wall time ≈ slowest single probe
     # instead of the sum (providers + bridge + hermes are independent).

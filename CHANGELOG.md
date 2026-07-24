@@ -4,6 +4,140 @@ All notable changes to Hermes Ops Kit.
 
 ## [Unreleased]
 
+### Hermes Agent v0.19.0 (Quicksilver) Compatibility — v2026.7.20
+
+Adapted hermes-ops-kit to Hermes Agent v0.19.0 "Quicksilver" (release
+`v2026.7.20`). Audit-driven — see `docs/compat-audit.md`, produced by the new
+`hermes-compat-audit` skill. Changes stay within ops-kit's operational/security
+lane; capabilities now owned by Hermes core (delivery ledger, sessions export,
+smart approvals, profile routing, LM Studio JIT) are deliberately NOT
+reimplemented (integrate, don't duplicate — `CLAUDE.md` scope boundary).
+
+**Providers**
+- **Fireworks AI** — first-class provider: `providers/fireworks_adapter.py` +
+  `fireworks_rotator.py` (OpenAI-compatible, `https://api.fireworks.ai/inference/v1`),
+  wired into bridge, usage_metrics, budget (`paid_low`), key rotation, env projection.
+- **DeepInfra** — first-class provider: `providers/deepinfra_adapter.py` +
+  `deepinfra_rotator.py` (`https://api.deepinfra.com/v1/openai`), full registry wiring.
+- Upstage Solar: investigated but **not wired** — no adapter exists in the core
+  checkout (v0.18.2); the `hermes-compat-audit` skill will catch it when core adds it.
+
+**Security**
+- `security/credential_read_guard.py` — shared credential-read guard mirroring
+  core `agent/file_safety.raise_if_read_blocked` (#57698); gates model/user-supplied
+  local-file reads in image-gen adapters (gemini reference images, comfyui workflow).
+  Best-effort delegates to core; local denylist fallback.
+- Redaction: added Fireworks (`fw-`/`fw_`/`fpk_`), xAI/Grok (`xai-`), Fal.ai (`fal_`)
+  prefixes to `security/redaction.py` (mirror of core `agent/redact.py`).
+
+**Cost governance**
+- `cost_governor/plan_status.py` — Nous plan allowance reader integrating core
+  `hermes_cli.nous_account.get_nous_portal_account_info` (integrate, not reimplement).
+- `cost_governor/budget.py` — allowance-aware gating: blocks paid_premium/standard
+  routes when the Nous plan is exhausted (recommends free tier); `evaluate_budget`
+  exposes a `plan_allowance` summary.
+
+**Route config**
+- `hermes_route_manager.py` — `reasoning_effort` tiers (mirrors core
+  `VALID_REASONING_EFFORTS`: none/minimal/low/medium/high/xhigh/max/ultra) in
+  BUILTIN_PROFILES + `--effort` flag on `apply-profile` (writes
+  `agent.reasoning_effort`).
+- `route_verifier.py` — env_map now recognizes nvidia + zai (nvidia was missing —
+  AUX routes to nvidia falsely reported "no credential"); `commands.py` documents
+  the credential-check vs usage-registry layering (openrouter/zai are OpenAI-compat,
+  credential-check only).
+
+**Compatibility tooling**
+- `skills/hermes-compat-audit/SKILL.md` — skill that monitors
+  https://github.com/NousResearch/hermes-agent/releases vs the plugin, runs a 3-pass
+  audit (coverage map → gap analysis → implementation plan) updating
+  `docs/compat-audit.md`.
+- `scripts/hermes_compat_audit.py` — grounded GitHub-release fetcher + manifest
+  comparison (defensive on network/rate-limit).
+- `config/compat.yaml` — compatibility manifest (target version + per-feature coverage).
+
+**Tests**
+- 257 tests passing (was 212). Added: redaction (6), reasoning_effort (4),
+  route_verifier creds (3), credential-read guard (10), plan_status (7), budget
+  allowance (8), compat-audit (4), provider adapters (3).
+
+**Post-review hardening** — an 8-agent adversarial review (security /
+correctness / enterprise-quality / scope-compliance) confirmed 19 findings
+(0 critical/high); all security & correctness findings fixed:
+- Adapters (fireworks/deepinfra/deepseek): redact the `structured` field too
+  (was a redaction bypass for `op_extract`).
+- Rotators (fireworks/deepinfra/deepseek): `redact()` exception detail and
+  smoke-test strings at the source.
+- `hermes_key_rotate.py` legacy `--provider` uses `PROVIDER_CHOICES` (was
+  hardcoded — rejected nvidia/fireworks/deepinfra).
+- `budget.py`: read nested `budgets.daily_usd`/`monthly_usd` (silent
+  config-ignored bug — operator limits were ignored).
+- `credential_read_guard.py`: dual-root check (profile mode) + narrow
+  `skills/.hub` (core parity).
+- `local_comfyui.py`: dropped the guard (operator-configured path, outside the
+  guard's model-supplied-path contract).
+- Redaction: JSON secret-field pattern (opaque DeepInfra keys).
+- Base-URL env override: fireworks + deepseek now honor `*_BASE_URL` in adapter
+  + health-check (was split-brain vs the rotator).
+- `commands.py` doctor fallback derives from `usage_metrics_v2.PROVIDERS`;
+  `scripts/hermes_compat_audit.py` handles empty/non-list releases + reads URL
+  from `config/compat.yaml`.
+- Deferred (follow-up): factor OpenAI-compat commonality onto `BaseRotator` /
+  shared ops module (~600 duplicated lines); read `block_classes` from budget.yaml.
+  → Both completed in the Tier 3 section below.
+
+### Tier 3 — Architectural (v0.19.0 compatibility, enterprise-grade)
+
+- **SecretSource bridge** (`security/secret_source_bridge.py`) — ops-kit now
+  queries Hermes core's SecretSource provenance
+  (`hermes_cli.env_loader._SECRET_SOURCES`) instead of duplicating the read path.
+  Core's SecretSource is read-only/bulk (no per-secret `get`), so the bridge
+  queries provenance and `env/render_env.py` annotates `# source=vaultwarden:<ref>`
+  + surfaces `also-provided-by=core:<label>` conflicts (core wins at runtime).
+  WRITES (rotation) stay on Vaultwarden — core has no write API.
+- **`env/render_env.py`** — fixed a latent bug (the `env_projection:` section of
+  `config/env_projection.yaml` was never loaded — only `deny_render` was parsed,
+  so FIREWORKS/DEEPINFRA additions were silently ignored). Now loads via
+  `_load_env_projection()` + provenance/conflict annotation.
+- **OpenAI-compat dedup** (`providers/_openai_compat_ops.py`) — factored the
+  ~95% identical adapter/rotator triplet (deepseek/fireworks/deepinfra) into a
+  shared `OpenAICompatAdapter` + `run_cli` + `OpenAICompatRotator` (8-branch
+  validate ladder + 9-step rotate). The 6 per-provider files are now thin
+  subclasses (~-1000 lines). DeepSeek's reasoner divergence via
+  `supports_temperature`/`extract_model` hooks (`extract_warning` derives from
+  `extract_model` — no drift). Subprocess boundary + bridge contract preserved.
+- **`cost_governor/budget.py`** — `block_classes` read from
+  `config/budget.yaml` `actions.block.block_classes` (single source of truth;
+  was hardcoded). Used by both allowance-gating and spend-block branches.
+- **Adversarial review (8-agent)** — 6 findings, all fixed: structured-field
+  redaction test, rotate/smoke rollback branch tests (smoke-fail, render-fail,
+  QUOTA_OR_BILLING), `extract_warning` DRY (derive from `extract_model`), removed
+  dead `core_provides`, adapter/rotator drift-detection test.
+- **Tests** — 280 passing (was 257). Added: render_env (env_projection + provenance),
+  secret_source_bridge, rotator validate-ladder + rotate branches, adapter
+  structured-redaction + drift, deepseek reasoner hooks, block_classes-from-config,
+  cross-registry provider drift detection.
+
+### Code-review hardening (post-commit `/code-review max ultracode`)
+
+A `/code-review max ultracode` pass found 9 issues in the committed work; 7 fixed
+(2 nits skipped: mutable class-attr is theoretical + all subclasses override; `fal_`
+threshold mirrors core's `{10,}` — diverging would break alignment):
+- `op_extract`: catch `TypeError` (null API content) alongside `JSONDecodeError` — a
+  successful response with null content now returns `ok=True` + `parse_error` instead
+  of crashing (affected all 3 OpenAI-compat providers).
+- `rotate`: wrap `restore_secret` in the smoke-fail rollback (was unwrapped — a
+  restore failure could propagate, skip audit, + leave the bad key); capture
+  `rollback_error` + still audit `smoke_test_failed`.
+- `check_fireworks/deepinfra/deepseek`: guard `data.get` on a null `/models` response.
+- `credential_read_guard`: treat `HERMES_HOME=""` as unset (don't check paths vs CWD).
+- `budget`: honor an explicit empty `block_classes` (`[]` was silently overridden by
+  the default via `or`); `is None` checks in evaluate_budget + check_route_allowed.
+- `render_env`: `_KEY_VAL_RE` tolerates inline comments on env_projection entries.
+- `credential_read_guard`: `Optional[callable]` → `Optional[Callable[..., Any]]`.
+- +3 regression tests (null content, empty block_classes, restore-failure rollback).
+- **Tests** — 283 passing.
+
 ### Security — Hermes Session Scan Integration
 
 - Register the cached plugin security scan on Hermes's supported
