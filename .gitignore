@@ -27,6 +27,7 @@ __pycache__/
 .serena/
 .headroom/
 .mcp.json
+.obsidian-mcp-vault/
 
 # Local operator playbooks (hand-authored, personal — local-only, not shipped)
 skills/operator/
