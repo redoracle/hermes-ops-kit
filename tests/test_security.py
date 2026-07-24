@@ -61,6 +61,33 @@ def test_redacts_nvidia_key():
     )
 
 
+def test_redacts_fireworks_key():
+    # fw- and fw_ prefixes — added to core redactor in v0.19.0 (Quicksilver).
+    assert "<FIREWORKS_KEY_REDACTED>" in redact("fw-" + "A" * 40)
+    assert "<FIREWORKS_KEY_REDACTED>" in redact("fw_" + "B" * 40)
+
+
+def test_redacts_fireworks_project_key():
+    assert "<FIREWORKS_KEY_REDACTED>" in redact("fpk_" + "C" * 40)
+
+
+def test_redacts_xai_grok_key():
+    # xAI (Grok) — grok-4.5 landed in v0.19.0.
+    assert "<XAI_KEY_REDACTED>" in redact("xai-" + "D" * 40)
+
+
+def test_redacts_fal_key():
+    # Fal.ai — ops-kit has a fal_image adapter (FAL_KEY).
+    assert "<FAL_KEY_REDACTED>" in redact("fal_" + "E" * 20)
+
+
+def test_redact_short_fireworks_like_words_unchanged():
+    # Anti-false-positive: short fw_/fw-/fpk_ runs must NOT be redacted
+    # (mirrors Hermes core tests/agent/test_redact.py — min 30 trailing chars).
+    text = "fw-tooshort fw_tooshort fpk_tooshort"
+    assert redact(text) == text
+
+
 def test_redacts_bearer_token():
     result = redact("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abc.xyz")
     assert "Bearer" not in result or "TOKEN_REDACTED" in result
@@ -77,6 +104,15 @@ def test_redacts_private_key():
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7
 -----END PRIVATE KEY-----"""
     assert "<PRIVATE_KEY_REDACTED>" in redact(pem)
+
+
+def test_redacts_json_secret_field():
+    # Opaque tokens (e.g. DeepInfra keys — no vendor prefix) under a sensitive
+    # JSON field name. Mirrors core agent/redact.py _SENSITIVE_BODY_KEYS.
+    secret = "opaque-deepinfra-key-value-1234567890"
+    result = redact('{"api_key": "' + secret + '"}')
+    assert secret not in result
+    assert "<REDACTED>" in result
 
 
 def test_redact_preserves_safe_text():

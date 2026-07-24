@@ -25,6 +25,8 @@ PROVIDERS = {
     "gemini": os.path.join(BRIDGE_DIR, "providers", "gemini_adapter.py"),
     "deepseek": os.path.join(BRIDGE_DIR, "providers", "deepseek_adapter.py"),
     "nvidia": os.path.join(BRIDGE_DIR, "providers", "nvidia_adapter.py"),
+    "fireworks": os.path.join(BRIDGE_DIR, "providers", "fireworks_adapter.py"),
+    "deepinfra": os.path.join(BRIDGE_DIR, "providers", "deepinfra_adapter.py"),
 }
 
 CAPABILITIES = {
@@ -77,6 +79,26 @@ CAPABILITIES = {
             "nvidia/llama-3.3-nemotron-super-49b-v1.5",
             "meta/llama-4-maverick-17b-128e-instruct",
             "mistralai/mistral-nemotron",
+        ],
+    },
+    "fireworks": {
+        "surfaces": ["api"],
+        "operations": ["chat", "extract", "review", "models"],
+        "requires_approval_for": [],
+        "models": [
+            "accounts/fireworks/models/glm-5p2",
+            "accounts/fireworks/models/kimi-k2p6",
+            "accounts/fireworks/models/kimi-k2p7-code",
+        ],
+    },
+    "deepinfra": {
+        "surfaces": ["api"],
+        "operations": ["chat", "extract", "review", "models"],
+        "requires_approval_for": [],
+        "models": [
+            "deepseek-ai/DeepSeek-V4-Flash",
+            "Qwen/Qwen3-235B-A22B-Instruct-2507",
+            "Qwen/Qwen3-30B",
         ],
     },
 }

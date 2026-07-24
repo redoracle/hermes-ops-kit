@@ -96,6 +96,10 @@ class LocalComfyUIAdapter(BaseImageAdapter):
         width, height = _aspect_dims(aspect_ratio)
 
         # Load external workflow if configured, else use inline default
+        # workflow_path is an operator-configured system path (from
+        # image_routes.yaml), NOT a model/user-supplied input — so the
+        # credential-read guard's contract excludes it (the guard is for
+        # model-supplied paths only, like gemini_image's image_path).
         external_workflow = None
         if os.path.isfile(self.workflow_path):
             try:

@@ -53,6 +53,21 @@ BUNDLED_IMAGE_ROUTES = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "config", "image_routes.yaml"
 )
 
+# Reasoning effort tiers — mirrors Hermes core ``hermes_constants.VALID_REASONING_EFFORTS``
+# (v0.19.0 Quicksilver added ``max`` and ``ultra``). ``"none"`` disables thinking entirely
+# (core's parse_reasoning_effort treats it as falsy). Written to ``agent.reasoning_effort``
+# in ~/.hermes/config.yaml by cmd_apply_profile().
+REASONING_EFFORTS = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+)
+
 BUILTIN_PROFILES = {
     "cheap": {
         "primary": {
@@ -67,6 +82,7 @@ BUILTIN_PROFILES = {
             {"provider": "deepseek", "model": "deepseek-v4-flash"},
         ],
         "image_gen": {"provider": "ops-kit-router", "model": "auto"},
+        "reasoning_effort": "low",
     },
     "balanced": {
         "primary": {
@@ -80,6 +96,7 @@ BUILTIN_PROFILES = {
             {"provider": "deepseek", "model": "deepseek-v4-flash"},
         ],
         "image_gen": {"provider": "ops-kit-router", "model": "auto"},
+        "reasoning_effort": "medium",
     },
     "max-quality": {
         "primary": {
@@ -93,6 +110,7 @@ BUILTIN_PROFILES = {
             {"provider": "deepseek", "model": "deepseek-v4-pro"},
         ],
         "image_gen": {"provider": "ops-kit-router", "model": "auto"},
+        "reasoning_effort": "max",
     },
 }
 
@@ -411,6 +429,13 @@ def cmd_apply_profile(args: argparse.Namespace) -> None:
     if provider_routing and hc.get("model", {}).get("provider") == "openrouter":
         hc["provider_routing"] = copy.deepcopy(provider_routing)
 
+    # ── Reasoning effort (agent.reasoning_effort) ───────────────────
+    # Mirrors Hermes core hermes_constants.parse_reasoning_effort.
+    # --effort overrides the profile default; "none" disables thinking.
+    effort = args.effort or profile.get("reasoning_effort")
+    if effort:
+        hc.setdefault("agent", {})["reasoning_effort"] = effort
+
     _save_yaml(HERMES_CONFIG, hc)
 
     aux_count = (
@@ -427,6 +452,8 @@ def cmd_apply_profile(args: argparse.Namespace) -> None:
         print(
             f"  image_gen:   {image_gen.get('provider', '?')}:{image_gen.get('model', '?')}"
         )
+    if effort:
+        print(f"  effort:      {effort}  (agent.reasoning_effort)")
     print()
     print("Takes effect:")
     print("  - New hermes chat sessions: immediately")
@@ -506,6 +533,13 @@ def main() -> None:
 
     prof = sub.add_parser("apply-profile")
     prof.add_argument("profile_name", choices=list(BUILTIN_PROFILES.keys()))
+    prof.add_argument(
+        "--effort",
+        choices=REASONING_EFFORTS,
+        default=None,
+        help="reasoning_effort override (writes agent.reasoning_effort); "
+        "one of: " + ", ".join(REASONING_EFFORTS),
+    )
 
     sub.add_parser("export")
 

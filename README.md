@@ -10,9 +10,9 @@
 <p align="center">
   <a href="https://pypi.org"><img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
-  <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.15.x-purple" alt="Hermes 0.15.x"></a>
+  <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-212%20passed-brightgreen" alt="212 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-283%20passed-brightgreen" alt="283 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -41,7 +41,7 @@ plugs into the native Hermes plugin system and stays out of your way.
 
 | Command                       | What it shows                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `hermes-usage`                | Multi-provider health dashboard — online/offline status, rate limits, costs, and model inventory across all 6 providers |
+| `hermes-usage`                | Multi-provider health dashboard — online/offline status, rate limits, costs, and model inventory across all 8 providers |
 | `hermes-route-manager show`   | Current routing configuration — primary, utility, auxiliary, and fallback routes with provider assignments              |
 | `hermes-ops-kit image routes` | Image generation routes — local ComfyUI, Gemini, OpenAI, and FAL.ai backends with status and cost class                 |
 
@@ -74,17 +74,19 @@ plugs into the native Hermes plugin system and stays out of your way.
 | Area              | Capabilities                                                                                                          |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
 | **Secrets**       | Bitwarden/Vaultwarden-backed store · 3 auth modes · atomic chmod-600 writes · classification (admin/runtime/config)   |
-| **Key Rotation**  | 6 providers · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode        |
+| **Key Rotation**  | 8 providers (OpenAI · Anthropic · GitHub · Gemini · DeepSeek · NVIDIA · Fireworks · DeepInfra) · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode |
 | **Validation**    | Structured results (`reason_class`, `http_status`, `retry_recommended`) — "unusable" never "expired"                  |
 | **Env Rendering** | 3-layer denylist gate — admin keys can never leak into `.env.generated`                                               |
 | **Health**        | Concurrent live probes across all providers · rate limits · costs                                                     |
-| **Routing**       | Profile presets (cheap / balanced / max-quality) · fallback chains                                                    |
+| **Routing**       | Profile presets (cheap / balanced / max-quality) · `reasoning_effort` tiers (max/ultra) · fallback chains             |
 | **Image Gen**     | Separate routing layer — ComfyUI · Gemini · DALL-E · FAL.ai                                                           |
 | **Headroom**      | Token-compression proxy as a reconciled route overlay — fallbacks always direct · drift self-healing · exact rollback |
 | **Assistants**    | Config-driven delegation to remote Hermes agents · policy engine                                                      |
 | **MCP Audit**     | Server discovery · tool risk classification · atomic whitelisting                                                     |
 | **Plugin Scan**   | Pre-execution security scan · entropy check · skill vs code detection · rule overrides · doc/test downgrades          |
-| **Security**      | 16-pattern redaction · secret scanner gate · safe `bw` CLI wrapper                                                    |
+| **Security**      | Extensible redaction (Fireworks `fw-`/`xai-`/`fal_`) · credential-read guard · secret scanner gate · safe `bw` CLI wrapper |
+| **Cost Gov**      | USD budgets + Nous plan allowance gating · provider cost classes · route restrictions · free-tier reroute on exhaustion |
+| **Compatibility** | `hermes-compat-audit` skill — monitors hermes-agent releases vs plugin · 3-pass audit → implementation plan · grounded GitHub fetcher |
 
 ## What it does not replace
 
