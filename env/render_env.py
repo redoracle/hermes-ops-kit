@@ -69,7 +69,7 @@ DENY_RENDER: set[str] = _load_deny_render()
 # take effect. Previously only deny_render was parsed and the projection fell
 # back to DEFAULT_PROJECTION, silently ignoring env_projection.yaml additions
 # (e.g. FIREWORKS_API_KEY / DEEPINFRA_API_KEY were never rendered).
-_KEY_VAL_RE = re.compile(r"^\s{2,}([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(\S+)\s*$")
+_KEY_VAL_RE = re.compile(r"^\s{2,}([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(\S+)(?:\s+#.*)?\s*$")
 
 
 def _load_env_projection() -> dict[str, str]:

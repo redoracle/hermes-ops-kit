@@ -118,6 +118,26 @@ correctness / enterprise-quality / scope-compliance) confirmed 19 findings
   structured-redaction + drift, deepseek reasoner hooks, block_classes-from-config,
   cross-registry provider drift detection.
 
+### Code-review hardening (post-commit `/code-review max ultracode`)
+
+A `/code-review max ultracode` pass found 9 issues in the committed work; 7 fixed
+(2 nits skipped: mutable class-attr is theoretical + all subclasses override; `fal_`
+threshold mirrors core's `{10,}` — diverging would break alignment):
+- `op_extract`: catch `TypeError` (null API content) alongside `JSONDecodeError` — a
+  successful response with null content now returns `ok=True` + `parse_error` instead
+  of crashing (affected all 3 OpenAI-compat providers).
+- `rotate`: wrap `restore_secret` in the smoke-fail rollback (was unwrapped — a
+  restore failure could propagate, skip audit, + leave the bad key); capture
+  `rollback_error` + still audit `smoke_test_failed`.
+- `check_fireworks/deepinfra/deepseek`: guard `data.get` on a null `/models` response.
+- `credential_read_guard`: treat `HERMES_HOME=""` as unset (don't check paths vs CWD).
+- `budget`: honor an explicit empty `block_classes` (`[]` was silently overridden by
+  the default via `or`); `is None` checks in evaluate_budget + check_route_allowed.
+- `render_env`: `_KEY_VAL_RE` tolerates inline comments on env_projection entries.
+- `credential_read_guard`: `Optional[callable]` → `Optional[Callable[..., Any]]`.
+- +3 regression tests (null content, empty block_classes, restore-failure rollback).
+- **Tests** — 283 passing.
+
 ### Security — Hermes Session Scan Integration
 
 - Register the cached plugin security scan on Hermes's supported

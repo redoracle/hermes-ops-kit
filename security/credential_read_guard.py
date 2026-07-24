@@ -24,14 +24,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 # ── Best-effort delegation to Hermes core ──────────────────────────────
 # Resolved at import time so a runtime `export HERMES_REDACT_SECRETS=false`-style
 # mutation cannot swap the guard mid-session. Missing core → fall back to the
 # local denylist below.
-_core_raise: Optional[callable] = None  # type: ignore[type-arg]
-_core_error: Optional[callable] = None  # type: ignore[type-arg]
+_core_raise: Optional[Callable[..., Any]] = None
+_core_error: Optional[Callable[..., Any]] = None
 try:  # pragma: no cover - depends on running inside the Hermes process
     from agent.file_safety import (  # type: ignore[import-not-found]
         get_read_block_error as _core_error,
@@ -93,7 +93,7 @@ def _local_block_error(path: str) -> Optional[str]:
     # .anthropic_oauth.json, …) must be checked against BOTH roots — mirrors
     # core agent/file_safety._hermes_home_path + _hermes_root_path.
     roots: list[Path] = []
-    for env_root in (os.environ.get("HERMES_HOME", "~/.hermes"), "~/.hermes"):
+    for env_root in (os.environ.get("HERMES_HOME") or "~/.hermes", "~/.hermes"):
         try:
             real = Path(os.path.expanduser(env_root)).resolve()
             if real not in roots:

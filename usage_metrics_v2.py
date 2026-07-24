@@ -350,7 +350,7 @@ def check_anthropic(api_key: str | None = None) -> dict:
         resp = _urlopen(req)
         data = json.loads(resp.read().decode())
         models, cats = [], {"opus": [], "sonnet": [], "haiku": []}
-        for m in data.get("data", []):
+        for m in (data.get("data", []) if isinstance(data, dict) else []):
             mid = m.get("id", "")
             info = {
                 "id": mid,
@@ -657,7 +657,7 @@ def check_deepseek(api_key: str | None = None) -> dict:
             }
         models = [
             {"id": m.get("id", ""), "owned_by": m.get("owned_by", "deepseek")}
-            for m in data.get("data", [])
+            for m in (data.get("data", []) if isinstance(data, dict) else [])
             if m.get("id")
         ]
         balance = f_balance.result()
@@ -752,7 +752,7 @@ def check_nvidia(api_key: str | None = None) -> dict:
 
             page_models = [
                 {"id": m.get("id", ""), "owned_by": m.get("owned_by", "nvidia")}
-                for m in data.get("data", [])
+                for m in (data.get("data", []) if isinstance(data, dict) else [])
                 if m.get("id")
             ]
             all_models.extend(page_models)
@@ -846,7 +846,7 @@ def check_fireworks(api_key: str | None = None) -> dict:
         }
     models = [
         {"id": m.get("id", ""), "owned_by": m.get("owned_by", "fireworks")}
-        for m in data.get("data", [])
+        for m in (data.get("data", []) if isinstance(data, dict) else [])
         if m.get("id")
     ]
     return {
@@ -901,7 +901,7 @@ def check_deepinfra(api_key: str | None = None) -> dict:
         }
     models = [
         {"id": m.get("id", ""), "owned_by": m.get("owned_by", "deepinfra")}
-        for m in data.get("data", [])
+        for m in (data.get("data", []) if isinstance(data, dict) else [])
         if m.get("id")
     ]
     return {

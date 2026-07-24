@@ -139,4 +139,4 @@ core has no write API. This is integration, not re-implementation.
 `render_env` is still needed for vars core's SecretSource doesn't provide + for the
 post-rotation env re-render. `hermes_export.py` rename not done — it is a breaking
 CLI change (`hermes-export` entry point + 7 internal refs) for marginal clarity.
-280 tests passing (incl. cross-registry drift detection).
+283 tests passing (incl. cross-registry drift detection + code-review regression tests).

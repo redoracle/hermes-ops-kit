@@ -170,7 +170,9 @@ class OpenAICompatAdapter:
         content = response.choices[0].message.content
         try:
             structured = json.loads(content)  # pyright: ignore[reportArgumentType]
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
+            # JSONDecodeError: malformed JSON; TypeError: content is None (server
+            # returned null). Either way, surface a parse_error instead of crashing.
             structured = {"raw": content, "parse_error": True}
 
         warning = cls.extract_warning(model)
@@ -497,13 +499,20 @@ class OpenAICompatRotator(BaseRotator):
         # 5. Smoke test (before rendering env, so a bad key never reaches .env.generated)
         passed, detail = self.smoke_test()
         if not passed:
+            rollback_error = None
             if backup:
-                self.backend.restore_secret(self.api_ref, backup)
+                try:
+                    self.backend.restore_secret(self.api_ref, backup)
+                except Exception as restore_err:
+                    rollback_error = redact(str(restore_err))
             audit_rotation_attempt(
                 provider=self.provider, status="smoke_test_failed", old_fp=old_fp, new_fp=new_fp,
                 old_revoked=False, manual_action=True, env_keys_updated=[],
             )
-            return {"ok": False, "error": f"Smoke test failed: {detail}", "smoke_test": detail}
+            result = {"ok": False, "error": f"Smoke test failed: {detail}", "smoke_test": detail}
+            if rollback_error:
+                result["rollback_error"] = rollback_error
+            return result
 
         # 6. Render env (only after smoke passes)
         from env.render_env import render_env  # pyright: ignore[reportMissingImports]

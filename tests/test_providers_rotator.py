@@ -189,3 +189,25 @@ def test_rotate_quota_or_billing_stores_with_warning(monkeypatch) -> None:
     assert result["ok"] is True  # stored despite QUOTA_OR_BILLING
     assert result["warnings"]  # billing warning present
     assert ("set", r.api_ref) in backend.calls
+
+
+def test_rotate_smoke_failure_restore_error_is_captured(monkeypatch) -> None:
+    # If restore_secret itself raises during smoke-fail rollback, the error is
+    # captured (not propagated) + audit is still called + result is ok=False with
+    # rollback_error. Previously restore was unwrapped (could leave a bad key + no audit).
+    class _FailingRestore(_FakeBackend):
+        def restore_secret(self, name, previous):
+            raise RuntimeError("vault unreachable")
+
+    backend = _FailingRestore()
+    r = FireworksRotator(backend)
+    # Record audit calls instead of silencing — assert smoke_test_failed is logged.
+    calls: list[dict] = []
+    import audit.audit_log as al  # pyright: ignore[reportMissingImports]
+    monkeypatch.setattr(al, "audit_rotation_attempt", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(r, "validate_with_retry", lambda key: ValidationResult(valid=True))
+    monkeypatch.setattr(r, "smoke_test", lambda: (False, "smoke failed"))
+    result = r.rotate("new-key")
+    assert result["ok"] is False
+    assert "rollback_error" in result
+    assert any(c.get("status") == "smoke_test_failed" for c in calls)

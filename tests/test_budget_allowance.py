@@ -153,3 +153,32 @@ def test_block_classes_read_from_config(tmp_path, monkeypatch):
     )
     d = budget.check_route_allowed("fireworks")
     assert not d.allowed
+
+
+def test_block_classes_empty_disables_blocking(tmp_path, monkeypatch):
+    # An explicit empty block_classes must be honored (disable class-based
+    # blocking), not silently overridden by the default — `[] or [default]`
+    # would wrongly fall back to the default.
+    cfg = tmp_path / "budget.yaml"
+    cfg.write_text(
+        "version: 1\n"
+        "budgets:\n  daily_usd: 5.0\n  monthly_usd: 100.0\n"
+        "thresholds:\n  warn_percent: 70\n  throttle_percent: 85\n"
+        "  restrict_percent: 95\n  block_percent: 100\n"
+        "enforcement_mode: advisory\n"
+        "provider_classes:\n"
+        "  free_or_included: [github, gemini]\n"
+        "  paid_low: [deepseek]\n"
+        "  paid_standard: [openai]\n"
+        "  paid_premium: [anthropic]\n"
+        "actions:\n  block:\n    block_classes: []\n"
+    )
+    monkeypatch.setattr(budget, "BUDGET_CONFIG_PATHS", [str(cfg)])
+    r = budget.evaluate_budget()
+    assert r["block_classes"] == []  # empty honored, not overridden
+    # Allowance exhausted + empty block_classes → even paid_premium is allowed.
+    monkeypatch.setattr(
+        ps, "get_plan_allowance",
+        lambda force_fresh=False: PlanAllowance(available=True, total_usable_credits=0.0, monthly_credits=100.0),
+    )
+    assert budget.check_route_allowed("anthropic").allowed
