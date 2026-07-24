@@ -30,6 +30,13 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     (r"gho_[A-Za-z0-9]{36}", "<GITHUB_TOKEN_REDACTED>"),
     (r"ghu_[A-Za-z0-9]{36}", "<GITHUB_TOKEN_REDACTED>"),
     (r"github_pat_[A-Za-z0-9_]{40,}", "<GITHUB_TOKEN_REDACTED>"),
+    # ── LLM / Image Provider Keys (mirror Hermes core agent/redact.py) ──
+    # Fireworks AI — prefixes added to core redactor in v0.19.0 (Quicksilver).
+    (r"fw-[A-Za-z0-9]{30,}", "<FIREWORKS_KEY_REDACTED>"),  # Fireworks API key
+    (r"fw_[A-Za-z0-9]{30,}", "<FIREWORKS_KEY_REDACTED>"),  # Fireworks API key
+    (r"fpk_[A-Za-z0-9]{30,}", "<FIREWORKS_KEY_REDACTED>"),  # Fireworks project key
+    (r"xai-[A-Za-z0-9]{30,}", "<XAI_KEY_REDACTED>"),  # xAI (Grok) API key
+    (r"fal_[A-Za-z0-9_-]{10,}", "<FAL_KEY_REDACTED>"),  # Fal.ai (image adapter)
     # ── Vaultwarden / Bitwarden Secrets ──
     (r"BW_SESSION=[A-Za-z0-9+/=]{20,}", "BW_SESSION=<REDACTED>"),
     (r"BW_CLIENTSECRET=[A-Za-z0-9]{20,}", "BW_CLIENTSECRET=<REDACTED>"),
@@ -48,6 +55,13 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
         "<PRIVATE_KEY_REDACTED>",
     ),
     (r'"private_key"\s*:\s*"[^"]*"', '"private_key":"<PRIVATE_KEY_REDACTED>"'),
+    # ── JSON / form body fields carrying secrets ──
+    # Catches opaque tokens with no vendor prefix (e.g. DeepInfra keys) in JSON
+    # values like {"api_key":"..."}. Mirrors core agent/redact.py _SENSITIVE_BODY_KEYS.
+    (
+        r'("(?:api_key|apikey|api-key|access_token|refresh_token|id_token|token|secret|client_secret|password|authorization)"\s*:\s*")[^"]*"',
+        r'\1<REDACTED>"',
+    ),
     # ── Generic Bearer / API Key Headers ──
     (r"Bearer\s+[A-Za-z0-9_\-\.]+", "Bearer <TOKEN_REDACTED>"),
     (r"x-api-key:\s*[A-Za-z0-9_\-\.]+", "x-api-key: <KEY_REDACTED>"),

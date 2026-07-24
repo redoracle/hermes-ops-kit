@@ -285,6 +285,8 @@ PROVIDER_ROTATORS: dict[str, str] = {
     "github": "providers.github_rotator.GitHubRotator",
     "deepseek": "providers.deepseek_rotator.DeepSeekRotator",
     "nvidia": "providers.nvidia_rotator.NvidiaRotator",
+    "fireworks": "providers.fireworks_rotator.FireworksRotator",
+    "deepinfra": "providers.deepinfra_rotator.DeepInfraRotator",
 }
 PROVIDER_CHOICES: list[str] = list(PROVIDER_ROTATORS.keys()) + ["all"]
 
@@ -1148,14 +1150,7 @@ def main() -> None:
     # Provider
     parser.add_argument(
         "--provider",
-        choices=[
-            "openai",
-            "anthropic",
-            "google",
-            "github",
-            "deepseek",
-            "all",
-        ],
+        choices=PROVIDER_CHOICES,
         help="Provider to rotate keys for (or 'all')",
     )
     parser.add_argument(

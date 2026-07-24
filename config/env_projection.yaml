@@ -48,6 +48,13 @@ env_projection:
   NVIDIA_API_KEY: hermes/nvidia/api_key
   NVIDIA_BASE_URL: hermes/nvidia/base_url
 
+  # ── Fireworks AI ──
+  FIREWORKS_API_KEY: hermes/fireworks/api_key
+
+  # ── DeepInfra ──
+  DEEPINFRA_API_KEY: hermes/deepinfra/api_key
+  DEEPINFRA_BASE_URL: hermes/deepinfra/base_url
+
   # ── Assistants — Assistant ──
   ASSISTANT_API_BASE: hermes/assistants/assistant-id/api_base
   ASSISTANT_API_KEY: hermes/assistants/assistant-id/api_key
