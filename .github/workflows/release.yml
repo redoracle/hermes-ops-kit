@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      - name: Sync pyproject.toml to repo
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ ! -f .release-prepared ]; then
+            echo "No release prepared — skipping sync"
+            exit 0
+          fi
+          VERSION=$(cat .release-prepared)
+          echo "Syncing pyproject.toml for version ${VERSION}"
+          PYPROJECT_SHA=$(gh api repos/${{ github.repository }}/contents/pyproject.toml --jq '.sha')
+          ENCODED_PYPROJECT=$(base64 -w 0 pyproject.toml)
+          gh api repos/${{ github.repository }}/contents/pyproject.toml \
+            -X PUT \
+            -f message="chore: update pyproject.toml version to ${VERSION}" \
+            -f content="$ENCODED_PYPROJECT" \
+            -f sha="$PYPROJECT_SHA" \
+            --jq '.commit.sha'
+          echo "pyproject.toml synced for ${VERSION}"

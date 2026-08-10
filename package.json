@@ -1,0 +1,12 @@
+{
+  "name": "hermes-ops-kit",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Operational and security plugin for Hermes Agent",
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/exec": "^7.1.0",
+    "conventional-changelog-conventionalcommits": "^10.2.1",
+    "semantic-release": "^25.0.9"
+  }
+}
