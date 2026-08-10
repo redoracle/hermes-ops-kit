@@ -22,7 +22,7 @@ jobs:
       - name: Lint installer
         if: runner.os == 'Linux'
         run: shellcheck -s bash install.sh
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         if: runner.os == 'Linux'
         with:
           go-version: stable
