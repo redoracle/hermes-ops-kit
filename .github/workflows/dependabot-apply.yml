@@ -1,0 +1,75 @@
+name: Dependabot Apply
+
+# Intercepts Dependabot PRs and applies their changes directly to main
+# as commits authored by redoracle (not dependabot[bot]), then closes
+# the PR without merging. This keeps Dependabot active (keeping GitHub
+# Actions running) while preventing bot identities from appearing as
+# contributors.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-apply-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Apply changes as redoracle
+        id: apply
+        run: |
+          set -euo pipefail
+
+          git config user.name "redoracle"
+          git config user.email "michael.dogali@gmail.com"
+
+          # Fetch the Dependabot PR branch
+          git fetch origin "${{ github.head_ref }}"
+
+          # Squash-merge stages the combined changes without committing
+          if ! git merge --squash "origin/${{ github.head_ref }}"; then
+            echo "::warning::Merge conflict — leaving PR open for manual resolution"
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Commit with redoracle as both author and committer
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          git commit -m "${PR_TITLE}" \
+            --author="redoracle <michael.dogali@gmail.com>"
+
+          git push origin main
+          echo "conflict=false" >> "$GITHUB_OUTPUT"
+
+      - name: Close PR (changes applied)
+        if: steps.apply.outputs.conflict == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr close "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --comment "✅ Changes applied directly to main as a redoracle commit (no bot contributor). PR closed without merge." \
+            --delete-branch
+
+      - name: Comment on conflict
+        if: steps.apply.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "⚠️ Merge conflict detected. Could not auto-apply. Please resolve manually and rebase the PR."
