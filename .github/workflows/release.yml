@@ -36,7 +36,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
-      - name: Sync pyproject.toml to repo
+      - name: Sync version files to repo (4-way invariant)
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -47,13 +47,17 @@ jobs:
             exit 0
           fi
           VERSION=$(cat .release-prepared)
-          echo "Syncing pyproject.toml for version ${VERSION}"
-          PYPROJECT_SHA=$(gh api repos/${{ github.repository }}/contents/pyproject.toml --jq '.sha')
-          ENCODED_PYPROJECT=$(base64 -w 0 pyproject.toml)
-          gh api repos/${{ github.repository }}/contents/pyproject.toml \
-            -X PUT \
-            -f message="chore: update pyproject.toml version to ${VERSION}" \
-            -f content="$ENCODED_PYPROJECT" \
-            -f sha="$PYPROJECT_SHA" \
-            --jq '.commit.sha'
-          echo "pyproject.toml synced for ${VERSION}"
+          echo "Syncing version files for ${VERSION}"
+          for FILE in pyproject.toml plugin.yaml hermes_ops_kit/__init__.py hermes_ops_kit/security/plugin_scanner/__init__.py; do
+            [ -f "$FILE" ] || { echo "WARN: $FILE missing — skipping"; continue; }
+            SHA=$(gh api "repos/${{ github.repository }}/contents/$FILE" --jq '.sha')
+            ENCODED=$(base64 -w 0 "$FILE")
+            gh api "repos/${{ github.repository }}/contents/$FILE" \
+              -X PUT \
+              -f message="chore: update $FILE version to ${VERSION}" \
+              -f content="$ENCODED" \
+              -f sha="$SHA" \
+              --jq '.commit.sha' >/dev/null
+            echo "  $FILE synced"
+          done
+          echo "version files synced for ${VERSION}"
