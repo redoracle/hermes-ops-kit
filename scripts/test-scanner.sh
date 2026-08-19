@@ -15,6 +15,9 @@ PASS="${GREEN}PASS${NC}"; FAIL="${RED}FAIL${NC}"
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON="python3"
+# -P (Python 3.11+) keeps the cwd off sys.path; PYTHONPATH points at the plugin root
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+  || { echo "FAIL: Python 3.11+ required (-P flag)"; exit 1; }
 POLICY_TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$POLICY_TMP_DIR"' EXIT
 
@@ -25,12 +28,11 @@ banner() { echo -e "\n${BOLD}${CYAN}━━━ $1 ━━━${NC}"; }
 # ────────────────────────────────────────────────────────────────
 banner "1. Module Imports"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
 modules = [
-    'security.plugin_scanner.scanner', 'security.plugin_scanner.cli',
-    'security.plugin_scanner.categories.secrets', 'security.plugin_scanner.categories.policy',
-    'security.plugin_scanner.policy', 'security.plugin_scanner.findings',
+    'hermes_ops_kit.security.plugin_scanner.scanner', 'hermes_ops_kit.security.plugin_scanner.cli',
+    'hermes_ops_kit.security.plugin_scanner.categories.secrets', 'hermes_ops_kit.security.plugin_scanner.categories.policy',
+    'hermes_ops_kit.security.plugin_scanner.policy', 'hermes_ops_kit.security.plugin_scanner.findings',
 ]
 for m in modules: __import__(m)
 print('OK')
@@ -39,9 +41,8 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "2. Entropy & Dummy Detection"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.categories.secrets import _shannon_entropy, _is_likely_fake_secret
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+from hermes_ops_kit.security.plugin_scanner.categories.secrets import _shannon_entropy, _is_likely_fake_secret
 
 # Real key → NOT fake
 is_fake, _ = _is_likely_fake_secret('sk-Ab7Qx9Yz2Wp3Kj6Mn8Rt4Vc5Fg1Hd3Ns')
@@ -65,9 +66,8 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "3. File Classification"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.categories.secrets import _is_doc_file, _is_test_file, _file_class
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+from hermes_ops_kit.security.plugin_scanner.categories.secrets import _is_doc_file, _is_test_file, _file_class
 
 assert _is_doc_file('CHANGELOG.md') == True
 assert _is_doc_file('docs/Threat Model.md') == True
@@ -83,9 +83,8 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "4. Rule Overrides CRUD"
 # ────────────────────────────────────────────────────────────────
-check env HERMES_PLUGIN_POLICY_PATH="$POLICY_TMP_DIR/plugin_policy.json" "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.policy import set_rule_override, remove_rule_override, get_rule_overrides
+check env HERMES_PLUGIN_POLICY_PATH="$POLICY_TMP_DIR/plugin_policy.json" PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+from hermes_ops_kit.security.plugin_scanner.policy import set_rule_override, remove_rule_override, get_rule_overrides
 
 # Set
 set_rule_override('__test_plugin__', 'test-rule', 'downgrade:info')
@@ -103,9 +102,9 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "5. gotify-notify (overrides preserve unrelated findings)"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys, os; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.scanner import scan_plugin
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+import os
+from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
 path = os.path.expanduser('~/.hermes/plugins/gotify-notify')
 if not os.path.isdir(path):
     print('SKIP: gotify-notify not installed')
@@ -119,10 +118,9 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "6. ops-kit Self-Scan (approved, no critical)"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.scanner import scan_plugin
-from security.plugin_scanner.findings import RiskLevel
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
+from hermes_ops_kit.security.plugin_scanner.findings import RiskLevel
 
 r = scan_plugin('hermes-ops-kit', '$PLUGIN_DIR', profile='manual', force=True)
 
@@ -141,9 +139,8 @@ print(f'OK (risk={r.risk_level.value}, score={r.score:.0f}, findings={len(r.find
 # ────────────────────────────────────────────────────────────────
 banner "7. Skills Detection (text-heavy vs code)"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.scanner import scan_plugin
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
 
 # Skills are text-heavy: they should get softer treatment
 # Check a known skill (apple is clean, but let's verify)
@@ -161,9 +158,8 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "8. Full Scan — Summary"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.scanner import scan_all
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+from hermes_ops_kit.security.plugin_scanner.scanner import scan_all
 
 results = scan_all(profile='manual', force=True)
 enabled = sum(1 for r in results if r.is_clean)
@@ -184,10 +180,10 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "9. Scan Caching"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys, os, tempfile; sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.scanner import scan_plugin
-from security.plugin_scanner.cache import cache_stats
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+import os, tempfile
+from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
+from hermes_ops_kit.security.plugin_scanner.cache import cache_stats
 
 path = tempfile.mkdtemp(prefix='hermes-scanner-cache-')
 with open(os.path.join(path, 'plugin.py'), 'w') as handle:
@@ -207,10 +203,9 @@ print('OK')
 # ────────────────────────────────────────────────────────────────
 banner "10. Policy File Integrity"
 # ────────────────────────────────────────────────────────────────
-check "$PYTHON" -c "
-import sys, json, os
-sys.path.insert(0, '$PLUGIN_DIR')
-from security.plugin_scanner.policy import get_policy
+check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
+import json, os
+from hermes_ops_kit.security.plugin_scanner.policy import get_policy
 
 p = get_policy()
 assert p['version'] == 2, f'Policy version mismatch: {p.get(\"version\")}'

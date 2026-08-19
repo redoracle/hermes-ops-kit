@@ -23,8 +23,15 @@ def _run(adapter: str, *args: str, env: dict | None = None) -> tuple[int, str, s
     e.pop("DEEPSEEK_API_KEY", None)
     if env:
         e.update(env)
+    sys.path.insert(0, str(ROOT))
+    from hermes_ops_kit._subprocess import module_command  # noqa: E402
+
+    cmd, mod_env = module_command("providers." + adapter[:-3], args)
+    e["PYTHONPATH"] = os.pathsep.join(
+        x for x in (mod_env.get("PYTHONPATH"), e.get("PYTHONPATH")) if x
+    )
     r = subprocess.run(
-        [sys.executable, str(ROOT / "providers" / adapter), *args],
+        cmd,
         capture_output=True,
         text=True,
         env=e,
@@ -35,7 +42,9 @@ def _run(adapter: str, *args: str, env: dict | None = None) -> tuple[int, str, s
 
 def test_validate_model_rejects_unknown() -> None:
     for adapter in ADAPTERS:
-        rc, _out, err = _run(adapter, "--operation", "models", "--model", "bogus/unknown-model")
+        rc, _out, err = _run(
+            adapter, "--operation", "models", "--model", "bogus/unknown-model"
+        )
         assert rc != 0, adapter
         assert "not in allowlist" in err, adapter
 
@@ -62,7 +71,7 @@ def test_models_op_works_without_key() -> None:
 def test_deepseek_reasoner_hooks() -> None:
     # deepseek-reasoner rejects temperature and lacks JSON mode → the hooks
     # redirect extraction onto deepseek-v4-flash and suppress temperature.
-    from providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
 
     assert DeepSeekAdapter.supports_temperature("deepseek-reasoner") is False
     assert DeepSeekAdapter.supports_temperature("deepseek-v4-flash") is True
@@ -83,8 +92,14 @@ def test_extract_redacts_structured_and_text(monkeypatch, capsys) -> None:
     secret = "sk-test-1234567890abcdef"
     content = '{"api_key": "' + secret + '"}'
     mod = _types.ModuleType("openai")
-    for n in ("AuthenticationError", "RateLimitError", "APITimeoutError",
-              "APIConnectionError", "InternalServerError", "PermissionDeniedError"):
+    for n in (
+        "AuthenticationError",
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "PermissionDeniedError",
+    ):
         setattr(mod, n, type(n, (Exception,), {}))
 
     _msg = _types.SimpleNamespace(content=content)
@@ -107,12 +122,22 @@ def test_extract_redacts_structured_and_text(monkeypatch, capsys) -> None:
     monkeypatch.setitem(sys.modules, "openai", mod)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy")
     monkeypatch.setattr(
-        sys, "argv",
-        ["deepseek_adapter.py", "--operation", "extract", "--prompt", "x",
-         "--model", "deepseek-v4-flash", "--schema", '{"type":"object"}'],
+        sys,
+        "argv",
+        [
+            "deepseek_adapter.py",
+            "--operation",
+            "extract",
+            "--prompt",
+            "x",
+            "--model",
+            "deepseek-v4-flash",
+            "--schema",
+            '{"type":"object"}',
+        ],
     )
-    from providers._openai_compat_ops import run_cli  # pyright: ignore[reportMissingImports]
-    from providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers._openai_compat_ops import run_cli  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
 
     run_cli(DeepSeekAdapter)
     out = capsys.readouterr().out
@@ -125,12 +150,12 @@ def test_adapter_rotator_shared_attrs_in_sync() -> None:
     # Drift detection: the base_url/provider attrs are duplicated across each
     # adapter and its rotator — they must stay in sync or validation and runtime
     # would hit different endpoints.
-    from providers.fireworks_adapter import FireworksAdapter  # pyright: ignore[reportMissingImports]
-    from providers.fireworks_rotator import FireworksRotator  # pyright: ignore[reportMissingImports]
-    from providers.deepinfra_adapter import DeepInfraAdapter  # pyright: ignore[reportMissingImports]
-    from providers.deepinfra_rotator import DeepInfraRotator  # pyright: ignore[reportMissingImports]
-    from providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
-    from providers.deepseek_rotator import DeepSeekRotator  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.fireworks_adapter import FireworksAdapter  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.fireworks_rotator import FireworksRotator  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepinfra_adapter import DeepInfraAdapter  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepinfra_rotator import DeepInfraRotator  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepseek_rotator import DeepSeekRotator  # pyright: ignore[reportMissingImports]
 
     for adapter, rotator in [
         (FireworksAdapter, FireworksRotator),
@@ -150,8 +175,14 @@ def test_extract_handles_none_api_content(monkeypatch, capsys) -> None:
     import types as _types
 
     mod = _types.ModuleType("openai")
-    for n in ("AuthenticationError", "RateLimitError", "APITimeoutError",
-              "APIConnectionError", "InternalServerError", "PermissionDeniedError"):
+    for n in (
+        "AuthenticationError",
+        "RateLimitError",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "PermissionDeniedError",
+    ):
         setattr(mod, n, type(n, (Exception,), {}))
 
     _msg = _types.SimpleNamespace(content=None)
@@ -174,12 +205,22 @@ def test_extract_handles_none_api_content(monkeypatch, capsys) -> None:
     monkeypatch.setitem(sys.modules, "openai", mod)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy")
     monkeypatch.setattr(
-        sys, "argv",
-        ["deepseek_adapter.py", "--operation", "extract", "--prompt", "x",
-         "--model", "deepseek-v4-flash", "--schema", '{"type":"object"}'],
+        sys,
+        "argv",
+        [
+            "deepseek_adapter.py",
+            "--operation",
+            "extract",
+            "--prompt",
+            "x",
+            "--model",
+            "deepseek-v4-flash",
+            "--schema",
+            '{"type":"object"}',
+        ],
     )
-    from providers._openai_compat_ops import run_cli  # pyright: ignore[reportMissingImports]
-    from providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers._openai_compat_ops import run_cli  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.providers.deepseek_adapter import DeepSeekAdapter  # pyright: ignore[reportMissingImports]
 
     run_cli(DeepSeekAdapter)
     d = json.loads(capsys.readouterr().out)

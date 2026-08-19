@@ -31,23 +31,26 @@ headroom = [
 ]
 
 [project.scripts]
-hermes-ops-kit = "bridge:main"
-hermes-usage = "usage_metrics_v2:main"
-hermes-key-rotate = "hermes_key_rotate:main"
-hermes-assistant-manager = "hermes_assistant_manager:main"
-hermes-route-manager = "hermes_route_manager:main"
-hermes-export = "hermes_export:main"
-hermes-skill-factory = "hermes_skill_factory:main"
+hermes-ops-kit = "hermes_ops_kit.bridge:main"
+hermes-usage = "hermes_ops_kit.usage_metrics_v2:main"
+hermes-key-rotate = "hermes_ops_kit.hermes_key_rotate:main"
+hermes-assistant-manager = "hermes_ops_kit.hermes_assistant_manager:main"
+hermes-route-manager = "hermes_ops_kit.hermes_route_manager:main"
+hermes-export = "hermes_ops_kit.hermes_export:main"
+hermes-skill-factory = "hermes_ops_kit.hermes_skill_factory:main"
 
 [project.entry-points."hermes_agent.plugins"]
-hermes-ops-kit = "."
+# Module-only target: ep.load() returns the hermes_ops_kit package, which
+# exposes a top-level register(ctx) (the directory-plugin root __init__.py
+# re-exports the same callable — both load modes stay in parity).
+hermes-ops-kit = "hermes_ops_kit"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = ["hermes_ops_kit"]
 
 [tool.ruff]
 # Pin the lint ruleset explicitly so CI is stable across ruff version bumps.

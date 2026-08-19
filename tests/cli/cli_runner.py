@@ -19,6 +19,10 @@ PROJECT_DIR = Path(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
+sys.path.insert(0, str(PROJECT_DIR))
+
+from hermes_ops_kit._subprocess import module_command  # noqa: E402
+
 
 @dataclass
 class CliResult:
@@ -46,10 +50,24 @@ def run_cli(
     if env:
         merged_env.update(env)
 
+    cmd = [sys.executable] + args
+    if args and args[0].endswith(".py"):
+        # script argv → -P -m hermes_ops_kit.<module> (cwd off sys.path);
+        # accepts a bare filename or an absolute path under PROJECT_DIR
+        _rel = Path(args[0])
+        try:
+            _rel = _rel.relative_to(PROJECT_DIR)
+        except ValueError:
+            pass
+        module = ".".join(_rel.with_suffix("").parts)
+        cmd, mod_env = module_command(module, args[1:])
+        merged_env["PYTHONPATH"] = os.pathsep.join(
+            e for e in (mod_env.get("PYTHONPATH"), merged_env.get("PYTHONPATH")) if e
+        )
     start = time.time()
     try:
         r = subprocess.run(
-            [sys.executable] + args,
+            cmd,
             capture_output=True,
             text=True,
             timeout=timeout,

@@ -17,9 +17,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import bridge  # pyright: ignore[reportMissingImports]
-import usage_metrics_v2 as um  # pyright: ignore[reportMissingImports]
-import hermes_key_rotate as hkr  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.bridge as bridge  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.usage_metrics_v2 as um  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.hermes_key_rotate as hkr  # pyright: ignore[reportMissingImports]
 
 # gemini is the user-facing provider name; its rotator is the Google rotator.
 # Every other provider's rotator key matches its dispatch key.
@@ -46,7 +46,9 @@ def test_usage_meta_covers_every_provider() -> None:
     for p in um.PROVIDERS:
         assert p in um.PROVIDER_NAMES, f"{p} missing from PROVIDER_NAMES"
         assert p in um.PROVIDER_META, f"{p} missing from PROVIDER_META"
-    assert set(um.DISPLAY_ORDER) == set(um.PROVIDERS), "DISPLAY_ORDER must list exactly PROVIDERS"
+    assert set(um.DISPLAY_ORDER) == set(um.PROVIDERS), (
+        "DISPLAY_ORDER must list exactly PROVIDERS"
+    )
 
 
 def test_bridge_capabilities_cover_every_provider() -> None:

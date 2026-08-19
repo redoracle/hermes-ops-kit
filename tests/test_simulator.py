@@ -172,7 +172,7 @@ SCENARIOS = {
 
 def assert_routes_handle_failure(results: dict) -> None:
     """Verify routing still produces usable output when providers fail."""
-    from usage_metrics_v2 import build_routes  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.usage_metrics_v2 import build_routes  # pyright: ignore[reportMissingImports]
 
     route_data = build_routes(results)
     routes = route_data.get("routes", [])

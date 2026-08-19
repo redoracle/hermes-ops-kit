@@ -21,13 +21,24 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON = sys.executable
 
 
+sys.path.insert(0, PROJECT_DIR)
+
+from hermes_ops_kit._subprocess import module_command  # noqa: E402
+
+
 def _run(*args: str, timeout: int = 120) -> subprocess.CompletedProcess:
+    argv = list(args)
+    cmd, env = [PYTHON] + argv, None
+    if argv and argv[0].endswith(".py"):
+        # script argv → -P -m hermes_ops_kit.<module> (cwd off sys.path)
+        cmd, env = module_command(argv[0][:-3].replace("/", "."), argv[1:])
     return subprocess.run(
-        [PYTHON] + list(args),
+        cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
         cwd=PROJECT_DIR,
+        env=env,
     )
 
 
@@ -67,7 +78,16 @@ def test_usage_metrics_json_has_providers():
     """usage_metrics --json includes all 8 providers."""
     r = _run("usage_metrics_v2.py", "--json")
     data = json.loads(r.stdout)
-    for provider in ["openai", "anthropic", "github", "gemini", "deepseek", "nvidia", "fireworks", "deepinfra"]:
+    for provider in [
+        "openai",
+        "anthropic",
+        "github",
+        "gemini",
+        "deepseek",
+        "nvidia",
+        "fireworks",
+        "deepinfra",
+    ]:
         assert provider in data, f"Missing provider: {provider}"
 
 
@@ -128,8 +148,11 @@ def test_usage_metrics_compact_has_key_sections():
 def test_no_color_disables_ansi():
     """NO_COLOR=1 produces no ANSI escape codes."""
     env = {**os.environ, "NO_COLOR": "1"}
+    env["PYTHONPATH"] = module_command("usage_metrics_v2", ["--compact"])[1][
+        "PYTHONPATH"
+    ]
     r = subprocess.run(
-        [PYTHON, "usage_metrics_v2.py", "--compact"],
+        module_command("usage_metrics_v2", ["--compact"])[0],
         capture_output=True,
         text=True,
         timeout=120,
@@ -142,8 +165,11 @@ def test_no_color_disables_ansi():
 def test_plain_mode_no_unicode_boxes():
     """NO_COLOR + non-TTY produces output without ANSI (plain-like behavior)."""
     env = {**os.environ, "NO_COLOR": "1"}
+    env["PYTHONPATH"] = module_command("usage_metrics_v2", ["--compact"])[1][
+        "PYTHONPATH"
+    ]
     r = subprocess.run(
-        [PYTHON, "usage_metrics_v2.py", "--compact"],
+        module_command("usage_metrics_v2", ["--compact"])[0],
         capture_output=True,
         text=True,
         timeout=120,

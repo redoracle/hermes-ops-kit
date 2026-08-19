@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from image_routes.background_edit import (
+from hermes_ops_kit.image_routes.background_edit import (
     build_background_only_prompt,
     build_composite_masks,
     build_subject_mask,

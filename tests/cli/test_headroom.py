@@ -211,9 +211,13 @@ def test_collision_guard_blocks_reconcile(hermes_home: Path, proxy_stub: int):
 
 def test_doctor_flags_collision(hermes_home: Path, proxy_stub: int):
     _write_headroom_yaml(hermes_home, enabled=False, port=proxy_stub)
-    config = (hermes_home / "config.yaml").read_text().replace(
-        "    base_url: https://integrate.api.nvidia.com/v1",
-        f"    base_url: http://127.0.0.1:{proxy_stub}/v1",
+    config = (
+        (hermes_home / "config.yaml")
+        .read_text()
+        .replace(
+            "    base_url: https://integrate.api.nvidia.com/v1",
+            f"    base_url: http://127.0.0.1:{proxy_stub}/v1",
+        )
     )
     (hermes_home / "config.yaml").write_text(config)
     res = _headroom(hermes_home, "doctor", "--json")
@@ -250,15 +254,20 @@ def test_upstream_drift_triggers_restart(hermes_home: Path, proxy_stub: int):
     import sys
 
     sys.path.insert(0, str(PROJECT_DIR))
-    from headroom_ops import daemon
+    from hermes_ops_kit.headroom_ops import daemon
 
     settings = _daemon_settings(hermes_home, proxy_stub)
     run_dir = Path(settings["run_dir"])
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / f"headroom-{proxy_stub}.meta").write_text(
-        json.dumps({"port": proxy_stub,
-                    "upstream_url": "https://old.example.com/v1",
-                    "flags": [], "pid": 99999})
+        json.dumps(
+            {
+                "port": proxy_stub,
+                "upstream_url": "https://old.example.com/v1",
+                "flags": [],
+                "pid": 99999,
+            }
+        )
     )
 
     res = daemon.up(settings, "https://new.example.com/v1", dry_run=True)
@@ -318,7 +327,7 @@ def test_up_force_restarts_hung_proxy(hermes_home: Path, tmp_path: Path):
     sys.path.insert(0, str(PROJECT_DIR))
     hung_pid: int | None = None
     try:
-        from headroom_ops import daemon
+        from hermes_ops_kit.headroom_ops import daemon
 
         port = _free_port()
         settings = _daemon_settings(hermes_home, port)
@@ -328,7 +337,9 @@ def test_up_force_restarts_hung_proxy(hermes_home: Path, tmp_path: Path):
         # Detached sleeper (double fork: no zombie masking _pid_alive).
         out = subprocess.run(
             ["/bin/sh", "-c", "sleep 60 >/dev/null 2>&1 & echo $!"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         hung_pid = int(out.stdout.strip())
         (run_dir / f"headroom-{port}.pid").write_text(str(hung_pid))
@@ -371,7 +382,7 @@ def test_preflight_reconcile_is_best_effort():
     import sys
 
     sys.path.insert(0, str(PROJECT_DIR))
-    from security.plugin_scanner.enforce import _reconcile_headroom
+    from hermes_ops_kit.security.plugin_scanner.enforce import _reconcile_headroom
 
     res = _reconcile_headroom(dry_run=True)
     assert isinstance(res, dict)

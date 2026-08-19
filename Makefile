@@ -3,12 +3,13 @@
 
 SHELL := /bin/bash
 PYTHON := python3
+OPS_PY := PYTHONPATH=$(CURDIR) $(PYTHON) -P -m
 PIP := $(PYTHON) -m pip
 PYTEST := $(PYTHON) -m pytest
 RUFF := ruff
 SRC := .
 
-.PHONY: help install install-dev format lint compile test test-verbose security-scan clean build doctor usage status assistants
+.PHONY: help install install-dev format lint compile test test-verbose security-scan clean build doctor usage status assistants check-python
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -97,27 +98,31 @@ clean-all: clean ## Remove all artifacts including .mypy_cache
 
 # ── Doctor / Status ─────────────────────────────────────────────
 
-doctor: ## Run key rotation doctor
-	$(PYTHON) hermes_key_rotate.py --doctor-secrets 2>/dev/null || \
-	$(PYTHON) hermes_key_rotate.py --healthcheck
+check-python: ## Verify Python >= 3.11 (required for -P flag)
+	@$(PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' || \
+		{ echo "FAIL: Python 3.11+ required (-P flag)"; exit 1; }
 
-usage: ## Show usage metrics (compact)
-	$(PYTHON) usage_metrics_v2.py --compact
+doctor: check-python ## Run key rotation doctor
+	$(OPS_PY) hermes_ops_kit.hermes_key_rotate --doctor-secrets 2>/dev/null || \
+	$(OPS_PY) hermes_ops_kit.hermes_key_rotate --healthcheck
 
-usage-full: ## Show usage metrics (full)
-	$(PYTHON) usage_metrics_v2.py
+usage: check-python ## Show usage metrics (compact)
+	$(OPS_PY) hermes_ops_kit.usage_metrics_v2 --compact
 
-usage-json: ## Show usage metrics (JSON)
-	$(PYTHON) usage_metrics_v2.py --json
+usage-full: check-python ## Show usage metrics (full)
+	$(OPS_PY) hermes_ops_kit.usage_metrics_v2
 
-status: ## Show assistant registry status
-	$(PYTHON) hermes-assistant-manager.py list --config config/assistants.yaml
+usage-json: check-python ## Show usage metrics (JSON)
+	$(OPS_PY) hermes_ops_kit.usage_metrics_v2 --json
 
-assistants: ## Show detailed assistant info
-	$(PYTHON) hermes-assistant-manager.py list --config config/assistants.yaml --json | $(PYTHON) -m json.tool
+status: check-python ## Show assistant registry status
+	$(OPS_PY) hermes_ops_kit.hermes_assistant_manager list --config hermes_ops_kit/config/assistants.yaml
 
-ping-orace: ## Ping Orace assistant
-	$(PYTHON) hermes-assistant-manager.py ping orace --config config/assistants.yaml --json 2>/dev/null | $(PYTHON) -m json.tool
+assistants: check-python ## Show detailed assistant info
+	$(OPS_PY) hermes_ops_kit.hermes_assistant_manager list --config hermes_ops_kit/config/assistants.yaml --json | $(PYTHON) -m json.tool
+
+ping-orace: check-python ## Ping Orace assistant
+	$(OPS_PY) hermes_ops_kit.hermes_assistant_manager ping orace --config hermes_ops_kit/config/assistants.yaml --json 2>/dev/null | $(PYTHON) -m json.tool
 
 # ── Git ─────────────────────────────────────────────────────────
 

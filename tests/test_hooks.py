@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import hooks
+import hermes_ops_kit.hooks as hooks
 
 
 def test_plugin_security_scan_reports_blocked_and_deferred(monkeypatch, capsys):
     monkeypatch.setattr(
-        "security.plugin_scanner.enforce.get_enforcement_decisions",
+        "hermes_ops_kit.security.plugin_scanner.enforce.get_enforcement_decisions",
         lambda: {
             "blocked": ["critical-plugin"],
             "deferred": ["high-plugin"],
@@ -31,7 +31,7 @@ def test_plugin_security_scan_fails_open_with_warning(monkeypatch, capsys):
         raise RuntimeError("scanner unavailable")
 
     monkeypatch.setattr(
-        "security.plugin_scanner.enforce.get_enforcement_decisions",
+        "hermes_ops_kit.security.plugin_scanner.enforce.get_enforcement_decisions",
         fail,
     )
 

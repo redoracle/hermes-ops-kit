@@ -14,20 +14,20 @@ import tempfile
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from security.redaction import redact, SECRET_PATTERNS  # pyright: ignore[reportMissingImports]
-from security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
-from security.file_permissions import (  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security.redaction import redact, SECRET_PATTERNS  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security.file_permissions import (  # pyright: ignore[reportMissingImports]
     ensure_dir_700,
     ensure_file_600,
     verify_permissions,
     check_env_file,
 )
-from security.secret_scanner import (  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security.secret_scanner import (  # pyright: ignore[reportMissingImports]
     scan_for_secrets,
     scan_for_forbidden_blocks,
     assert_clean,
 )
-from security.secret_backend import UnsafeSecretWriteError  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security.secret_backend import UnsafeSecretWriteError  # pyright: ignore[reportMissingImports]
 
 
 # ── Redaction Tests ────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ def test_assert_clean_passes_safe():
 
 
 def test_atomic_write_creates_file():
-    from env.atomic_write import atomic_write  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.env.atomic_write import atomic_write  # pyright: ignore[reportMissingImports]
 
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "generated.env")
@@ -286,7 +286,7 @@ def test_atomic_write_creates_file():
 
 
 def test_atomic_write_no_tmp_leftover():
-    from env.atomic_write import atomic_write  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.env.atomic_write import atomic_write  # pyright: ignore[reportMissingImports]
 
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "generated.env")
@@ -301,6 +301,7 @@ def test_env_projection_mapping_complete():
     """Every env var in the projection YAML has a corresponding secret ref."""
     config_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "hermes_ops_kit",
         "config",
         "env_projection.yaml",
     )
@@ -339,7 +340,7 @@ def test_env_projection_mapping_complete():
 
 
 def test_error_hierarchy():
-    from security.secret_backend import (  # pyright: ignore[reportMissingImports]
+    from hermes_ops_kit.security.secret_backend import (  # pyright: ignore[reportMissingImports]
         HermesKeyRotateError,
         SecretBackendError,
         VaultwardenAuthError,

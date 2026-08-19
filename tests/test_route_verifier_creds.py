@@ -15,9 +15,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import route_verifier  # pyright: ignore[reportMissingImports]
-from config.route_map import AUX_SHORT_KEYS, aux_config_key  # pyright: ignore[reportMissingImports]
-from ops_config_io import save_yaml  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.route_verifier as route_verifier  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.config.route_map import AUX_SHORT_KEYS, aux_config_key  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.ops_config_io import save_yaml  # pyright: ignore[reportMissingImports]
 
 
 def _write_config_with_aux(path: str, provider: str, model: str) -> None:

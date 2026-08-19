@@ -2,7 +2,7 @@
 # Portable Hermes operations and security plugin.
 
 name: hermes-ops-kit
-version: "0.2.0"
+version: "0.3.0"
 description: >
   Operational and security plugin for Hermes Agent: provider routing,
   secret and key lifecycle, preflight plugin scanning, MCP auditing,

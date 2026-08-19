@@ -26,7 +26,7 @@ def test_valid_assistants_yaml_should_pass_validate():
         [
             "hermes_assistant_manager.py",
             "--config",
-            "config/assistants.yaml",
+            "hermes_ops_kit/config/assistants.yaml",
             "validate",
             "--json",
         ]
@@ -42,7 +42,7 @@ def test_valid_assistants_yaml_should_pass_doctor():
         [
             "hermes_assistant_manager.py",
             "--config",
-            "config/assistants.yaml",
+            "hermes_ops_kit/config/assistants.yaml",
             "doctor",
             "--json",
         ]
@@ -113,7 +113,7 @@ def test_unsafe_env_permissions_should_fail_doctor():
         mode = stat.S_IMODE(fx.env_file.stat().st_mode)
         assert mode == 0o644, f"Fixture .env not 0o644: {oct(mode)}"
         # The real doctor reads ~/.hermes/.env — test that our fixture's env IS unsafe
-        from security.file_permissions import check_env_file
+        from hermes_ops_kit.security.file_permissions import check_env_file
 
         check = check_env_file(str(fx.env_file))
         assert not check.get("safe"), f"0o644 .env not detected as unsafe: {check}"
@@ -154,14 +154,14 @@ def test_json_mode_never_has_ansi():
         [
             "hermes_assistant_manager.py",
             "--config",
-            "config/assistants.yaml",
+            "hermes_ops_kit/config/assistants.yaml",
             "list",
             "--json",
         ],
         [
             "hermes_assistant_manager.py",
             "--config",
-            "config/assistants.yaml",
+            "hermes_ops_kit/config/assistants.yaml",
             "validate",
             "--json",
         ],

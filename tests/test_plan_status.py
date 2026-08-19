@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cost_governor.plan_status import PlanAllowance, get_plan_allowance  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.cost_governor.plan_status import PlanAllowance, get_plan_allowance  # pyright: ignore[reportMissingImports]
 
 
 def test_unknown_not_exhausted():

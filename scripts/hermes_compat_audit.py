@@ -2,7 +2,7 @@
 """Hermes Ops Kit — Hermes Agent compatibility audit (grounded release fetcher).
 
 Fetches the latest hermes-agent releases from the GitHub API and compares them
-against the ops-kit compatibility manifest (config/compat.yaml). Produces a
+against the ops-kit compatibility manifest (hermes_ops_kit/config/compat.yaml). Produces a
 structured summary the hermes-compat-audit skill reasons over — so audit
 findings are grounded in real release data, not the model's memory.
 
@@ -27,7 +27,7 @@ import urllib.request
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
-COMPAT_YAML = os.path.join(ROOT_DIR, "config", "compat.yaml")
+COMPAT_YAML = os.path.join(ROOT_DIR, "hermes_ops_kit", "config", "compat.yaml")
 RELEASES_API = "https://api.github.com/repos/NousResearch/hermes-agent/releases"
 
 
@@ -53,6 +53,7 @@ def _fetch_json(url: str, timeout: int = 20) -> tuple[dict | list | None, str | 
 def _load_compat() -> dict:
     try:
         import yaml  # type: ignore
+
         with open(COMPAT_YAML) as f:
             return yaml.safe_load(f) or {}
     except Exception:
@@ -75,7 +76,9 @@ def _summarize_release(rel: dict) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Hermes Agent compatibility audit")
     parser.add_argument("--json", action="store_true", help="Machine-readable JSON")
-    parser.add_argument("--releases", type=int, default=3, help="Number of releases to summarise")
+    parser.add_argument(
+        "--releases", type=int, default=3, help="Number of releases to summarise"
+    )
     args = parser.parse_args()
 
     compat = _load_compat()
@@ -101,7 +104,12 @@ def main() -> int:
         "ops_kit_codename": compat.get("target_hermes_codename"),
         "latest_release": latest,
         "target_matches_latest": bool(
-            latest and target and (target in (latest.get("tag") or "") or target in (latest.get("name") or ""))
+            latest
+            and target
+            and (
+                target in (latest.get("tag") or "")
+                or target in (latest.get("name") or "")
+            )
         ),
         "recent_releases": releases,
         "fetch_error": fetch_error,
@@ -115,13 +123,17 @@ def main() -> int:
 
     # Readable
     print("=== Hermes Ops Kit — Compatibility Audit ===")
-    print(f"Target Hermes version: {target} ({compat.get('target_hermes_codename', '?')})")
+    print(
+        f"Target Hermes version: {target} ({compat.get('target_hermes_codename', '?')})"
+    )
     if fetch_error:
         print(f"GitHub fetch failed (offline?): {fetch_error}")
         print("Auditing against the local manifest only.")
     elif latest:
         match = "MATCH" if result["target_matches_latest"] else "DRIFT"
-        print(f"Latest release: {latest.get('tag')} ({latest.get('published_at')}) [{match}]")
+        print(
+            f"Latest release: {latest.get('tag')} ({latest.get('published_at')}) [{match}]"
+        )
         print(f"  url: {latest.get('html_url')}")
     else:
         print("No releases found (GitHub returned an empty list or non-list response).")
@@ -129,10 +141,12 @@ def main() -> int:
     print(f"\nCoverage tally: {tally}")
     print("\nRecent releases:")
     for r in releases:
-        print(f"  - {r.get('tag')} ({r.get('published_at')}) prerelease={r.get('prerelease')}")
+        print(
+            f"  - {r.get('tag')} ({r.get('published_at')}) prerelease={r.get('prerelease')}"
+        )
     print("\nFeature coverage:")
     for f in features:
-        print(f"  [{f.get('status','?'):>16}] {f.get('area','?')}")
+        print(f"  [{f.get('status', '?'):>16}] {f.get('area', '?')}")
     return 0
 
 

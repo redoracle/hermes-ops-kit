@@ -7,9 +7,10 @@ controlled config fixtures. No live provider calls are made.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-import route_runtime_harness as rrh  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.route_runtime_harness as rrh  # pyright: ignore[reportMissingImports]
 
 
 HERMES_CFG = {
@@ -193,7 +194,9 @@ def test_cli_json_output(tmp_path: Path):
     result = run(
         [
             sys.executable,
-            str(Path(__file__).resolve().parent.parent / "route_runtime_harness.py"),
+            "-P",
+            "-m",
+            "hermes_ops_kit.route_runtime_harness",
             "--hermes-config",
             str(hermes_cfg),
             "--routes-config",
@@ -209,6 +212,7 @@ def test_cli_json_output(tmp_path: Path):
         capture_output=True,
         text=True,
         cwd=str(Path(__file__).resolve().parent.parent),
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parent.parent)},
     )
 
     assert result.returncode == 0

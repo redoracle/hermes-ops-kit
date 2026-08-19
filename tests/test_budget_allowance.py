@@ -9,9 +9,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cost_governor import budget  # pyright: ignore[reportMissingImports]
-import cost_governor.plan_status as ps  # pyright: ignore[reportMissingImports]
-from cost_governor.plan_status import PlanAllowance  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.cost_governor import budget  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.cost_governor.plan_status as ps  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.cost_governor.plan_status import PlanAllowance  # pyright: ignore[reportMissingImports]
 
 # Use the committed config/budget.yaml (not the user's ~/.hermes/ops-kit/budget.yaml,
 # which takes precedence at runtime and may not list newly added providers) so
@@ -178,7 +178,10 @@ def test_block_classes_empty_disables_blocking(tmp_path, monkeypatch):
     assert r["block_classes"] == []  # empty honored, not overridden
     # Allowance exhausted + empty block_classes → even paid_premium is allowed.
     monkeypatch.setattr(
-        ps, "get_plan_allowance",
-        lambda force_fresh=False: PlanAllowance(available=True, total_usable_credits=0.0, monthly_credits=100.0),
+        ps,
+        "get_plan_allowance",
+        lambda force_fresh=False: PlanAllowance(
+            available=True, total_usable_credits=0.0, monthly_credits=100.0
+        ),
     )
     assert budget.check_route_allowed("anthropic").allowed

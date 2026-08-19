@@ -13,10 +13,10 @@ import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from providers.fireworks_rotator import FireworksRotator  # pyright: ignore[reportMissingImports]
-from providers.deepinfra_rotator import DeepInfraRotator  # pyright: ignore[reportMissingImports]
-from providers.deepseek_rotator import DeepSeekRotator  # pyright: ignore[reportMissingImports]
-from security.secret_backend import ValidationReason, ValidationResult  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.providers.fireworks_rotator import FireworksRotator  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.providers.deepinfra_rotator import DeepInfraRotator  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.providers.deepseek_rotator import DeepSeekRotator  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security.secret_backend import ValidationReason, ValidationResult  # pyright: ignore[reportMissingImports]
 
 _ERR_NAMES = (
     "AuthenticationError",
@@ -92,7 +92,9 @@ def test_validate_new_key_rate_limited(monkeypatch) -> None:
 
 
 def test_validate_new_key_quota_or_billing(monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "openai", _make_fake_openai("PermissionDeniedError"))
+    monkeypatch.setitem(
+        sys.modules, "openai", _make_fake_openai("PermissionDeniedError")
+    )
     r = DeepSeekRotator(object())
     vr = r.validate_new_key("k")
     assert vr.reason_class == ValidationReason.QUOTA_OR_BILLING
@@ -140,7 +142,7 @@ class _FakeBackend:
 
 
 def _silence_audit(monkeypatch) -> None:
-    import audit.audit_log as al  # pyright: ignore[reportMissingImports]
+    import hermes_ops_kit.audit.audit_log as al  # pyright: ignore[reportMissingImports]
 
     monkeypatch.setattr(al, "audit_rotation_attempt", lambda **kw: None)
 
@@ -149,7 +151,9 @@ def test_rotate_smoke_failure_rolls_back(monkeypatch) -> None:
     backend = _FakeBackend()
     r = FireworksRotator(backend)
     _silence_audit(monkeypatch)
-    monkeypatch.setattr(r, "validate_with_retry", lambda key: ValidationResult(valid=True))
+    monkeypatch.setattr(
+        r, "validate_with_retry", lambda key: ValidationResult(valid=True)
+    )
     monkeypatch.setattr(r, "smoke_test", lambda: (False, "smoke failed"))
     result = r.rotate("new-key")
     assert result["ok"] is False
@@ -161,13 +165,16 @@ def test_rotate_render_failure_rolls_back(monkeypatch) -> None:
     backend = _FakeBackend()
     r = DeepInfraRotator(backend)
     _silence_audit(monkeypatch)
-    monkeypatch.setattr(r, "validate_with_retry", lambda key: ValidationResult(valid=True))
+    monkeypatch.setattr(
+        r, "validate_with_retry", lambda key: ValidationResult(valid=True)
+    )
     monkeypatch.setattr(r, "smoke_test", lambda: (True, "ok"))
 
     def _render_fail(backend):
         raise RuntimeError("render boom")
 
-    import env.render_env as re_mod  # pyright: ignore[reportMissingImports]
+    import hermes_ops_kit.env.render_env as re_mod  # pyright: ignore[reportMissingImports]
+
     monkeypatch.setattr(re_mod, "render_env", _render_fail)
     result = r.rotate("new-key")
     assert result["ok"] is False
@@ -179,11 +186,17 @@ def test_rotate_quota_or_billing_stores_with_warning(monkeypatch) -> None:
     r = DeepSeekRotator(backend)
     _silence_audit(monkeypatch)
     monkeypatch.setattr(
-        r, "validate_with_retry",
-        lambda key: ValidationResult(valid=False, reason_class=ValidationReason.QUOTA_OR_BILLING, detail="no credits"),
+        r,
+        "validate_with_retry",
+        lambda key: ValidationResult(
+            valid=False,
+            reason_class=ValidationReason.QUOTA_OR_BILLING,
+            detail="no credits",
+        ),
     )
     monkeypatch.setattr(r, "smoke_test", lambda: (True, "ok"))
-    import env.render_env as re_mod  # pyright: ignore[reportMissingImports]
+    import hermes_ops_kit.env.render_env as re_mod  # pyright: ignore[reportMissingImports]
+
     monkeypatch.setattr(re_mod, "render_env", lambda backend: "/fake/env-path")
     result = r.rotate("new-key")
     assert result["ok"] is True  # stored despite QUOTA_OR_BILLING
@@ -203,9 +216,12 @@ def test_rotate_smoke_failure_restore_error_is_captured(monkeypatch) -> None:
     r = FireworksRotator(backend)
     # Record audit calls instead of silencing — assert smoke_test_failed is logged.
     calls: list[dict] = []
-    import audit.audit_log as al  # pyright: ignore[reportMissingImports]
+    import hermes_ops_kit.audit.audit_log as al  # pyright: ignore[reportMissingImports]
+
     monkeypatch.setattr(al, "audit_rotation_attempt", lambda **kw: calls.append(kw))
-    monkeypatch.setattr(r, "validate_with_retry", lambda key: ValidationResult(valid=True))
+    monkeypatch.setattr(
+        r, "validate_with_retry", lambda key: ValidationResult(valid=True)
+    )
     monkeypatch.setattr(r, "smoke_test", lambda: (False, "smoke failed"))
     result = r.rotate("new-key")
     assert result["ok"] is False

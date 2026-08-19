@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from security import secret_source_bridge as ssb  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.security import secret_source_bridge as ssb  # pyright: ignore[reportMissingImports]
 
 
 def test_core_secret_sources_returns_dict_never_raises():

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-import security.credential_read_guard as guard  # pyright: ignore[reportMissingImports]
+import hermes_ops_kit.security.credential_read_guard as guard  # pyright: ignore[reportMissingImports]
 
 
 @pytest.fixture
@@ -73,7 +73,9 @@ def test_allows_user_skill_assets(local_only, tmp_path, monkeypatch):
     local_only.raise_if_read_blocked(str(asset))  # must NOT raise
 
 
-def test_blocks_root_credential_store_in_profile_mode(local_only, tmp_path, monkeypatch):
+def test_blocks_root_credential_store_in_profile_mode(
+    local_only, tmp_path, monkeypatch
+):
     # In profile mode HERMES_HOME=<root>/profiles/<name>; a model-supplied read
     # of the ROOT <root>/auth.json must still be blocked (dual-root check:
     # HERMES_HOME + the global Hermes root ~/.hermes). Monkeypatch HOME so the

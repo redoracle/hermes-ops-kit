@@ -73,7 +73,7 @@ using grounded data from `scripts/hermes_compat_audit.py` and `config/compat.yam
 ### Verification
 - Full suite: `python3 -m pytest tests/ -q` (224+ tests)
 - Compat audit: `python3 scripts/hermes_compat_audit.py --releases 3`
-- Adapter smoke: `python3 providers/fireworks_adapter.py --operation models`
+- Adapter smoke: `PYTHONPATH=. python3 -P -m hermes_ops_kit.providers.fireworks_adapter --operation models`
 
 ---
 

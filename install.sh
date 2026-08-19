@@ -402,20 +402,21 @@ mkdir -p "$BIN_DIR"
 
 # Explicit mapping: CLI name → Python script
 for entry in \
-  "hermes-ops-kit:bridge.py" \
-  "hermes-usage:usage_metrics_v2.py" \
-  "hermes-key-rotate:hermes_key_rotate.py" \
-  "hermes-assistant-manager:hermes_assistant_manager.py" \
-  "hermes-route-manager:hermes_route_manager.py" \
-  "hermes-export:hermes_export.py" \
-  "hermes-skill-factory:hermes_skill_factory.py"; do
+  "hermes-ops-kit:bridge" \
+  "hermes-usage:usage_metrics_v2" \
+  "hermes-key-rotate:hermes_key_rotate" \
+  "hermes-assistant-manager:hermes_assistant_manager" \
+  "hermes-route-manager:hermes_route_manager" \
+  "hermes-export:hermes_export" \
+  "hermes-skill-factory:hermes_skill_factory"; do
 
   cli_name="${entry%%:*}"
-  script="${entry##*:}"
+  module="${entry##*:}"
   cat > "$BIN_DIR/$cli_name" << WRAPPER
 #!/usr/bin/env bash
 export PATH="$BIN_DIR:\$PATH"
-cd "$PLUGIN_DIR" && exec "$PYTHON_BIN" "$PLUGIN_DIR/$script" "\$@"
+export PYTHONPATH="$PLUGIN_DIR"
+exec "$PYTHON_BIN" -P -m "hermes_ops_kit.$module" "\$@"
 WRAPPER
   chmod +x "$BIN_DIR/$cli_name"
 done
@@ -489,8 +490,8 @@ fi
 log "Running doctor"
 if command -v hermes-ops-kit >/dev/null 2>&1; then
   hermes-ops-kit doctor 2>/dev/null || true
-elif [ -x "$PLUGIN_DIR/hermes_key_rotate.py" ]; then
-  "$PYTHON_BIN" "$PLUGIN_DIR/hermes_key_rotate.py" --doctor-secrets 2>/dev/null || true
+elif [ -f "$PLUGIN_DIR/hermes_ops_kit/hermes_key_rotate.py" ]; then
+  PYTHONPATH="$PLUGIN_DIR" "$PYTHON_BIN" -P -m hermes_ops_kit.hermes_key_rotate --doctor-secrets 2>/dev/null || true
 fi
 
 # ── Done ────────────────────────────────────────────────────────────

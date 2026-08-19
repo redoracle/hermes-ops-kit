@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from env import render_env  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.env import render_env  # pyright: ignore[reportMissingImports]
 
 
 class _FakeBackend:
@@ -51,7 +51,7 @@ def test_render_env_annotates_vaultwarden_source():
 def test_render_env_core_conflict_annotation(monkeypatch):
     # When core's SecretSource also provides a var, the conflict is annotated.
     monkeypatch.setattr(
-        "security.secret_source_bridge.core_secret_sources",
+        "hermes_ops_kit.security.secret_source_bridge.core_secret_sources",
         lambda: {"OPENAI_API_KEY": "Bitwarden"},
     )
     backend = _FakeBackend({"hermes/openai/api_key": "sk-xxxxxxxxxxxxxxxx"})
