@@ -2,7 +2,7 @@
 
 > **Status:** MVP+ (Phase 1 + anti-FP tuning)
 > **Version:** 0.2.0
-> **Location:** `security/plugin_scanner/`
+> **Location:** `hermes_ops_kit/security/plugin_scanner/`
 
 ---
 
@@ -34,7 +34,7 @@ entirely.
 ## Architecture
 
 ```text
-security/plugin_scanner/
+hermes_ops_kit/security/plugin_scanner/
 ├── __init__.py              # Package init, version
 ├── findings.py              # Finding, RiskLevel, ScanResult, ScanProfile models
 ├── cache.py                 # SQLite SHA-256 cache
@@ -390,26 +390,26 @@ Use `hermes-ops-kit preflight` before Hermes starts for actual enforcement.
 
 ```text
 NEW (0.1.0):
-  security/plugin_scanner/__init__.py
-  security/plugin_scanner/findings.py
-  security/plugin_scanner/cache.py
-  security/plugin_scanner/scanner.py
-  security/plugin_scanner/policy.py
-  security/plugin_scanner/cli.py
-  security/plugin_scanner/plugin_scanner.yaml
-  security/plugin_scanner/categories/__init__.py
-  security/plugin_scanner/categories/secrets.py
-  security/plugin_scanner/categories/policy.py
-  security/plugin_scanner/rules/hermes-critical.yaml
-  security/plugin_scanner/rules/hermes-warning.yaml
+  hermes_ops_kit/security/plugin_scanner/__init__.py
+  hermes_ops_kit/security/plugin_scanner/findings.py
+  hermes_ops_kit/security/plugin_scanner/cache.py
+  hermes_ops_kit/security/plugin_scanner/scanner.py
+  hermes_ops_kit/security/plugin_scanner/policy.py
+  hermes_ops_kit/security/plugin_scanner/cli.py
+  hermes_ops_kit/security/plugin_scanner/plugin_scanner.yaml
+  hermes_ops_kit/security/plugin_scanner/categories/__init__.py
+  hermes_ops_kit/security/plugin_scanner/categories/secrets.py
+  hermes_ops_kit/security/plugin_scanner/categories/policy.py
+  hermes_ops_kit/security/plugin_scanner/rules/hermes-critical.yaml
+  hermes_ops_kit/security/plugin_scanner/rules/hermes-warning.yaml
   tests/test_plugin_scanner.py
   docs/plugin-security-scanner.md
   docs/plugin-security-scanner-design.md
   docs/hermes-hook-integration.md
 
 MODIFIED (0.1.0):
-  commands.py                    # Added 'plugin' subcommand dispatcher
-  policy/engine.py               # Added check_plugin_security() function
+  hermes_ops_kit/commands.py                    # Added 'plugin' subcommand dispatcher
+  hermes_ops_kit/policy/engine.py               # Added check_plugin_security() function
   policy/rules.yaml              # Added plugin_security rule set
   mcp/auditor.py                 # Path traversal defense in OAuth token loading
   docs/Threat Model.md           # Added plugin scanner + MCP path traversal boundaries
@@ -425,9 +425,9 @@ NEW/MODIFIED (0.2.0):
   cli.py                         # +override subcommand, +policy display with overrides
   scripts/test-scanner.sh        # 10-test integration suite
   install.sh                     # Pre-install static security gate
-  bridge.py                      # +install +preflight subcommands
-  policy/decisions.py            # +preflight_decision() wrapper
-  policy/engine.py               # +check_plugin_security()
+  hermes_ops_kit/bridge.py                      # +install +preflight subcommands
+  hermes_ops_kit/policy/decisions.py            # +preflight_decision() wrapper
+  hermes_ops_kit/policy/engine.py               # +check_plugin_security()
   policy/rules.yaml              # +plugin_security rule set
   docs/external-security-tools.md# Platform-specific gitleaks/Semgrep/Bandit install guide
   docs/Threat Model.md           # +plugin scanner + MCP boundaries
