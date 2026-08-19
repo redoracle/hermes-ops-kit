@@ -284,8 +284,8 @@ INSTALL_ALLOWED=false
 log "Running pre-install static security gate"
 if PYTHONPATH="$PLUGIN_DIR" "$PYTHON_BIN" - "$PLUGIN_DIR" "$PLUGIN_NAME" "$TRUST_REPO" <<'PY'
 import sys
-from security.plugin_scanner.enforce import get_enforcement_decisions
-from security.plugin_scanner.scanner import scan_plugin
+from hermes_ops_kit.security.plugin_scanner.enforce import get_enforcement_decisions
+from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
 
 plugin_path, plugin_name, trust_repo = sys.argv[1:4]
 result = scan_plugin(
@@ -472,7 +472,7 @@ ok "$HERMES_HOME/.env permissions set"
 
 # ── Security bootstrap ──────────────────────────────────────────────
 log "Running first-install security bootstrap"
-"$PYTHON_BIN" "$PLUGIN_DIR/security/plugin_scanner/bootstrap.py" --headless --force
+PYTHONPATH="$PLUGIN_DIR" "$PYTHON_BIN" -P -m hermes_ops_kit.security.plugin_scanner.bootstrap --headless --force
 ok "Security bootstrap completed"
 
 # ── Plugin enable ───────────────────────────────────────────────────
