@@ -46,6 +46,20 @@ jobs:
           python3 -m build
           ls -la dist/
 
+      # The Git tag points at the pre-sync commit (version files still at the
+      # old version until the Contents-API sync lands on main). Attach the
+      # built artifacts to the release so remote hosts get correct metadata:
+      # pip install <release asset URL> instead of git+<tag>.
+      - name: Attach artifacts to release
+        if: env.RELEASE_PREPARED == 'true'
+        env:
+          RELEASE_PREPARED: ${{ hashFiles('.release-prepared') != '' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(cat .release-prepared)
+          gh release upload "v${VERSION}" dist/* --clobber
+
       - name: Publish to PyPI
         # Skipped cleanly until the PYPI_API_TOKEN secret exists (pypi.org →
         # Account settings → API tokens). Once present, every release also
