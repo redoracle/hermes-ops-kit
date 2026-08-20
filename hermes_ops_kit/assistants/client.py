@@ -38,7 +38,7 @@ class AssistantClient:
 
     # ── Healthcheck ───────────────────────────────────────────────
 
-    def healthcheck(self) -> dict:
+    def healthcheck(self, timeout: float | None = None) -> dict:
         """Probe assistant health and chat endpoint.
 
         Returns a dict compatible with usage_metrics_v2 provider check format.
@@ -52,6 +52,7 @@ class AssistantClient:
 
         start = time.time()
         cfg = self.config
+        probe_timeout = self.timeout if timeout is None else min(self.timeout, timeout)
         result: dict = {
             "provider": cfg.id,
             "type": "assistant",
@@ -77,13 +78,20 @@ class AssistantClient:
         try:
             health_url = cfg.health_url or f"{self.base_url}/health"
             req = urllib.request.Request(health_url)
-            urllib.request.urlopen(req, timeout=10)
+            health_timeout = min(10, probe_timeout)
+            # Aggregated status checks have a strict shared budget. Reserve
+            # most of it for the authoritative chat ping instead of spending
+            # it all on the optional /health endpoint.
+            if timeout is not None:
+                health_timeout = min(2, probe_timeout * 0.4)
+            urllib.request.urlopen(req, timeout=health_timeout)
         except Exception:
             pass  # Health endpoint is optional
 
         # 3. Ping chat completions
         try:
-            ping_result = self._ping()
+            remaining = max(0.1, probe_timeout - (time.time() - start))
+            ping_result = self._ping(remaining)
             result["status"] = "online"
             result["api_latency_ms"] = ping_result.get("duration_ms", 0)
             result["model"] = self.model
@@ -99,7 +107,7 @@ class AssistantClient:
 
         return result
 
-    def _ping(self) -> dict:
+    def _ping(self, timeout: float | None = None) -> dict:
         """Send a minimal non-sensitive ping to verify the assistant responds."""
         start = time.time()
         payload = {
@@ -125,7 +133,9 @@ class AssistantClient:
         )
 
         try:
-            resp = urllib.request.urlopen(req, timeout=15)
+            resp = urllib.request.urlopen(
+                req, timeout=min(15, timeout or self.timeout)
+            )
             body = json.loads(resp.read().decode())
             duration_ms = int((time.time() - start) * 1000)
             choices = body.get("choices", [])

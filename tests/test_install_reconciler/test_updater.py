@@ -7,6 +7,14 @@ from pathlib import Path
 import pytest
 
 from hermes_ops_kit.install_reconciler.fastcheck import discover_in_process
+from hermes_ops_kit.install_reconciler import updater
+from hermes_ops_kit.install_reconciler.repair import RepairOutcome
+from hermes_ops_kit.install_reconciler.state import (
+    HealthReport,
+    HealthStatus,
+    InstallationMode,
+    RuntimeContext,
+)
 from hermes_ops_kit.install_reconciler.updater import perform_update
 
 OLD = """\
@@ -169,3 +177,76 @@ def test_updater_dry_run_is_read_only(tmp_path):
     assert outcome.dry_run
     # stopped before any mutation, no ledger pollution on dry-run
     assert outcome.stopped_at in ("source", "dry-run")
+
+
+def test_updater_returns_structured_result_when_git_times_out(tmp_path, monkeypatch):
+    """A git timeout must not escape as a CLI traceback."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / ".git").mkdir()
+
+    def timeout_git(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["git", "fetch"], 120)
+
+    monkeypatch.setattr(updater, "_git", timeout_git)
+    outcome = perform_update(source=str(src), package_name="drift-sim")
+
+    assert not outcome.success
+    assert outcome.stopped_at == "sync"
+    assert "dirty" in outcome.reason
+
+
+def test_updater_reinstalls_regular_runtime_after_rollback(tmp_path, monkeypatch):
+    """Rollback must restore site-packages for a non-editable install."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / ".git").mkdir()
+
+    before = HealthReport(
+        overall=HealthStatus.REPAIRABLE,
+        runtime=RuntimeContext(
+            python_executable="/venv/bin/python",
+            plugin_source=str(src),
+            installation_mode=InstallationMode.REGULAR,
+        ),
+    )
+    unhealthy = HealthReport(overall=HealthStatus.REPAIRABLE, runtime=before.runtime)
+    restored = HealthReport(overall=HealthStatus.HEALTHY, runtime=before.runtime)
+    reports = iter([before, unhealthy, unhealthy, restored])
+
+    monkeypatch.setattr(updater, "run_install_doctor", lambda **_kwargs: next(reports))
+    monkeypatch.setattr(updater, "_snapshot", lambda _report: {"git_sha": "old"})
+    monkeypatch.setattr(updater, "_is_clean", lambda _source: True)
+    heads = iter(["old", "new"])
+    monkeypatch.setattr(updater, "_head", lambda _source: next(heads))
+    monkeypatch.setattr(
+        updater,
+        "_git",
+        lambda _source, *args, **_kwargs: subprocess.CompletedProcess(
+            ["git", *args], 0, stdout="old\n", stderr=""
+        ),
+    )
+    monkeypatch.setattr(
+        updater,
+        "_repair_locked",
+        lambda *_args, **_kwargs: RepairOutcome(healthy=False),
+    )
+
+    calls: list[tuple[str, str, bool]] = []
+
+    class Installed:
+        ok = True
+
+    def restore_install(target_python, source, editable, **_kwargs):
+        calls.append((target_python, source, editable))
+        return Installed()
+
+    monkeypatch.setattr(updater, "run_install", restore_install)
+
+    outcome = perform_update(source=str(src), package_name="drift-sim")
+
+    assert outcome.rolled_back
+    assert outcome.healthy
+    assert not outcome.success
+    assert calls == [("/venv/bin/python", str(src), False)]
+    assert "runtime restored" in outcome.reason

@@ -151,6 +151,24 @@ def test_harness_detects_auto_aux_deviation():
     assert "utility" in vision["failure_reason"].lower()
 
 
+def test_harness_does_not_mislabel_utility_as_primary_for_unknown_provider():
+    """An offline display matrix cannot verify every Hermes provider.
+
+    The primary must be reported as unsupported, never compared against the
+    utility route merely because it is the first route that was built.
+    """
+    cfg = json.loads(json.dumps(HERMES_CFG))
+    cfg["model"] = {"provider": "zai", "default": "glm-5.2"}
+    report = rrh.build_report(cfg, ROUTES_CFG, ASSISTANTS_CFG, IMAGE_CFG, MCP_CFG)
+    primary = next(r for r in report["routes"] if r["route"] == "primary")
+
+    assert primary["result"] == "not_tested"
+    assert primary["runtime_path"] == "unsupported_provider"
+    assert "offline route harness" in primary["recommended_fix"]
+    assert primary["actual_provider"] == ""
+    assert "zai" in primary["failure_reason"]
+
+
 def test_harness_image_routes_are_distinct_from_aux_vision():
     report = rrh.build_report(
         HERMES_CFG, ROUTES_CFG, ASSISTANTS_CFG, IMAGE_CFG, MCP_CFG

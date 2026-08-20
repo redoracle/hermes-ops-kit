@@ -35,7 +35,7 @@ PROBE_TIMEOUT = 30
 # primary metadata source; EntryPoint.load() is the primary "does the
 # runtime actually work" authority.
 _PROBE = r"""
-import json, shutil, sys, sysconfig
+import json, sys, sysconfig
 from pathlib import Path
 from importlib.metadata import distributions, entry_points
 
@@ -95,17 +95,17 @@ for group, entries in eps.items():
             loads[key] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 out["loads"] = loads
 
-# Generated executables: script dir + PATH candidates (supplementary).
+# Generated executables: only the target interpreter's script directory.
+# ``PATH`` can contain wrappers from another environment, which must never
+# hide a missing wrapper in the runtime being inspected.
 scripts = {}
 for name in (n for n, _ in eps.get("console_scripts", [])):
-    candidates = []
     sdir = out["scripts_dir"]
-    p = shutil.which(name)
     sp = None
     if sdir:
         cand = Path(sdir) / name
         sp = str(cand) if cand.exists() else None
-    scripts[name] = {"which": p, "script_dir": sp}
+    scripts[name] = {"script_dir": sp}
 out["scripts"] = scripts
 print(json.dumps(out))
 """
@@ -181,7 +181,7 @@ def discover_actual_state(
             script.load_ok = rec["ok"]
             script.load_error = rec["error"]
         meta = (data.get("scripts") or {}).get(name) or {}
-        script_path = meta.get("which") or meta.get("script_dir")
+        script_path = meta.get("script_dir")
         if script_path:
             script.script_path = script_path
             script.shebang = _read_shebang(script_path)

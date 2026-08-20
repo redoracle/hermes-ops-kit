@@ -5,6 +5,8 @@ Layer 1: Verify every command binary is reachable and its --help works.
 
 from __future__ import annotations
 
+import pytest
+
 from tests.cli.cli_runner import run_cli  # pyright: ignore[reportMissingImports]
 from tests.cli.assertions import assert_exit_ok  # pyright: ignore[reportMissingImports]
 
@@ -43,6 +45,72 @@ def test_bridge_help_lists_subcommands():
         "audit",
     ]:
         assert sub in r.stdout, f"bridge.py --help missing subcommand: {sub}"
+
+
+def test_bridge_forwards_audit_search_filters(monkeypatch):
+    """Bridge must pass audit filters through to commands.py unchanged."""
+    import sys
+
+    from hermes_ops_kit import bridge
+    from hermes_ops_kit import commands
+
+    received: list[str] = []
+    monkeypatch.setattr(commands, "handle_ops_kit_command", lambda args: received.extend(args) or 0)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["hermes-ops-kit", "audit", "search", "--type", "policy_denied"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        bridge.main()
+
+    assert exc.value.code == 0
+    assert received == ["audit", "search", "--type", "policy_denied"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (
+            ["assistants", "delegate", "example", "--capability", "review", "--task", "x"],
+            ["assistants", "delegate", "example", "--capability", "review", "--task", "x"],
+        ),
+        (["budget", "check-route", "nvidia"], ["budget", "check-route", "nvidia"]),
+        (["maintenance", "run", "weekly-index-audit"], ["maintenance", "run", "weekly-index-audit"]),
+    ],
+)
+def test_bridge_forwards_action_arguments(monkeypatch, argv, expected):
+    import sys
+
+    from hermes_ops_kit import bridge
+    from hermes_ops_kit import commands
+
+    received: list[str] = []
+    monkeypatch.setattr(commands, "handle_ops_kit_command", lambda args: received.extend(args) or 0)
+    monkeypatch.setattr(sys, "argv", ["hermes-ops-kit", *argv])
+
+    with pytest.raises(SystemExit) as exc:
+        bridge.main()
+
+    assert exc.value.code == 0
+    assert received == expected
+
+
+def test_delegate_failure_returns_nonzero(monkeypatch):
+    from hermes_ops_kit import commands
+
+    monkeypatch.setattr(
+        "hermes_ops_kit.assistants.tool.ai_assistant_delegate",
+        lambda *_args, **_kwargs: {"ok": False, "error": "simulated server failure"},
+    )
+
+    assert (
+        commands._handle_assistants(
+            ["delegate", "example", "--capability", "review", "--task", "test"]
+        )
+        == 1
+    )
 
 
 def test_usage_help_lists_modes():

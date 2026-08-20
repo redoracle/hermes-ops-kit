@@ -1056,6 +1056,8 @@ def _handle_assistants(args: list[str]) -> int:
 
             result = ai_assistant_delegate(aid, task=task, capability=capability)
             print(json.dumps(result, indent=2))
+            if isinstance(result, dict) and result.get("ok") is False:
+                return 1
         except Exception as e:
             print(f"Error: {e}")
             return 1

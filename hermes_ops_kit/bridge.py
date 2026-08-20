@@ -284,10 +284,12 @@ def main():
         default="list",
         choices=["list", "ping", "delegate"],
     )
-    asst.add_argument("assistant_args", nargs="*", default=[])
-    sub.add_parser("audit", help="Audit trail").add_argument(
+    asst.add_argument("assistant_args", nargs=argparse.REMAINDER, default=[])
+    audit = sub.add_parser("audit", help="Audit trail")
+    audit.add_argument(
         "audit_action", nargs="?", default="tail", choices=["tail", "search", "export"]
     )
+    audit.add_argument("audit_args", nargs=argparse.REMAINDER, default=[])
     mcp = sub.add_parser(
         "mcp",
         help="MCP tool security auditor",
@@ -323,15 +325,19 @@ def main():
         ],
     )
     mcp.add_argument("mcp_args", nargs=argparse.REMAINDER, default=[])
-    sub.add_parser("budget", help="Cost governor").add_argument(
+    budget = sub.add_parser("budget", help="Cost governor")
+    budget.add_argument(
         "budget_action",
         nargs="?",
         default="status",
         choices=["status", "check-route", "policy"],
     )
-    sub.add_parser("maintenance", help="Assistant task scheduler").add_argument(
+    budget.add_argument("budget_args", nargs=argparse.REMAINDER, default=[])
+    maintenance = sub.add_parser("maintenance", help="Assistant task scheduler")
+    maintenance.add_argument(
         "maintenance_action", nargs="?", default="profiles", choices=["profiles", "run"]
     )
+    maintenance.add_argument("maintenance_args", nargs=argparse.REMAINDER, default=[])
     img = sub.add_parser("image", help="Image generation route manager")
     img.add_argument(
         "image_action",
@@ -440,6 +446,12 @@ def main():
             cmd_args.append(getattr(args, attr, ""))
         if args.command in ("assistants", "assistant"):
             cmd_args.extend(getattr(args, "assistant_args", []))
+        if args.command == "budget":
+            cmd_args.extend(getattr(args, "budget_args", []))
+        if args.command == "maintenance":
+            cmd_args.extend(getattr(args, "maintenance_args", []))
+        if args.command == "audit":
+            cmd_args.extend(getattr(args, "audit_args", []))
         if args.command == "mcp":
             cmd_args.extend(getattr(args, "mcp_args", []))
         if args.command == "plugin":

@@ -11,7 +11,7 @@
   <a href="https://pypi.org"><img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
-  <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.0-orange" alt="v0.2.0"></a>
+  <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.3.0-orange" alt="v0.3.0"></a>
   <a href="#tests"><img src="https://img.shields.io/badge/tests-283%20passed-brightgreen" alt="283 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
@@ -164,7 +164,7 @@ findings unless the operator explicitly sets `HERMES_OPS_KIT_TRUST_REPO=true`.
 curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh | bash
 
 # Pinned version
-HERMES_OPS_KIT_VERSION=v0.2.0 bash -c "$(curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh)"
+HERMES_OPS_KIT_VERSION=v0.3.0 bash -c "$(curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh)"
 
 # Git clone + plugin registration
 git clone https://github.com/redoracle/hermes-ops-kit.git ~/.hermes/plugins/hermes-ops-kit
@@ -749,7 +749,9 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │
 ├── .github/                                ← CI/CD + community
 │   ├── workflows/ci.yml                    ← Tests + lint
+│   ├── workflows/release.yml               ← Semantic-release (auto versioning + tags)
 │   ├── workflows/security.yml              ← Gitleaks + dependency review
+│   ├── workflows/dependabot-apply.yml      ← Auto-apply Dependabot PRs as redoracle commits
 │   ├── dependabot.yml
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md

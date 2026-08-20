@@ -295,6 +295,34 @@ threshold mirrors core's `{10,}` — diverging would break alignment):
 - **`providers/rotation_state_machine.py`** — typed state machine with
   checkpointing and crash recovery.
 
+## [0.3.0] — 2026-08-10
+
+### CI/CD — Semantic-Release Migration
+
+- **Semantic-release** configured (`.releaserc.json` + `release.yml` workflow):
+  conventional-commit-driven versioning, tag creation, and GitHub Release notes.
+  No `@semantic-release/git` (no release commits on main), no `CHANGELOG.md` auto-gen,
+  no bot contributor identity.
+- **Post-release sync**: `pyproject.toml` version synced back to repo via Contents API
+  (authored by `github-actions[bot]`, later reattributed to `redoracle`).
+- **Dependabot auto-apply** (`.github/workflows/dependabot-apply.yml`): intercepts
+  Dependabot PRs, applies changes as `redoracle` commits, closes PR without merge.
+  Prevents `dependabot[bot]` from appearing as a contributor while keeping Dependabot
+  active for GitHub Actions version currency.
+
+### CI/CD — Version Bumps
+
+- `actions/setup-go` 6 → 7
+- `actions/setup-python` 6 → 7
+- `actions/checkout` 6 → 7 (earlier Dependabot bump)
+
+### Repository Hygiene
+
+- Git history rewritten via `git filter-repo --mailmap` to reattribute all bot-authored
+  commits (dependabot[bot], github-actions[bot]) to `redoracle`.
+- All non-main branches removed (`ci/semantic-release`, Dependabot branches).
+- Only `main` branch remains.
+
 ## [0.2.0] — 2026-06-04
 
 ### Initial Public Release
@@ -333,4 +361,5 @@ pipeline with 23 env var → secret ref mappings.
 **Tests** — 92 tests across security, snapshots, CLI integration, and
 simulator scenarios.
 
+[0.3.0]: https://github.com/redoracle/hermes-ops-kit/releases/tag/v0.3.0
 [0.2.0]: https://github.com/redoracle/hermes-ops-kit/releases/tag/v0.2.0

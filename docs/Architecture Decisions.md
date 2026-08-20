@@ -1,8 +1,5 @@
 ---
-title: Architecture Decisions
-tags: [hermes, ops-kit, architecture, decisions, adr]
-created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-08-10
 ---
 
 # Architecture Decisions
@@ -117,6 +114,39 @@ Key architectural decisions for Hermes Ops Kit, their rationale, and consequence
 - Two config files: `routes.yaml` (LLM) and `image_routes.yaml` (image)
 - Separate CLI namespace: `hermes-ops-kit image ...`
 - See: [[Route Profile Design#Two Separate Routing Layers]]
+
+---
+
+## ADR-006: No Bot Contributors — Dependabot Auto-Apply
+
+**Status:** Accepted (2026-08)
+
+**Context:** Dependabot keeps GitHub Actions versions current and prevents supply-chain
+staleness. However, squash-merging Dependabot PRs creates commits authored by
+`dependabot[bot]`, polluting the contributors list. The same applies to `github-actions[bot]`
+commits from semantic-release's Contents API sync.
+
+**Decision:** Intercept Dependabot PRs with a dedicated GitHub Actions workflow
+(`.github/workflows/dependabot-apply.yml`) that:
+1. Squash-merges the PR changes onto `main` as a single commit
+2. Sets the commit author to `redoracle` (not `dependabot[bot]`)
+3. Closes the PR without merging (deletes the branch)
+4. If conflicts arise, leaves the PR open with a warning comment
+
+**Rationale:**
+- Keeps Dependabot active (maintaining GitHub Actions currency) without bot contributors
+- All dependency-bump commits in the git log are attributable to the maintainer
+- The workflow is transparent — PRs are auto-closed with a comment explaining the process
+- Semantic-release's Contents API sync (`github-actions[bot]`) is accepted as a one-time
+  post-release step; history is periodically rewritten via `git filter-repo --mailmap` to
+  reattribute any lingering bot commits to `redoracle`
+
+**Consequences:**
+- `GITHUB_TOKEN` pushes from the workflow don't trigger downstream CI/release workflows
+  (acceptable — `build(deps):` commits don't trigger semantic-release releases)
+- Existing bot contributor entries in GitHub's cache require GC of orphaned `refs/pull/*`
+  objects to fully disappear (can take weeks or require GitHub Support intervention)
+- See: [[Architecture]] (.github/workflows section)
 
 ---
 

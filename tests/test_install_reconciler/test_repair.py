@@ -113,6 +113,24 @@ def test_repair_is_idempotent(tmp_path):
     assert outcome2.install is None  # nothing executed
 
 
+def test_repair_recreates_missing_generated_wrapper(tmp_path):
+    """A wrapper missing from the target venv must not be masked by PATH."""
+    python, source = _setup(tmp_path)
+    first = run_install_doctor(str(python), str(source), package_name="drift-sim")
+    assert perform_repair(first, package_name="drift-sim").success
+
+    wrapper = python.parent / "hermes-drift"
+    wrapper.unlink()
+    before = run_install_doctor(str(python), str(source), package_name="drift-sim")
+    assert "GENERATED_EXECUTABLE_DRIFT" in [f.code for f in before.findings]
+
+    outcome = perform_repair(before, package_name="drift-sim")
+    assert outcome.success
+    assert wrapper.is_file()
+    assert outcome.after is not None
+    assert outcome.after.overall is HealthStatus.HEALTHY
+
+
 def test_installer_failure_never_fakes_success(tmp_path, monkeypatch):
     python, source = _setup(tmp_path)
 

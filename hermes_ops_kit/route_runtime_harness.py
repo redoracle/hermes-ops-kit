@@ -170,17 +170,31 @@ def _build_route_entries(
             primary_provider, _ = resolve_primary_provider(hermes_cfg)
         except Exception:
             pass
-    primary_actual = (
-        route_data.get("routes", [{}])[0] if route_data.get("routes") else {}
+    # ``build_routes`` may omit a primary route (for example, when its
+    # display-only provider matrix does not know the configured provider).
+    # Never treat the first remaining route as primary: it is commonly the
+    # utility route and would turn an unsupported provider into a false
+    # primary mismatch.
+    primary_actual = next(
+        (r for r in route_data.get("routes", []) if r.get("role") == "primary"),
+        {},
     )
     actual_route = primary_actual.get("route", "")
     actual_provider, actual_model = _split_route(actual_route)
-    result, runtime_path, failure = _result_for_match(
-        "github" if primary_provider == "copilot" else primary_provider,
-        primary_model,
-        actual_provider,
-        actual_model,
-    )
+    normalized_primary = "github" if primary_provider == "copilot" else primary_provider
+    if not primary_actual and normalized_primary not in PROVIDER_RESULTS_TEMPLATE:
+        result, runtime_path, failure = (
+            "not_tested",
+            "unsupported_provider",
+            f"Provider {normalized_primary!r} is not represented by the offline harness",
+        )
+    else:
+        result, runtime_path, failure = _result_for_match(
+            normalized_primary,
+            primary_model,
+            actual_provider,
+            actual_model,
+        )
     entries.append(
         RouteEntry(
             route="primary",
@@ -191,10 +205,14 @@ def _build_route_entries(
             actual_model=actual_model,
             runtime_path=runtime_path,
             result=result,
-            evidence=[f"build_routes.routes[0].route={actual_route}"],
-            recommended_fix="Set ~/.hermes/config.yaml model.provider/model.default to the configured primary"
-            if result != "passed"
-            else "",
+            evidence=[f"build_routes.primary.route={actual_route}"],
+            recommended_fix=(
+                "Add this provider to the offline route harness to verify it locally"
+                if runtime_path == "unsupported_provider"
+                else "Set ~/.hermes/config.yaml model.provider/model.default to the configured primary"
+                if result != "passed"
+                else ""
+            ),
             configured_provider=primary_provider,
             configured_model=primary_model,
             expected_runtime_path="primary",

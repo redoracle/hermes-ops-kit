@@ -176,6 +176,18 @@ def test_pip_argv_uses_target_module():
     argv = build_install_argv("pip", "/venv/bin/python3.12", "/repo", editable=False)
     assert argv[0] == "/venv/bin/python3.12"
     assert argv[1:4] == ["-m", "pip", "install"]
+
+
+def test_install_argv_preserves_venv_python_symlink(tmp_path):
+    """A repair must target the venv, not the interpreter it links to."""
+    target = tmp_path / "venv" / "bin" / "python"
+    target.parent.mkdir(parents=True)
+    target.symlink_to("/usr/bin/python3")
+
+    for installer in ("uv", "pip"):
+        argv = build_install_argv(installer, str(target), "/repo", editable=False)
+        python_arg = argv[4] if installer == "uv" else argv[0]
+        assert python_arg == str(target)
     assert "--editable" not in argv
     assert argv[-1] == "/repo"
 

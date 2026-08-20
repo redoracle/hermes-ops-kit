@@ -1119,7 +1119,7 @@ def check_hermes_status() -> dict:
 # ─── Assistants ──────────────────────────────────────────────────
 
 
-def check_assistant(aid: str) -> dict:
+def check_assistant(aid: str, timeout: float | None = None) -> dict:
     """Healthcheck a single registered remote Hermes assistant by id."""
 
     from .assistants.client import (
@@ -1153,7 +1153,7 @@ def check_assistant(aid: str) -> dict:
             os.environ[env_key] = val
 
     client = AssistantClient(config)
-    return client.healthcheck()
+    return client.healthcheck(timeout=timeout)
 
 
 def check_headroom() -> dict:
@@ -1186,13 +1186,15 @@ def check_headroom() -> dict:
         return {"status": "error", "error": redact(str(e))}
 
 
-def check_all_assistants() -> dict[str, dict]:
+def check_all_assistants(timeout: float = 5.0) -> dict[str, dict]:
     """Run all registered assistant healthchecks concurrently."""
     results: dict[str, dict] = {}
     if not ASSISTANTS:
         return results
     with ThreadPoolExecutor(max_workers=max(len(ASSISTANTS), 1)) as ex:
-        futures = {ex.submit(check_assistant, aid): aid for aid in ASSISTANTS}
+        futures = {
+            ex.submit(check_assistant, aid, timeout): aid for aid in ASSISTANTS
+        }
         for fut in as_completed(futures):
             name = futures[fut]
             try:

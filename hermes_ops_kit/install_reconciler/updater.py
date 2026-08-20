@@ -32,8 +32,9 @@ from pathlib import Path
 
 from ..ops_config_io import OPS_KIT_DIR
 from .cli import run_install_doctor
+from .installer_adapter import run_install
 from .repair import LOCK_NAME, _repair_locked, _snapshot
-from .state import HealthReport, HealthStatus
+from .state import HealthReport, HealthStatus, InstallationMode
 from ..security.lockfile import LockTimeoutError, provider_lock
 
 UPDATE_LOG = os.path.join(OPS_KIT_DIR, "update_log.jsonl")
@@ -50,13 +51,16 @@ class UpdateOutcome:
     previous: dict = field(default_factory=dict)
     head_before: str = ""
     head_after: str = ""
+    rolled_back: bool = False
     stopped_at: str = ""
     reason: str = ""
     report: HealthReport | None = None
 
     @property
     def success(self) -> bool:
-        return self.healthy
+        # A successfully restored previous runtime is healthy, but it is not
+        # a successful update transaction.
+        return self.synced and self.healthy and not self.rolled_back
 
     def to_dict(self) -> dict:
         d = dict(vars(self))
@@ -75,12 +79,19 @@ def _git(source: str, *args: str, timeout: int = 120) -> subprocess.CompletedPro
 
 
 def _is_clean(source: str) -> bool:
-    return _git(source, "status", "--porcelain").stdout.strip() == ""
+    try:
+        return _git(source, "status", "--porcelain").stdout.strip() == ""
+    except (OSError, subprocess.TimeoutExpired):
+        # An indeterminate worktree must never be considered safe to update.
+        return False
 
 
 def _head(source: str) -> str:
-    proc = _git(source, "rev-parse", "HEAD")
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    try:
+        proc = _git(source, "rev-parse", "HEAD")
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
 
 
 def _record(entry: dict) -> None:
@@ -195,9 +206,44 @@ def perform_update(
                 ):
                     co = _git(src, "checkout", "--quiet", outcome.head_before)
                     if co.returncode == 0:
+                        outcome.rolled_back = True
                         outcome.reason += (
                             f" — rolled back to {outcome.head_before[:12]}"
                         )
+                        # Editable installs immediately follow the restored
+                        # checkout. A regular pip install instead keeps the
+                        # updated files in site-packages, so reinstall the
+                        # restored source into the same target interpreter.
+                        if (
+                            before.runtime.installation_mode
+                            is InstallationMode.REGULAR
+                        ):
+                            restore = run_install(
+                                target_python
+                                or before.runtime.python_executable,
+                                src,
+                                editable=False,
+                            )
+                            if restore.ok:
+                                restored = run_install_doctor(
+                                    target_python=target_python,
+                                    source_root=src,
+                                    package_name=package_name,
+                                )
+                                outcome.report = restored
+                                if restored.overall is HealthStatus.HEALTHY:
+                                    outcome.healthy = True
+                                    outcome.reason += " — runtime restored"
+                                else:
+                                    outcome.reason += (
+                                        " — package reinstall completed, but "
+                                        "runtime remains degraded"
+                                    )
+                            else:
+                                outcome.reason += (
+                                    " — source restored, but package "
+                                    "reinstall failed"
+                                )
                 _record(outcome.to_dict())
                 return outcome
 
@@ -206,5 +252,13 @@ def perform_update(
     except LockTimeoutError as exc:
         outcome.stopped_at = "lock"
         outcome.reason = str(exc)
+        _record(outcome.to_dict())
+        return outcome
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # A failed/slow git invocation is an expected operational outcome,
+        # not an uncaught CLI traceback.  Preserve the last known report and
+        # make the incomplete transaction explicit in the ledger.
+        outcome.stopped_at = outcome.stopped_at or "process"
+        outcome.reason = f"{type(exc).__name__}: {exc}"
         _record(outcome.to_dict())
         return outcome

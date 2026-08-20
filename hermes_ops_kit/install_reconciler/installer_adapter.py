@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,14 +49,18 @@ def build_install_argv(
 ) -> list[str]:
     """Canonical argv for reinstalling *source* into *target_python*."""
     canonical_source = str(Path(source).resolve())
+    # Do not resolve the interpreter: venv/bin/python is normally a symlink
+    # to the base interpreter. Resolving it would install into the base
+    # environment, while the doctor correctly probes the venv path.
+    canonical_python = os.path.abspath(os.path.expanduser(target_python))
     if installer == "uv":
-        argv = ["uv", "pip", "install", "-p", str(Path(target_python).resolve())]
+        argv = ["uv", "pip", "install", "-p", canonical_python]
         if editable:
             argv.append("--editable")
         argv.append(canonical_source)
         return argv
     argv = [
-        str(Path(target_python).resolve()),
+        canonical_python,
         "-m",
         "pip",
         "install",
