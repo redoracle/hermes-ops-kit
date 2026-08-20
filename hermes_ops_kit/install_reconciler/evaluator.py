@@ -304,6 +304,14 @@ def _shebang_targets(shebang: str, python_executable: str) -> bool:
     interp = shebang[2:].strip().split()[0] if shebang[2:].strip() else ""
     if not interp:
         return True
+    # Shell trampolines (uv `#!/bin/sh` exec wrappers, install.sh bash
+    # shims) are not Python wrappers — the runtime probe is the authority.
+    if os.path.basename(interp) not in ("python",) and not os.path.basename(
+        interp
+    ).startswith("python"):
+        return True
+    if not interp:
+        return True
     a, b = os.path.realpath(interp), os.path.realpath(python_executable)
     if a == b:
         return True

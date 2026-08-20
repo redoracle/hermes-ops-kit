@@ -1129,6 +1129,46 @@ def _handle_install(_args: list[str]) -> int:
 
     report = run_install_doctor(target_python=target_python)
 
+    # Explicit repair mode (M2): only safe plans execute; reinspection
+    # after install decides success — installer rc=0 alone is not enough.
+    if "--repair" in rest:
+        from .install_reconciler.repair import perform_repair
+
+        if json_output:
+            print_json(report)
+        if report.overall.value == "HEALTHY":
+            if not json_output:
+                print("Nothing to repair — installation is HEALTHY (no-op).")
+            return 0
+        outcome = perform_repair(report)
+        if json_output:
+            plan_dict = outcome.plan.to_dict() if outcome.plan else {}
+            print(
+                json.dumps(
+                    {
+                        "repaired": outcome.success,
+                        "changed": outcome.changed,
+                        "reason": outcome.failure_reason()
+                        if not outcome.success
+                        else "healthy after reinspection",
+                        "plan": plan_dict,
+                    },
+                    indent=2,
+                )
+            )
+        elif outcome.success:
+            print("Repair applied and verified (reinspection HEALTHY).")
+        elif not outcome.plan or not outcome.plan.safe_to_apply:
+            reason = outcome.plan.safety_reason if outcome.plan else "no plan"
+            print(f"Repair withheld — {reason}")
+            print("Diagnose with: hermes-ops-kit install doctor --verbose")
+        else:
+            print(f"Repair FAILED: {outcome.failure_reason()}")
+            print(
+                "No success declared — runtime state unchanged or degraded; rerun doctor."
+            )
+        return 0 if outcome.success else 1
+
     checks = []
 
     # Python version

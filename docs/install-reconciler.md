@@ -55,6 +55,7 @@ hermes-ops-kit install doctor                  # read-only, human-readable
 hermes-ops-kit install doctor --json           # pure JSON, schema_version 1
 hermes-ops-kit install doctor --verbose        # dist-info + evidence detail
 hermes-ops-kit install doctor --python <path>  # inspect an explicit runtime
+hermes-ops-kit install doctor --repair         # M2: safe repair + reinspection
 ```
 
 Exit 0 only when the runtime is coherent with the source declarations.
@@ -67,12 +68,30 @@ reproduce the original incident (`bridge:main` editable install → source
 repackaged without reinstall → drift detected; runtime provably broken) and
 the negative case (.py-only change → no drift).
 
+## Repair (M2)
+
+`install doctor --repair` runs only after the **RepairPlanner** approves a
+**RepairPlan** (`planner.py`). Auto-repair is allowed only for packaging-only
+drift: same allowed source, same explicit target interpreter, exactly one
+installation, dependency declaration unchanged, no unrecognized findings.
+Denied (no mutation, reason printed) on: dependency drift, multiple
+installations, interpreter mismatch/ambiguity, disallowed origin, unknown
+mode/source, or any overall UNSAFE / DIAGNOSE_ONLY.
+
+Execution (`installer_adapter.py`): argv arrays only — no `shell=True`, no
+sudo — `uv pip -p <python>` when available, else `<python> -m pip`. The
+source is canonicalized to an absolute path (no implicit source switching).
+
+An installer exit 0 does **not** mean success (`repair.py`): every repair is
+followed by a mandatory fresh discover → evaluate → probe reinspection, and
+success is declared only if the result is HEALTHY. The repair is idempotent
+(a second `--repair` on a healthy runtime is a no-op) and serialized by the
+`~/.hermes/locks/install-reconciler.lock` advisory lock (reuses
+`security/lockfile.py`). A pre-repair snapshot (git SHA, installed version,
+origin, runtime) is captured for M3 rollback.
+
 ## Roadmap
 
-* **M2** — RepairPlanner + InstallerAdapter (`uv pip -p` / `python -m pip`,
-  argv-only, no shell), `install doctor --repair` with mandatory
-  reinspection and idempotence. Auto-repair denied on: dependency drift,
-  source mismatch, ambiguous interpreter, disallowed origin.
 * **M3** — read-only fast check wired into `preflight`; transactional
   updater (LOCK → snapshot → sync → reconcile → validate → UNLOCK) with
   rollback or explicit degraded state. Remote hosts move from editable

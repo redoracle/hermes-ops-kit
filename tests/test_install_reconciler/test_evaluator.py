@@ -163,6 +163,16 @@ def test_versioned_shebang_is_not_mismatch(tmp_path):
     assert "INTERPRETER_MISMATCH" not in _codes(report)
 
 
+def test_shell_trampoline_is_not_interpreter_mismatch(tmp_path):
+    """uv writes #!/bin/sh trampolines; install.sh writes bash shims.
+    Neither is a Python wrapper — runtime probe stays the authority."""
+    exp = _expected()
+    act = _actual(exp)
+    act.console_scripts["hermes-ops-kit"].shebang = "#!/bin/sh"
+    report = evaluate(act, exp, _ctx(tmp_path))
+    assert "INTERPRETER_MISMATCH" not in _codes(report)
+
+
 def test_dependency_declaration_drift(tmp_path):
     """Scenario 5: [project.dependencies] changed → repair must be denied."""
     exp = _expected(dependencies=["requests>=2.31", "httpx>=0.27"])
