@@ -538,6 +538,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Restored Hermes config from {args.restore_config}")
             return 0
 
+        # 0. Install fast check (read-only, best-effort).  Metadata +
+        # fingerprint + filesystem sanity only — no pip/uv/network/probe.
+        # Never mutates and never affects the security exit codes: drift
+        # is reported as a diagnosis pointing at install doctor.
+        install_check = _install_fast_check()
+
         # 1. Scan
         import time
 
@@ -567,6 +573,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             output = {
                 "ok": decisions["ok"] and mcp_decisions["ok"],
+                "install_check": install_check,
                 "scan_duration_ms": scan_ms,
                 "plugins_scanned": len(results),
                 "decisions": {
@@ -598,6 +605,29 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Preflight error: {exc}", file=sys.stderr)
         return 3
+
+
+def _install_fast_check() -> dict[str, Any]:
+    """Read-only install sanity for preflight (see install_reconciler)."""
+    try:
+        from ...install_reconciler.fastcheck import fast_install_check
+
+        report = fast_install_check()
+        result = {
+            "ok": report.overall.value == "HEALTHY",
+            "overall": report.overall.value,
+            "findings": [f.code for f in report.findings],
+        }
+        if not result["ok"]:
+            print(
+                "⚠ Install drift detected ("
+                + ", ".join(result["findings"])
+                + ") — the runtime may not match the updated source."
+                " Diagnose with: hermes-ops-kit install doctor"
+            )
+        return result
+    except Exception as exc:  # noqa: BLE001 — best-effort, never blocks preflight
+        return {"ok": True, "error": f"fast check unavailable: {exc}"}
 
 
 def _reconcile_headroom(dry_run: bool = False) -> dict[str, Any]:

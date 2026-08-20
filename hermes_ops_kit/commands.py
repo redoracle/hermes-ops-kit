@@ -1111,6 +1111,40 @@ def _handle_install(_args: list[str]) -> int:
         print(f"No backup found at {backup_path}")
         return 1
 
+    if subcmd == "update":
+        # Transactional updater (M3): lock → snapshot → git sync (ff-only)
+        # → inspect → reconcile → validate → record. Success is declared
+        # only when the runtime is HEALTHY after the update.
+        from .install_reconciler.updater import perform_update
+
+        dry_run = "--dry-run" in rest
+        target = None
+        if "--python" in rest:
+            try:
+                target = rest[rest.index("--python") + 1]
+            except IndexError:
+                print("--python requires a path argument")
+                return 1
+        outcome = perform_update(target_python=target, dry_run=dry_run)
+        if "--json" in rest:
+            print(json.dumps(outcome.to_dict(), indent=2, default=str))
+        else:
+            if outcome.success:
+                print(
+                    f"✅ Update verified — runtime HEALTHY at {outcome.head_after[:12]}"
+                )
+            elif outcome.dry_run:
+                print(
+                    f"Update dry-run: stopped at {outcome.stopped_at} — {outcome.reason}"
+                )
+            else:
+                print(f"❌ Update stopped at {outcome.stopped_at}: {outcome.reason}")
+                print(
+                    "Runtime may be degraded — diagnose with: "
+                    "hermes-ops-kit install doctor --verbose"
+                )
+        return 0 if (outcome.success or outcome.dry_run) else 1
+
     # Runtime installation reconciler (read-only) — flags:
     #   --json    machine-readable HealthReport
     #   --verbose technical detail (dist-info, evidence)

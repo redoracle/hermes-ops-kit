@@ -90,9 +90,25 @@ success is declared only if the result is HEALTHY. The repair is idempotent
 `security/lockfile.py`). A pre-repair snapshot (git SHA, installed version,
 origin, runtime) is captured for M3 rollback.
 
-## Roadmap
+## M3 — preflight fast check + transactional updater
 
-* **M3** — read-only fast check wired into `preflight`; transactional
-  updater (LOCK → snapshot → sync → reconcile → validate → UNLOCK) with
-  rollback or explicit degraded state. Remote hosts move from editable
-  git checkouts to immutable versioned artifacts (follow-up).
+Implemented (`fastcheck.py`, `updater.py`):
+
+* **Preflight fast check** — step 0 of `hermes-ops-kit preflight`:
+  in-process `importlib.metadata` discovery in the current interpreter
+  (no pip/uv/network/probe subprocess). Best-effort and never affects
+  security exit codes; drift surfaces as a warning pointing at
+  `hermes-ops-kit install doctor`.
+* **Transactional updater** — `hermes-ops-kit install update [--dry-run]
+  [--python <path>]`: LOCK → capture previous state (git SHA, dist
+  metadata, runtime ctx) → sync source (`fetch` + `pull --ff-only`;
+  STOP on dirty tree; no reset/force) → inspect (doctor) → reconcile
+  (planner-gated repair, same lock) → validate (doctor must be HEALTHY)
+  → record JSONL ledger (`~/.hermes/ops-kit/update_log.jsonl`, no
+  secrets) → UNLOCK. On validation failure the host is left in an
+  explicit degraded state with a recorded reason; safe rollback
+  (`git checkout <old SHA>`) only when the tree is still clean. The
+  `git pull` exit code alone is never treated as update success.
+
+Follow-up: remote hosts move from editable git checkouts to immutable
+versioned artifacts.

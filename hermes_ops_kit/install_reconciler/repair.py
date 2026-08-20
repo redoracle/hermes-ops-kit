@@ -83,6 +83,20 @@ def perform_repair(
     verbose: bool = False,
 ) -> RepairOutcome:
     """Repair only when the planner says it is safe. Always reinspect."""
+    try:
+        with provider_lock(LOCK_NAME, timeout=LOCK_TIMEOUT):
+            return _repair_locked(report, package_name=package_name)
+    except LockTimeoutError as exc:
+        outcome = RepairOutcome(before=report)
+        outcome.lock_error = f"another install/repair holds the lock: {exc}"
+        return outcome
+
+
+def _repair_locked(
+    report: HealthReport,
+    package_name: str = "hermes-ops-kit",
+) -> RepairOutcome:
+    """Repair body — caller must already hold the install lock."""
     outcome = RepairOutcome(before=report)
 
     if report.overall is HealthStatus.HEALTHY:
@@ -96,18 +110,11 @@ def perform_repair(
 
     outcome.snapshot = _snapshot(report)
 
-    try:
-        with provider_lock(LOCK_NAME, timeout=LOCK_TIMEOUT):
-            editable = report.runtime.installation_mode is InstallationMode.EDITABLE
-            outcome.install = run_install(
-                plan.target_python, plan.source, editable=editable
-            )
-            if not outcome.install.ok:
-                return outcome  # no false success
-            outcome.changed = True
-    except LockTimeoutError as exc:
-        outcome.lock_error = f"another install/repair holds the lock: {exc}"
-        return outcome
+    editable = report.runtime.installation_mode is InstallationMode.EDITABLE
+    outcome.install = run_install(plan.target_python, plan.source, editable=editable)
+    if not outcome.install.ok:
+        return outcome  # no false success
+    outcome.changed = True
 
     # MANDATORY reinspection — fresh discover + evaluate + probe
     after = run_install_doctor(
