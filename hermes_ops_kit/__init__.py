@@ -11,7 +11,7 @@ from pathlib import Path
 import argparse
 import os
 
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 
 def _ensure_image_gen_config() -> None:
