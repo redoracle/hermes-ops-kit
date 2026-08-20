@@ -44,3 +44,4 @@ CLAUDE.md
 .venv/
 
 docs/ROUND_BALANCING.md
+dist/

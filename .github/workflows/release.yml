@@ -36,6 +36,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
+      - name: Build distributions
+        if: ${{ hashFiles('.release-prepared') != '' }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check build
+          python3 -m build
+          ls -la dist/
+
+      - name: Publish to PyPI
+        # Skipped cleanly until the PYPI_API_TOKEN secret exists (pypi.org →
+        # Account settings → API tokens). Once present, every release also
+        # publishes hermes-ops-kit so remote hosts install as normal users.
+        if: ${{ hashFiles('.release-prepared') != '' && secrets.PYPI_API_TOKEN != '' }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check twine
+          python3 -m twine upload dist/*
+
       - name: Sync version files to repo (4-way invariant)
         if: always()
         env:
