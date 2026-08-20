@@ -13,7 +13,7 @@ from pathlib import Path
 from .._subprocess import package_root
 from .discovery import discover_actual_state, resolve_runtime_context
 from .evaluator import evaluate
-from .resolver import resolve_expected_state
+from .resolver import expected_from_dist_info, resolve_expected_state
 from .state import HealthReport, HealthStatus
 
 
@@ -26,10 +26,27 @@ def run_install_doctor(
     """Discover + resolve + evaluate. No side effects."""
     source = source_root or package_root()
     context = resolve_runtime_context(target_python, source)
-    expected = resolve_expected_state(
-        Path(source) / "pyproject.toml", package_name=package_name
-    )
     actual = discover_actual_state(context, package_name=package_name)
+
+    # Source mode: an operator/explicit source checkout with a pyproject.
+    # The default package_root() of a pip/PyPI install is site-packages —
+    # wheels may ship a pyproject.toml there, but it is not a source
+    # declaration. Only trust pyproject when it comes with a repo (.git)
+    # or an explicit source_root.
+    pyproject = Path(source) / "pyproject.toml"
+    source_mode = pyproject.is_file() and (
+        bool(source_root) or Path(source, ".git").exists()
+    )
+    if source_mode:
+        expected = resolve_expected_state(pyproject, package_name=package_name)
+    elif actual.distribution_present and actual.dist_info_path:
+        # Artifact mode (normal user, pip-installed): the dist-info of the
+        # installed artifact is the declaration of record.
+        expected = expected_from_dist_info(
+            actual.dist_info_path, package_name=package_name
+        )
+    else:
+        expected = resolve_expected_state(pyproject, package_name=package_name)
     return evaluate(actual, expected, context, allowed_sources=allowed_sources)
 
 

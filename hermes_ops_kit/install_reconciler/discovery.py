@@ -16,6 +16,7 @@ evidence only — never as the authority.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -215,7 +216,11 @@ def resolve_runtime_context(
     """
     import sys
 
-    exe = str(Path(target_python or sys.executable).resolve())
+    # NB: os.path.abspath, NOT Path.resolve() — a venv's bin/python is a
+    # symlink to the base interpreter; resolving it would probe the BASE
+    # python (no venv site-packages) and report MISSING_DISTRIBUTION on a
+    # perfectly healthy venv install.
+    exe = os.path.abspath(os.path.expanduser(str(target_python or sys.executable)))
     source = str(Path(plugin_source).resolve()) if plugin_source else ""
     return RuntimeContext(
         python_executable=exe,

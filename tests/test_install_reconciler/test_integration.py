@@ -141,3 +141,64 @@ def test_healthy_editable_py_only_change_no_drift(tmp_path):
     report = run_install_doctor(str(python), str(source), package_name="drift-sim")
     assert report.overall is HealthStatus.HEALTHY
     assert report.findings == []
+
+
+@pytest.mark.integration
+def test_artifact_mode_pip_install_without_checkout(tmp_path):
+    """Scenario 11: normal-user install (pip, non-editable, no source
+    checkout). Expected state must come from the artifact's dist-info —
+    the doctor invoked from the INSTALLED package must report HEALTHY,
+    and the venv symlink must not resolve to the base interpreter."""
+    python = _make_venv(tmp_path)
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "pyproject.toml").write_text(
+        OLD_PYPROJECT.replace(
+            'hermes-drift = "bridge:main"', 'hermes-drift = "bridge_pkg.bridge:main"'
+        ).replace('py-modules = ["bridge"]', "packages = ['bridge_pkg']")
+    )
+    pkg = source / "bridge_pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "bridge.py").write_text("def main():\n    return 0\n")
+
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--quiet", str(source)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+
+    from hermes_ops_kit.install_reconciler.cli import run_install_doctor
+    from hermes_ops_kit.install_reconciler.discovery import resolve_runtime_context
+
+    # A venv's bin/python is a symlink to the base interpreter — the
+    # context must keep the venv path, not follow the symlink.
+    ctx = resolve_runtime_context(str(python))
+    assert ctx.python_executable == str(python)
+
+    # True artifact mode: package_root resolves inside site-packages
+    # (no .git, wheels ship a pyproject.toml) — expected state comes
+    # from the installed dist-info, not the stray pyproject.
+    sp = (
+        subprocess.run(
+            [
+                str(python),
+                "-c",
+                "import bridge_pkg, pathlib;"
+                " print(pathlib.Path(bridge_pkg.__file__).parent.parent)",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+    import hermes_ops_kit.install_reconciler.cli as cli_mod
+
+    orig = cli_mod.package_root
+    cli_mod.package_root = lambda: sp
+    try:
+        report = run_install_doctor(str(python), package_name="drift-sim")
+    finally:
+        cli_mod.package_root = orig
+    assert report.overall is HealthStatus.HEALTHY, [f.code for f in report.findings]
