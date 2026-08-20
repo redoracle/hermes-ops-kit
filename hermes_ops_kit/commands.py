@@ -1111,6 +1111,24 @@ def _handle_install(_args: list[str]) -> int:
         print(f"No backup found at {backup_path}")
         return 1
 
+    # Runtime installation reconciler (read-only) — flags:
+    #   --json    machine-readable HealthReport
+    #   --verbose technical detail (dist-info, evidence)
+    #   --python <path>  explicit target interpreter (default: current)
+    json_output = "--json" in rest
+    verbose = "--verbose" in rest or "-v" in rest
+    target_python = None
+    if "--python" in rest:
+        try:
+            target_python = rest[rest.index("--python") + 1]
+        except IndexError:
+            print("--python requires a path argument")
+            return 1
+
+    from .install_reconciler.cli import format_report, print_json, run_install_doctor
+
+    report = run_install_doctor(target_python=target_python)
+
     checks = []
 
     # Python version
@@ -1158,7 +1176,16 @@ def _handle_install(_args: list[str]) -> int:
             all_ok = False
         print(f"  {icon} {name}: {detail}")
 
-    return 0 if all_ok else 1
+    # Reconciler section (read-only)
+    if json_output:
+        print_json(report)
+        reconciler_ok = report.overall.value == "HEALTHY"
+    else:
+        print()
+        print(format_report(report, verbose=verbose))
+        reconciler_ok = report.overall.value == "HEALTHY"
+
+    return 0 if (all_ok and reconciler_ok) else 1
 
 
 def _handle_plugin(args: list[str]) -> int:
