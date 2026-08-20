@@ -1168,13 +1168,14 @@ def _handle_install(_args: list[str]) -> int:
     else:
         checks.append(("~/.hermes/.env", False, "not found"))
 
-    # Print results
+    # Print results (human mode only — --json emits a single pure JSON doc)
     all_ok = True
     for name, ok, detail in checks:
-        icon = "✅" if ok else "❌"
         if not ok:
             all_ok = False
-        print(f"  {icon} {name}: {detail}")
+        if not json_output:
+            icon = "✅" if ok else "❌"
+            print(f"  {icon} {name}: {detail}")
 
     # Reconciler section (read-only)
     if json_output:
@@ -1183,6 +1184,7 @@ def _handle_install(_args: list[str]) -> int:
     else:
         print()
         print(format_report(report, verbose=verbose))
+        reconciler_ok = report.overall.value == "HEALTHY"
         reconciler_ok = report.overall.value == "HEALTHY"
 
     return 0 if (all_ok and reconciler_ok) else 1

@@ -34,17 +34,8 @@ def test_doctor_runs_read_only():
 def test_doctor_json_is_valid_schema():
     proc = _run("--json")
     assert proc.returncode in (0, 1)
-    payload = None
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("{"):
-            payload = json.loads(line) if line.endswith("}") else None
-            if payload is None:
-                # multi-line JSON: find the full document
-                start = proc.stdout.index("{")
-                payload = json.loads(proc.stdout[start:])
-            break
-    assert payload is not None
+    # --json emits a single pure JSON document (no human preamble)
+    payload = json.loads(proc.stdout)
     assert payload["schema_version"] == 1
     assert payload["overall"] in ("HEALTHY", "REPAIRABLE", "DIAGNOSE_ONLY", "UNSAFE")
     assert set(payload) == {
