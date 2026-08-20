@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -120,6 +121,22 @@ def _read_shebang(path: str) -> str:
         return ""
 
 
+def _is_repairable_legacy_shim(path: str) -> bool:
+    """True only for the old source-checkout launcher we can replace safely."""
+    try:
+        stat = os.stat(path)
+        if stat.st_uid != os.geteuid() or not os.path.isfile(path):
+            return False
+        with open(path, "rb") as fh:
+            body = fh.read(4096).decode("utf-8", "replace")
+    except OSError:
+        return False
+    return (
+        ".hermes/plugins/hermes-ops-kit/" in body
+        and "hermes_route_manager.py" in body
+    )
+
+
 def discover_actual_state(
     context: RuntimeContext, package_name: str = "hermes-ops-kit"
 ) -> ActualInstallation:
@@ -185,6 +202,13 @@ def discover_actual_state(
         if script_path:
             script.script_path = script_path
             script.shebang = _read_shebang(script_path)
+            # The isolated runtime probe deliberately does not consult PATH.
+            # Inspect it separately: a stale user shim can shadow a healthy
+            # venv wrapper in an interactive shell (the Whiplash incident).
+            resolved = shutil.which(name)
+            if resolved and os.path.realpath(resolved) != os.path.realpath(script_path):
+                script.path_shadow_path = resolved
+                script.path_shadow_repairable = _is_repairable_legacy_shim(resolved)
         actual.console_scripts[name] = script
 
     for name, value in data.get("entry_points", {}).get("hermes_agent.plugins") or []:

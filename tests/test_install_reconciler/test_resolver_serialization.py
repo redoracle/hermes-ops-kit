@@ -125,4 +125,6 @@ def test_console_script_serialization():
         "shebang": "#!/venv/bin/python",
         "load_ok": True,
         "load_error": "",
+        "path_shadow_path": None,
+        "path_shadow_repairable": False,
     }

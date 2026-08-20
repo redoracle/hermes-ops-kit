@@ -60,6 +60,8 @@ class ConsoleScript:
     shebang: str = ""  # supplementary evidence only
     load_ok: bool | None = None  # runtime probe result
     load_error: str = ""
+    path_shadow_path: str | None = None  # different command resolved from PATH
+    path_shadow_repairable: bool = False  # only a recognized legacy shim
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -166,6 +168,7 @@ DISTRIBUTION_METADATA_DRIFT = "DISTRIBUTION_METADATA_DRIFT"
 CONSOLE_ENTRYPOINT_DRIFT = "CONSOLE_ENTRYPOINT_DRIFT"
 PLUGIN_ENTRYPOINT_DRIFT = "PLUGIN_ENTRYPOINT_DRIFT"
 GENERATED_EXECUTABLE_DRIFT = "GENERATED_EXECUTABLE_DRIFT"
+PATH_SHADOWED_EXECUTABLE = "PATH_SHADOWED_EXECUTABLE"
 EDITABLE_TOPOLOGY_DRIFT = "EDITABLE_TOPOLOGY_DRIFT"
 SOURCE_ORIGIN_ALLOWED = "SOURCE_ORIGIN_ALLOWED"
 SOURCE_ORIGIN_DISALLOWED = "SOURCE_ORIGIN_DISALLOWED"

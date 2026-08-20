@@ -9,6 +9,8 @@ healthy runtime is a no-op.
 from __future__ import annotations
 
 import subprocess
+import os
+import tempfile
 from dataclasses import dataclass, field
 
 from ..security.lockfile import LockTimeoutError, provider_lock
@@ -109,6 +111,38 @@ def _repair_locked(
         return outcome
 
     outcome.snapshot = _snapshot(report)
+
+    # Replace only explicitly recognized legacy user shims.  Arbitrary PATH
+    # overrides are surfaced as diagnose-only and never overwritten.
+    shadow_fixed = False
+    for script in report.actual.console_scripts.values():
+        shadow = script.path_shadow_path
+        target = script.script_path
+        if not (shadow and target and script.path_shadow_repairable):
+            continue
+        directory = os.path.dirname(shadow)
+        fd, temporary = tempfile.mkstemp(prefix=f".{script.name}.repair-", dir=directory)
+        os.close(fd)
+        try:
+            os.unlink(temporary)
+            os.symlink(target, temporary)
+            os.replace(temporary, shadow)
+            shadow_fixed = True
+        finally:
+            if os.path.lexists(temporary):
+                os.unlink(temporary)
+
+    if shadow_fixed:
+        outcome.changed = True
+        after = run_install_doctor(
+            target_python=report.runtime.python_executable,
+            source_root=report.runtime.plugin_source,
+            package_name=package_name,
+        )
+        outcome.after = after
+        if after.overall is HealthStatus.HEALTHY:
+            outcome.healthy = True
+            return outcome
 
     editable = report.runtime.installation_mode is InstallationMode.EDITABLE
     outcome.install = run_install(plan.target_python, plan.source, editable=editable)

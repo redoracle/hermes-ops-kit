@@ -13,6 +13,7 @@ from .state import (
     DISTRIBUTION_METADATA_DRIFT,
     EDITABLE_TOPOLOGY_DRIFT,
     GENERATED_EXECUTABLE_DRIFT,
+    PATH_SHADOWED_EXECUTABLE,
     INTERPRETER_MISMATCH,
     MISSING_DISTRIBUTION,
     MULTIPLE_INSTALLATIONS,
@@ -178,6 +179,17 @@ def evaluate(
                     observed=f"no generated executable for '{name}' on PATH/scripts dir",
                     expected=f"executable for '{name}'",
                     repairable=True,
+                )
+            )
+        if script.path_shadow_path:
+            findings.append(
+                Finding(
+                    code=PATH_SHADOWED_EXECUTABLE,
+                    severity=Severity.ERROR,
+                    observed=f"'{name}' resolves to {script.path_shadow_path}",
+                    expected=script.script_path or f"runtime wrapper for '{name}'",
+                    evidence=script.path_shadow_path,
+                    repairable=script.path_shadow_repairable,
                 )
             )
         elif script.shebang and not _shebang_targets(

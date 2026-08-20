@@ -5,6 +5,7 @@ HEALTHY; second repair is a no-op (idempotence); installer failure never
 declares success.
 """
 
+import os
 import subprocess
 import venv
 from pathlib import Path
@@ -34,7 +35,7 @@ py-modules = ["bridge"]
 """
 
 
-def _setup(tmp_path: Path) -> tuple[Path, Path]:
+def _setup(tmp_path: Path, script_name: str = "hermes-drift") -> tuple[Path, Path]:
     """Venv + old-layout editable install, then source repackaged
     without reinstall — the incident state."""
     venv_dir = tmp_path / "venv"
@@ -42,7 +43,7 @@ def _setup(tmp_path: Path) -> tuple[Path, Path]:
     python = venv_dir / "bin" / "python"
     source = tmp_path / "src"
     source.mkdir()
-    (source / "pyproject.toml").write_text(OLD)
+    (source / "pyproject.toml").write_text(OLD.replace("hermes-drift", script_name))
     (source / "bridge.py").write_text("def main():\n    return 0\n")
     subprocess.run(
         [str(python), "-m", "pip", "install", "--quiet", "-e", str(source)],
@@ -57,9 +58,9 @@ def _setup(tmp_path: Path) -> tuple[Path, Path]:
     (pkg / "bridge.py").write_text("def main():\n    return 0\n")
     (source / "bridge.py").unlink()
     (source / "pyproject.toml").write_text(
-        OLD.replace(
-            'hermes-drift = "bridge:main"', 'hermes-drift = "drift_sim.bridge:main"'
-        ).replace('py-modules = ["bridge"]', "packages = ['drift_sim']")
+        OLD.replace("hermes-drift", script_name)
+        .replace('bridge:main', 'drift_sim.bridge:main')
+        .replace('py-modules = ["bridge"]', "packages = ['drift_sim']")
     )
     return python, source
 
@@ -129,6 +130,37 @@ def test_repair_recreates_missing_generated_wrapper(tmp_path):
     assert wrapper.is_file()
     assert outcome.after is not None
     assert outcome.after.overall is HealthStatus.HEALTHY
+
+
+def test_repair_replaces_recognized_legacy_path_shim(tmp_path, monkeypatch):
+    """The Whiplash launcher class must be found and fixed automatically."""
+    python, source = _setup(tmp_path, script_name="hermes-route-manager")
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--quiet", "-e", str(source)],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
+
+    shadow_dir = tmp_path / "shadow"
+    shadow_dir.mkdir()
+    shadow = shadow_dir / "hermes-route-manager"
+    shadow.write_text(
+        '#!/usr/bin/env bash\nexec /usr/bin/python3 '
+        '"/home/test/.hermes/plugins/hermes-ops-kit/hermes_route_manager.py" "$@"\n'
+    )
+    shadow.chmod(0o700)
+    monkeypatch.setenv("PATH", f"{shadow_dir}{os.pathsep}{os.environ['PATH']}")
+
+    before = run_install_doctor(str(python), str(source), package_name="drift-sim")
+    finding = next(f for f in before.findings if f.code == "PATH_SHADOWED_EXECUTABLE")
+    assert before.overall is HealthStatus.REPAIRABLE
+    assert finding.repairable
+
+    outcome = perform_repair(before, package_name="drift-sim")
+    assert outcome.success
+    assert shadow.is_symlink()
+    assert os.path.realpath(shadow) == os.path.realpath(str(python.parent / shadow.name))
 
 
 def test_installer_failure_never_fakes_success(tmp_path, monkeypatch):
