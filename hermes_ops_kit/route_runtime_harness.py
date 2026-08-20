@@ -48,6 +48,9 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
     "anthropic": {"provider": "anthropic", "status": "online", "api_latency_ms": 447},
     "deepseek": {"provider": "deepseek", "status": "online", "api_latency_ms": 503},
     "nvidia": {"provider": "nvidia", "status": "online", "api_latency_ms": 520},
+    # Z.AI is Hermes' OpenAI-compatible custom provider.  The harness is
+    # deliberately offline, so this proves route discovery only.
+    "zai": {"provider": "zai", "status": "online", "api_latency_ms": 480},
     "_assistants": {},
 }
 
