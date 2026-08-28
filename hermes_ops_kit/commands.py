@@ -330,6 +330,18 @@ def _load_hermes_env() -> dict[str, str]:
 
 
 
+# Provider → (env var, expected value prefix) for doctor credential checks.
+# Derived from provider_catalog so this list cannot drift from the kit's
+# provider registry.  (Was previously an undefined name — latent NameError.)
+from .provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+_CREDENTIAL_CHECKS: list[tuple[str, str, str]] = [
+    (provider, env_var, "")
+    for provider, env_vars in sorted(PROVIDER_ENV_KEYS.items())
+    for env_var in env_vars
+]
+
+
 def _credential_for_provider(
     provider: str, env_vars: dict[str, str]
 ) -> tuple[bool, str]:

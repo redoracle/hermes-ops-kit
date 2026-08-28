@@ -9,6 +9,7 @@ DeepSeek console).
 from __future__ import annotations
 
 from ..providers._openai_compat_ops import OpenAICompatRotator  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
 
 
 class DeepSeekRotator(OpenAICompatRotator):
@@ -17,7 +18,8 @@ class DeepSeekRotator(OpenAICompatRotator):
     provider = "deepseek"
     provider_label = "DeepSeek"
     api_ref = "hermes/deepseek/api_key"
-    base_url_default = "https://api.deepseek.com"
-    base_url_env = "DEEPSEEK_BASE_URL"
+    # derive from provider_catalog (single source of truth)
+    _catalog_default, base_url_env = PROVIDER_BASE_URLS["deepseek"]
+    base_url_default = _catalog_default
     chat_model = "deepseek-v4-flash"
     env_key = "DEEPSEEK_API_KEY"

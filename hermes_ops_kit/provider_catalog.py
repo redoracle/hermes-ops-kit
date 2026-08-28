@@ -57,3 +57,42 @@ PROVIDER_ENV_KEYS: dict[str, tuple[str, ...]] = {
     "github": ("GITHUB_TOKEN", "GH_TOKEN"),
     "copilot": ("GITHUB_TOKEN", "GH_TOKEN"),
 }
+
+
+# Provider API endpoints: (default base URL, env var that overrides it).
+# Adapters (_openai_compat_ops base_url_default/base_url_env) and the
+# usage/health probes must both derive from this table.
+PROVIDER_BASE_URLS: dict[str, tuple[str, str]] = {
+    "openai": ("https://api.openai.com/v1", "OPENAI_BASE_URL"),
+    "anthropic": ("https://api.anthropic.com", "ANTHROPIC_BASE_URL"),
+    "deepseek": ("https://api.deepseek.com", "DEEPSEEK_BASE_URL"),
+    "nvidia": ("https://integrate.api.nvidia.com/v1", "NVIDIA_BASE_URL"),
+    "fireworks": ("https://api.fireworks.ai/inference/v1", "FIREWORKS_BASE_URL"),
+    "deepinfra": ("https://api.deepinfra.com/v1/openai", "DEEPINFRA_BASE_URL"),
+}
+
+
+def provider_base_url(provider: str) -> str:
+    """Effective base URL for a provider (env override wins over default)."""
+    import os
+
+    default, env_var = PROVIDER_BASE_URLS[provider]
+    return os.environ.get(env_var, default)
+
+
+# GitHub Copilot model catalog (GH_COPILOT_STUDIO curation — not queryable
+# via API). Single copy; usage_metrics_v2 derives from it.
+COPILOT_MODELS: dict[str, list[str]] = {
+    "anthropic": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"],
+    "openai": [
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.4",
+        "gpt-5.5",
+    ],
+    "google": ["gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-pro"],
+    "github": ["raptor-mini"],
+}

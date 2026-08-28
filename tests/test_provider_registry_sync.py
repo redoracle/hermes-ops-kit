@@ -105,3 +105,51 @@ def test_builtin_profile_models_in_catalog() -> None:
                 assert model in catalog, (
                     f"profile {name}: {provider}/{model} not in catalog"
                 )
+
+
+def test_base_urls_derive_from_catalog() -> None:
+    """Adapter/rotator base_url defaults must equal provider_catalog."""
+    import importlib
+
+    from hermes_ops_kit.provider_catalog import PROVIDER_BASE_URLS
+
+    for provider in ("deepseek", "nvidia", "fireworks", "deepinfra"):
+        for suffix in ("adapter", "rotator"):
+            mod = importlib.import_module(
+                f"hermes_ops_kit.providers.{provider}_{suffix}"
+            )
+            default, env_var = PROVIDER_BASE_URLS[provider]
+            assert getattr(mod, "base_url_default", default) == default, (
+                f"{provider}_{suffix}.base_url_default drifted"
+            )
+            assert getattr(mod, "base_url_env", env_var) == env_var, (
+                f"{provider}_{suffix}.base_url_env drifted"
+            )
+
+
+def test_copilot_models_single_copy() -> None:
+    """usage_metrics_v2 must use provider_catalog.COPILOT_MODELS."""
+    from hermes_ops_kit.provider_catalog import COPILOT_MODELS
+
+    assert isinstance(COPILOT_MODELS, dict) and COPILOT_MODELS["github"] == [
+        "raptor-mini"
+    ]
+    import inspect
+
+    import hermes_ops_kit.usage_metrics_v2 as umv2
+
+    src = inspect.getsource(umv2)
+    assert '"raptor-mini"' not in src.replace(
+        'from .provider_catalog import', ''
+    ), "copilot model list duplicated in usage_metrics_v2"
+
+
+def test_budget_provider_classes_in_catalog() -> None:
+    """budget.yaml provider groupings must reference catalog providers."""
+    from hermes_ops_kit.cost_governor.budget import DEFAULT_BUDGET
+    from hermes_ops_kit.provider_catalog import PROVIDER_MODELS
+
+    known = set(PROVIDER_MODELS)
+    for classes in DEFAULT_BUDGET["provider_classes"].values():
+        unknown = [p for p in classes if p not in known]
+        assert not unknown, f"budget provider_classes unknown: {unknown}"

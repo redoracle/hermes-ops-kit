@@ -29,6 +29,8 @@ DEFAULT_BUDGET = {
         "block_percent": 100,
     },
     "enforcement_mode": "advisory",
+    # cost groupings only — every listed provider must exist in
+    # provider_catalog.PROVIDER_MODELS (test-enforced)
     "provider_classes": {
         "free_or_included": ["github", "gemini"],
         "paid_low": ["deepseek", "fireworks", "deepinfra"],

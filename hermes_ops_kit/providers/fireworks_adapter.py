@@ -20,6 +20,7 @@ if __name__ == "__main__" and __spec__ is None:  # pragma: no cover
 
 
 from ..providers._openai_compat_ops import OpenAICompatAdapter, run_cli  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
 
 
 class FireworksAdapter(OpenAICompatAdapter):
@@ -27,8 +28,9 @@ class FireworksAdapter(OpenAICompatAdapter):
 
     provider = "fireworks"
     provider_label = "Fireworks AI"
-    base_url_default = "https://api.fireworks.ai/inference/v1"
-    base_url_env = "FIREWORKS_BASE_URL"
+    # derive from provider_catalog (single source of truth)
+    _catalog_default, base_url_env = PROVIDER_BASE_URLS["fireworks"]
+    base_url_default = _catalog_default
     api_key_env = "FIREWORKS_API_KEY"
     timeout_env = "FIREWORKS_TIMEOUT"
     allowed_models = [

@@ -40,7 +40,7 @@ from datetime import datetime
 
 # ─── NVIDIA NIM API config ────────────────────────────────────────
 
-NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
+from hermes_ops_kit.provider_catalog import provider_base_url as _cf_base_url  # noqa: E402
 
 # ─── Allowed Models ──────────────────────────────────────────────
 # Models available through the NVIDIA NIM serverless API.
@@ -83,7 +83,7 @@ def _client():
     timeout = int(os.environ.get("NVIDIA_TIMEOUT", "60"))
     return openai.OpenAI(
         api_key=os.environ.get("NVIDIA_API_KEY"),
-        base_url=os.environ.get("NVIDIA_BASE_URL", NVIDIA_DEFAULT_BASE_URL),
+        base_url=_cf_base_url("nvidia"),
         timeout=timeout,
     )
 

@@ -478,20 +478,9 @@ def check_github() -> dict:
         has_token = bool(os.environ.get("GITHUB_TOKEN"))
         core = resources.get("core", {})
         # Copilot model catalog (from GH_COPILOT_STUDIO, June 2026 — not queryable via API)
-        copilot_models = {
-            "anthropic": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"],
-            "openai": [
-                "gpt-5.4-mini",
-                "gpt-5.4-nano",
-                "gpt-5.2",
-                "gpt-5.2-codex",
-                "gpt-5.3-codex",
-                "gpt-5.4",
-                "gpt-5.5",
-            ],
-            "google": ["gemini-2.5-pro", "gemini-3.5-flash", "gemini-3.1-pro"],
-            "github": ["raptor-mini"],
-        }
+        from .provider_catalog import COPILOT_MODELS
+
+        copilot_models = COPILOT_MODELS
         return {
             "provider": "github",
             "status": "online" if authed else "offline",
@@ -630,7 +619,7 @@ def check_deepseek(api_key: str | None = None) -> dict:
     # Fire the two independent reads concurrently: models (status gate) + balance.
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_balance = ex.submit(_fetch_deepseek_balance, key)
-        base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        base = provider_base_url("deepseek")
         try:
             req = urllib.request.Request(
                 f"{base}/models",
@@ -691,7 +680,7 @@ def check_nvidia(api_key: str | None = None) -> dict:
             "status": "offline",
             "error": "NVIDIA_API_KEY not set",
         }
-    base_url = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    base_url = provider_base_url("nvidia")
     t0 = time.time()
     try:
         # ── Paginate through all pages ──────────────────────────
@@ -819,7 +808,7 @@ def check_fireworks(api_key: str | None = None) -> dict:
             "error": "FIREWORKS_API_KEY not set",
         }
     t0 = time.time()
-    base = os.environ.get("FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1")
+    base = provider_base_url("fireworks")
     try:
         req = urllib.request.Request(
             f"{base}/models",
@@ -874,7 +863,7 @@ def check_deepinfra(api_key: str | None = None) -> dict:
             "error": "DEEPINFRA_API_KEY not set",
         }
     t0 = time.time()
-    base = os.environ.get("DEEPINFRA_BASE_URL", "https://api.deepinfra.com/v1/openai")
+    base = provider_base_url("deepinfra")
     try:
         req = urllib.request.Request(
             f"{base}/models",

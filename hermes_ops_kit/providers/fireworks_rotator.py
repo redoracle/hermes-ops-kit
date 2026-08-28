@@ -9,6 +9,7 @@ Fireworks console).
 from __future__ import annotations
 
 from ..providers._openai_compat_ops import OpenAICompatRotator  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit.provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
 
 
 class FireworksRotator(OpenAICompatRotator):
@@ -17,7 +18,8 @@ class FireworksRotator(OpenAICompatRotator):
     provider = "fireworks"
     provider_label = "Fireworks AI"
     api_ref = "hermes/fireworks/api_key"
-    base_url_default = "https://api.fireworks.ai/inference/v1"
-    base_url_env = "FIREWORKS_BASE_URL"
+    # derive from provider_catalog (single source of truth)
+    _catalog_default, base_url_env = PROVIDER_BASE_URLS["fireworks"]
+    base_url_default = _catalog_default
     chat_model = "accounts/fireworks/models/glm-5p2"
     env_key = "FIREWORKS_API_KEY"
