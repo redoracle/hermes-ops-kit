@@ -22,6 +22,22 @@ HERMES_CONFIG = os.path.join(HERMES_HOME, "config.yaml")
 OPS_KIT_DIR = os.path.join(HERMES_HOME, "ops-kit")
 
 
+def expand_home(path: str) -> str:
+    """expanduser() that maps a leading ~/.hermes to the effective HERMES_HOME.
+
+    Use for default config values stored as ~/.hermes-prefixed strings
+    (headroom settings, comfyui workflow paths) so the HERMES_HOME override
+    stays honored after the string is expanded.
+    """
+    p = os.path.expanduser(str(path))
+    real = os.path.expanduser("~/.hermes")
+    if p == real:
+        return HERMES_HOME
+    if p.startswith(real + "/"):
+        return os.path.join(HERMES_HOME, p[len(real) + 1:])
+    return p
+
+
 def _ruamel():
     try:
         from ruamel.yaml import YAML  # pyright: ignore[reportMissingImports]

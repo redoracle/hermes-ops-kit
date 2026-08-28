@@ -16,6 +16,7 @@ import subprocess
 
 from ._subprocess import module_command  # pyright: ignore[reportMissingImports]
 import time
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def run_post_rotation_checks(
@@ -27,7 +28,7 @@ def run_post_rotation_checks(
     If *provider* is given, only that provider's result is inspected.
     Returns a dict with ok, provider_status, warnings, duration_ms.
     """
-    env_path = env_file or os.path.expanduser("~/.hermes/.env.generated")
+    env_path = env_file or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
 
     if not os.path.exists(env_path):
         return {

@@ -8,9 +8,10 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Any
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 BUDGET_CONFIG_PATHS = [
-    os.path.expanduser("~/.hermes/ops-kit/budget.yaml"),
+    os.path.join(ops_config_io.HERMES_HOME, "ops-kit/budget.yaml"),
     os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "config",

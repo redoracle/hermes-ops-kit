@@ -13,6 +13,7 @@ import shutil
 
 
 from ..ops_config_io import OPS_KIT_DIR, load_yaml, save_yaml  # noqa: E402
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 BUNDLED_CONFIG = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -68,8 +69,8 @@ def load_settings() -> dict:
         if isinstance(merged.get(key), dict):
             section.update(merged[key])
         merged[key] = section
-    merged["run_dir"] = os.path.expanduser(str(merged["run_dir"]))
-    merged["state_file"] = os.path.expanduser(str(merged["state_file"]))
+    merged["run_dir"] = ops_config_io.expand_home(str(merged["run_dir"]))
+    merged["state_file"] = ops_config_io.expand_home(str(merged["state_file"]))
     merged["memory_project_root"] = os.path.expanduser(
         str(merged["memory_project_root"])
     )

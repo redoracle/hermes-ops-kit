@@ -35,6 +35,7 @@ from ...security.plugin_scanner.policy import (  # pyright: ignore[reportMissing
     get_rule_overrides,
     get_plugin_status,
 )
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def handle_plugin(args: list[str]) -> int:
@@ -915,8 +916,8 @@ def _resolve_plugin_path(name_or_path: str) -> str | None:
 
     # Search standard locations
     locations = [
-        os.path.expanduser("~/.hermes/plugins"),
-        os.path.expanduser("~/.hermes/skills"),
+        os.path.join(ops_config_io.HERMES_HOME, "plugins"),
+        os.path.join(ops_config_io.HERMES_HOME, "skills"),
     ]
     for loc in locations:
         candidate = os.path.join(loc, name_or_path)

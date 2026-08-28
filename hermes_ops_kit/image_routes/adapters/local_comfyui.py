@@ -21,6 +21,7 @@ from ...image_routes.adapters.base import (
     make_output_path,
     build_envelope,
 )
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def _aspect_dims(aspect_ratio: str) -> tuple[int, int]:
@@ -40,7 +41,7 @@ class LocalComfyUIAdapter(BaseImageAdapter):
     # 127.0.0.1:8188 is ComfyUI's standard local port. Change if running on a remote host.
     def __init__(self, endpoint: str = "http://127.0.0.1:8188", workflow: str = ""):
         self.endpoint = endpoint.rstrip("/")
-        self.workflow_path = os.path.expanduser(
+        self.workflow_path = ops_config_io.expand_home(
             workflow or "~/.hermes/ops-kit/workflows/flux-text2image.json"
         )
 

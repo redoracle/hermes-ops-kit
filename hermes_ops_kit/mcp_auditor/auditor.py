@@ -18,11 +18,12 @@ from typing import Any
 
 
 from ..mcp_auditor.classifier import detect_capabilities, classify_risk, scan_metadata  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def _load_hermes_mcp_config() -> dict[str, Any]:
     """Extract mcp_servers from Hermes config, failing closed if malformed."""
-    config_path = os.path.expanduser("~/.hermes/config.yaml")
+    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     if not os.path.exists(config_path):
         return {}
     try:
@@ -40,7 +41,7 @@ def _load_hermes_mcp_config() -> dict[str, Any]:
     return servers
 
 
-_MCP_POLICY_PATH = os.path.expanduser("~/.hermes/mcp_policy.json")
+_MCP_POLICY_PATH = os.path.join(ops_config_io.HERMES_HOME, "mcp_policy.json")
 
 
 def _validate_mcp_policy(policy: Any) -> dict[str, Any]:
@@ -73,7 +74,7 @@ def _load_mcp_policy() -> dict[str, Any]:
         except (json.JSONDecodeError, OSError) as exc:
             raise RuntimeError(f"Cannot load MCP policy: {exc}") from exc
     # Fallback: inline mcp_policy in config.yaml
-    config_path = os.path.expanduser("~/.hermes/config.yaml")
+    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     if os.path.exists(config_path):
         try:
             import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
@@ -240,7 +241,7 @@ def _load_oauth_token(server_id: str) -> str | None:
     # Defense in depth: server_id comes from ~/.hermes/config.yaml (trusted),
     # but constrain it to a single path component so a malformed name cannot
     # traverse outside the token store (e.g. "../../.ssh/...").
-    token_dir = os.path.expanduser("~/.hermes/mcp-tokens")
+    token_dir = os.path.join(ops_config_io.HERMES_HOME, "mcp-tokens")
     token_path = os.path.realpath(os.path.join(token_dir, f"{server_id}.json"))
     if os.path.dirname(token_path) != os.path.realpath(token_dir):
         return None

@@ -17,6 +17,7 @@ Optional (depending on auth mode):
 from __future__ import annotations
 
 import os
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def load_dotenv(path: str, *, set_environ: bool = False) -> dict[str, str]:
@@ -61,12 +62,12 @@ def validate_bootstrap(env: dict[str, str]) -> list[str]:
 
 def get_hermes_env_path() -> str:
     """Return the path to ~/.hermes/.env (bootstrap credentials)."""
-    return os.path.expanduser("~/.hermes/.env")
+    return os.path.join(ops_config_io.HERMES_HOME, ".env")
 
 
 def get_generated_env_path() -> str:
     """Return the path to ~/.hermes/.env.generated."""
-    return os.path.expanduser("~/.hermes/.env.generated")
+    return os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
 
 
 def load_hermes_env() -> dict[str, str]:

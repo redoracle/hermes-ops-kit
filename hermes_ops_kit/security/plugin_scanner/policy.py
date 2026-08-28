@@ -20,6 +20,7 @@ from ...security.plugin_scanner.findings import (  # pyright: ignore[reportMissi
     RiskLevel,
     Severity,
 )
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 # ── Constants ────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ from ...security.plugin_scanner.findings import (  # pyright: ignore[reportMissi
 _POLICY_PATH_ENV = "HERMES_PLUGIN_POLICY_PATH"
 PLUGIN_POLICY_PATH = os.environ.get(
     _POLICY_PATH_ENV,
-    os.path.expanduser("~/.hermes/ops-kit/plugin_policy.json"),
+    os.path.join(ops_config_io.HERMES_HOME, "ops-kit/plugin_policy.json"),
 )
 PLUGIN_AUDIT_PATH = os.path.join(
     os.path.dirname(PLUGIN_POLICY_PATH),
@@ -594,8 +595,8 @@ def _discover_plugins() -> list[str]:
     """Discover installed plugin names."""
     plugins: list[str] = []
     locations = [
-        os.path.expanduser("~/.hermes/plugins"),
-        os.path.expanduser("~/.hermes/skills"),
+        os.path.join(ops_config_io.HERMES_HOME, "plugins"),
+        os.path.join(ops_config_io.HERMES_HOME, "skills"),
     ]
     for loc in locations:
         if os.path.isdir(loc):

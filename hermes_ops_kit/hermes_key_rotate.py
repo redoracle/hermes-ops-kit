@@ -38,6 +38,7 @@ from .env.env_loader import load_hermes_env, get_generated_env_path  # pyright: 
 from .security.file_permissions import check_env_file  # pyright: ignore[reportMissingImports]
 from .security.redaction import redact  # pyright: ignore[reportMissingImports]
 from .security.vaultwarden_backend import VaultwardenSecretBackend  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -153,7 +154,7 @@ def cmd_doctor_secrets(backend: VaultwardenSecretBackend) -> dict:
         result["SECRET BACKEND"]["status"] = "blocked"
 
     # Env file permissions
-    env_path = os.path.expanduser("~/.hermes/.env")
+    env_path = os.path.join(ops_config_io.HERMES_HOME, ".env")
     env_check = check_env_file(env_path)
     result["ENV FILES"][".env"] = env_check
     if not env_check.get("safe"):
@@ -216,7 +217,7 @@ def _merge_generated_into_env(generated_path: str) -> dict:
     - Keys in BOTH but with different values → updated in-place.
     - Keys only in .env → left untouched (bootstrap / user-managed).
     """
-    env_path = os.path.expanduser("~/.hermes/.env")
+    env_path = os.path.join(ops_config_io.HERMES_HOME, ".env")
 
     # Parse existing .env into {key: (line_number, full_line)}
     existing: dict[str, tuple[int, str]] = {}
@@ -702,7 +703,7 @@ def cmd_backup_vault(
         indent=2,
     )
 
-    path = output_path or os.path.expanduser("~/.hermes/ops-kit/vault-backup.json")
+    path = output_path or os.path.join(ops_config_io.HERMES_HOME, "ops-kit/vault-backup.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(payload)
@@ -764,11 +765,11 @@ def cmd_diff_vault(
     vault_refs = set(backend.list_secret_refs())
 
     # .env state
-    dotenv_path = env_path or os.path.expanduser("~/.hermes/.env")
+    dotenv_path = env_path or os.path.join(ops_config_io.HERMES_HOME, ".env")
     dotenv = _load_dotenv(dotenv_path) if os.path.exists(dotenv_path) else {}
 
     # .env.generated state
-    gen_path = generated_path or os.path.expanduser("~/.hermes/.env.generated")
+    gen_path = generated_path or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
     gen_env = _load_dotenv(gen_path) if os.path.exists(gen_path) else {}
 
     # Load projection to map env vars → refs
@@ -818,7 +819,7 @@ def cmd_migrate(backend: VaultwardenSecretBackend) -> dict:
     """Interactive migration wizard: .env → Vaultwarden."""
     import os as _os
 
-    dotenv_path = _os.path.expanduser("~/.hermes/.env")
+    dotenv_path = _os.path.join(ops_config_io.HERMES_HOME, ".env")
     if not _os.path.exists(dotenv_path):
         return {"ok": False, "error": f"{dotenv_path} not found"}
 
@@ -879,7 +880,7 @@ def cmd_seed_from_env(
     from .security.secret_backend import ValidationReason  # pyright: ignore[reportMissingImports]
     import os as _os
 
-    env_path = _os.path.expanduser("~/.hermes/.env")
+    env_path = _os.path.join(ops_config_io.HERMES_HOME, ".env")
     if not _os.path.exists(env_path):
         return {"ok": False, "error": f"{env_path} not found"}
 
@@ -1511,7 +1512,7 @@ def main() -> None:
         else:
             # No command given — show help-like output
             hc = backend.healthcheck()
-            env_check = check_env_file(os.path.expanduser("~/.hermes/.env"))
+            env_check = check_env_file(os.path.join(ops_config_io.HERMES_HOME, ".env"))
             _print_json(
                 {
                     "ok": hc.get("ok", False),

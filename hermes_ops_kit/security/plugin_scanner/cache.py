@@ -15,11 +15,12 @@ import os
 import sqlite3
 import time
 from typing import Any
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 # ── Constants ────────────────────────────────────────────────────────
 
-CACHE_DB_PATH = os.path.expanduser("~/.hermes/ops-kit/plugin_scanner_cache.db")
+CACHE_DB_PATH = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/plugin_scanner_cache.db")
 SCANNER_VERSION = "0.2.2"
 DEFAULT_TTL_HOURS = 168  # 7 days
 

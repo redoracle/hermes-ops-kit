@@ -23,10 +23,11 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_DIR = os.path.expanduser("~/.hermes/rotation_checkpoints")
+CHECKPOINT_DIR = os.path.join(ops_config_io.HERMES_HOME, "rotation_checkpoints")
 
 
 class RotationPhase(str, Enum):

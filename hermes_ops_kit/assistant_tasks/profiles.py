@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 PROFILE_PATHS = [
-    os.path.expanduser("~/.hermes/ops-kit/obsidian_maintenance.yaml"),
+    os.path.join(ops_config_io.HERMES_HOME, "ops-kit/obsidian_maintenance.yaml"),
     os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "config",

@@ -10,13 +10,14 @@ import os
 import stat
 
 from .security.redaction import redact  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def _permission_warnings() -> list[str]:
     """Return warnings for unsafe Hermes secret-file permissions."""
     warnings: list[str] = []
 
-    env_path = os.path.expanduser("~/.hermes/.env")
+    env_path = os.path.join(ops_config_io.HERMES_HOME, ".env")
     if os.path.exists(env_path):
         mode = stat.S_IMODE(os.stat(env_path).st_mode)
         if mode != 0o600:
@@ -26,7 +27,7 @@ def _permission_warnings() -> list[str]:
             )
 
     # Check hermes dir permissions
-    hermes_dir = os.path.expanduser("~/.hermes")
+    hermes_dir = ops_config_io.HERMES_HOME
     if os.path.exists(hermes_dir):
         mode = stat.S_IMODE(os.stat(hermes_dir).st_mode)
         if mode != 0o700:
@@ -36,7 +37,7 @@ def _permission_warnings() -> list[str]:
             )
 
     # Check generated env
-    gen_env = os.path.expanduser("~/.hermes/.env.generated")
+    gen_env = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
     if os.path.exists(gen_env):
         mode = stat.S_IMODE(os.stat(gen_env).st_mode)
         if mode != 0o600:

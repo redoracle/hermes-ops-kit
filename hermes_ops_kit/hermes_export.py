@@ -30,8 +30,9 @@ import time
 from datetime import datetime, timedelta
 
 from ._subprocess import run_module
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
-EXPORT_DIR = os.path.expanduser("~/.hermes/cache/documents")
+EXPORT_DIR = os.path.join(ops_config_io.HERMES_HOME, "cache/documents")
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 

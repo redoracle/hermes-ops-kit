@@ -10,6 +10,7 @@ import os
 import threading
 
 from dotenv import load_dotenv as _dotenv_load
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 _ENV_LOADED = False
 _ENV_LOCK = threading.Lock()
@@ -30,7 +31,7 @@ def load_dotenv() -> None:
     with _ENV_LOCK:
         if _ENV_LOADED:
             return
-        hermes_home = os.path.expanduser("~/.hermes")
+        hermes_home = ops_config_io.HERMES_HOME
         # Load .env first, then .env.generated on top (override=False
         # means first-loaded wins, so generated goes second to take
         # precedence for shared keys).

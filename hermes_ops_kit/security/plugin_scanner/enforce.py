@@ -35,9 +35,10 @@ from typing import Any
 from ...security.plugin_scanner.scanner import scan_all  # pyright: ignore[reportMissingImports]
 from ...security.plugin_scanner.policy import is_approved  # pyright: ignore[reportMissingImports]
 from ...security.plugin_scanner.findings import RiskLevel  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
-HERMES_CONFIG_PATH = os.path.expanduser("~/.hermes/config.yaml")
+HERMES_CONFIG_PATH = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
 
 
 # ── Config read/write ────────────────────────────────────────────────────

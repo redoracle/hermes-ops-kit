@@ -38,6 +38,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 # ─── Provider registry (single source of truth) ──────────────────
 # Every "which providers exist" decision derives from here so a new provider
@@ -238,8 +239,8 @@ def load_env_file(path: str | None = None) -> None:
     if path is not None:
         _parse_env_file(path)
         return
-    _parse_env_file(os.path.expanduser("~/.hermes/.env"))
-    _parse_env_file(os.path.expanduser("~/.hermes/.env.generated"))
+    _parse_env_file(os.path.join(ops_config_io.HERMES_HOME, ".env"))
+    _parse_env_file(os.path.join(ops_config_io.HERMES_HOME, ".env.generated"))
 
 
 # ─── Shared redaction ────────────────────────────────────────────
@@ -1092,7 +1093,7 @@ def _gateway_candidates() -> list[str]:
 
 
 def check_hermes_status() -> dict:
-    hd = os.path.expanduser("~/.hermes")
+    hd = ops_config_io.HERMES_HOME
     gw = False
     port = _resolve_gateway_port()
 
@@ -1218,7 +1219,7 @@ def _load_hermes_config() -> dict:
     that handles the subset of YAML used by Hermes config files
     (scalars, nested mappings, and flow-style lists of mappings).
     """
-    config_path = os.path.expanduser("~/.hermes/config.yaml")
+    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     if not os.path.exists(config_path):
         return {}
 
@@ -1352,7 +1353,7 @@ def _parse_yaml_strict(path: str) -> dict:
 def _load_routes_config() -> dict:
     """Load routes.yaml display config (fallback to bundled)."""
     paths = [
-        os.path.expanduser("~/.hermes/ops-kit/routes.yaml"),
+        os.path.join(ops_config_io.HERMES_HOME, "ops-kit/routes.yaml"),
         os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "config", "routes.yaml"
         ),
@@ -1393,7 +1394,7 @@ _IMAGE_ROUTES_CONFIG_CACHE: dict | None = None
 def _load_image_routes_config() -> dict:
     """Load image_routes.yaml config (fallback to bundled)."""
     paths = [
-        os.path.expanduser("~/.hermes/ops-kit/image_routes.yaml"),
+        os.path.join(ops_config_io.HERMES_HOME, "ops-kit/image_routes.yaml"),
         os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "config", "image_routes.yaml"
         ),

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 # ── Denylist loader ─────────────────────────────────────────────────────
@@ -249,6 +250,6 @@ def render_env(
     from ..env.atomic_write import atomic_write  # pyright: ignore[reportMissingImports]
 
     content = render_env_content(backend, projection)
-    target = output_path or os.path.expanduser("~/.hermes/.env.generated")
+    target = output_path or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
     atomic_write(target, content)
     return target

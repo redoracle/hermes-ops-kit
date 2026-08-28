@@ -27,9 +27,10 @@ import os
 import time
 
 from ..env.atomic_write import atomic_append  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
-AUDIT_PATH = os.path.expanduser("~/.hermes/assistants/audit.jsonl")
+AUDIT_PATH = os.path.join(ops_config_io.HERMES_HOME, "assistants/audit.jsonl")
 
 
 def write_audit(

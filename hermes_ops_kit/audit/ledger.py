@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import os
 import time
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
-AUDIT_DIR = os.path.expanduser("~/.hermes/ops-kit/audit")
+AUDIT_DIR = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/audit")
 AUDIT_PATH = os.path.join(AUDIT_DIR, "events.jsonl")
 
 VALID_EVENT_TYPES = {

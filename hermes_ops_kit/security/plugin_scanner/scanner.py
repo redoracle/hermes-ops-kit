@@ -35,6 +35,7 @@ from ...security.plugin_scanner.policy import apply_rule_overrides, policy_finge
 
 # Import single source of truth for scanner version
 from ...security.plugin_scanner.cache import SCANNER_VERSION as _SCANNER_VERSION  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -436,8 +437,8 @@ def scan_all(
 
     # Standard plugin locations
     locations = [
-        os.path.expanduser("~/.hermes/plugins"),
-        os.path.expanduser("~/.hermes/skills"),
+        os.path.join(ops_config_io.HERMES_HOME, "plugins"),
+        os.path.join(ops_config_io.HERMES_HOME, "skills"),
     ]
 
     for loc in locations:

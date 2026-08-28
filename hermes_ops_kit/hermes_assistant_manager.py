@@ -91,6 +91,7 @@ ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 # ─── Secret scanner (uses shared security.redaction) ──────────────────
 
 from .security.redaction import SECRET_PATTERNS  # noqa: E402  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 SUSPICIOUS_KEYS = {
     "api_key",
@@ -856,8 +857,8 @@ def _ping_assistant(config_path: str, assistant_id: str, timeout: int = 15) -> d
     # .env is loaded first, then .env.generated on top.
     from .env.env_loader import load_dotenv as _load_dotenv
 
-    _load_dotenv(os.path.expanduser("~/.hermes/.env"), set_environ=True)
-    gen = os.path.expanduser("~/.hermes/.env.generated")
+    _load_dotenv(os.path.join(ops_config_io.HERMES_HOME, ".env"), set_environ=True)
+    gen = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
     if os.path.exists(gen):
         _load_dotenv(gen, set_environ=True)
 

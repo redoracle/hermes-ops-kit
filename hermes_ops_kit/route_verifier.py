@@ -32,6 +32,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
@@ -86,8 +87,8 @@ def _load_env() -> dict[str, str]:
                 if k:
                     result[k] = v
 
-    _parse(os.path.expanduser("~/.hermes/.env"))
-    _parse(os.path.expanduser("~/.hermes/.env.generated"))
+    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env"))
+    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env.generated"))
     return result
 
 
@@ -164,9 +165,9 @@ def extract_route_evidence(
         List of evidence dicts with keys: ts, task, provider, model, mode, raw
     """
     if log_path is None:
-        log_path = os.path.expanduser("~/.hermes/logs/agent.log")
+        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs/agent.log")
     if since is None:
-        since = _config_mtime(os.path.expanduser("~/.hermes/config.yaml"))
+        since = _config_mtime(os.path.join(ops_config_io.HERMES_HOME, "config.yaml"))
 
     if not os.path.exists(log_path):
         return []
@@ -203,7 +204,7 @@ def check_credential_gaps(
     Each gap dict has: route, provider, model, issue
     """
     if config_path is None:
-        config_path = os.path.expanduser("~/.hermes/config.yaml")
+        config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
 
     from .config.route_map import AUX_SHORT_KEYS, aux_config_key
 
@@ -289,9 +290,9 @@ def verify_all_routes(
       - summary: {total_checks, passed, failed}
     """
     if hermes_config_path is None:
-        hermes_config_path = os.path.expanduser("~/.hermes/config.yaml")
+        hermes_config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     if log_path is None:
-        log_path = os.path.expanduser("~/.hermes/logs/agent.log")
+        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs/agent.log")
 
     config_mtime = _config_mtime(hermes_config_path)
     cfg = _load_yaml(hermes_config_path)

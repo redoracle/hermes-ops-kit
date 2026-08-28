@@ -25,6 +25,7 @@ import subprocess
 from typing import Any
 
 from ..security.redaction import redact
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 # ─── Forbidden Commands ──────────────────────────────────────────────
@@ -135,7 +136,7 @@ class BitwardenCLIClient:
         # Prefer cross-platform `filelock.FileLock` when available;
         # fall back to fcntl on Unix, or no-op on platforms where
         # neither is available (bw typically not used natively on Windows).
-        lock_dir = os.path.expanduser("~/.hermes/locks")
+        lock_dir = os.path.join(ops_config_io.HERMES_HOME, "locks")
         os.makedirs(lock_dir, exist_ok=True)
         lock_path = os.path.join(lock_dir, "bw_cli.lock")
 

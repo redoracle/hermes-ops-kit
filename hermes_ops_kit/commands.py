@@ -11,6 +11,7 @@ import os
 import sys
 
 from ._subprocess import run_module  # pyright: ignore[reportMissingImports]
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
 def handle_ops_kit_command(args: list[str]) -> int:
@@ -122,11 +123,11 @@ def _handle_doctor() -> int:
     try:
         from .security.file_permissions import check_env_file  # pyright: ignore[reportMissingImports]
 
-        generated = os.path.expanduser("~/.hermes/.env.generated")
+        generated = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
         env_check_path = (
             generated
             if os.path.exists(generated)
-            else os.path.expanduser("~/.hermes/.env")
+            else os.path.join(ops_config_io.HERMES_HOME, ".env")
         )
         env_check = check_env_file(env_check_path)
         _check(
@@ -141,7 +142,7 @@ def _handle_doctor() -> int:
         "plugin ops-kit",
         os.path.exists(
             os.path.join(
-                os.path.expanduser("~/.hermes"),
+                ops_config_io.HERMES_HOME,
                 "plugins",
                 "hermes-ops-kit",
                 "plugin.yaml",
@@ -213,7 +214,7 @@ def _handle_doctor() -> int:
     except Exception as e:
         _check("secrets", False, str(e)[:60])
 
-    gen_env = os.path.expanduser("~/.hermes/.env.generated")
+    gen_env = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
     if os.path.exists(gen_env):
         import stat
 
@@ -229,7 +230,7 @@ def _handle_doctor() -> int:
 
     # ── ROUTE BYPASS ──
     _hdr("ROUTE BYPASS")
-    cfg_path = os.path.expanduser("~/.hermes/config.yaml")
+    cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     if os.path.exists(cfg_path):
         _check_bypass_section(cfg_path, env_vars, _check)
     else:
@@ -265,7 +266,7 @@ def _try_build_routes() -> dict:
 
         # Populate results from Hermes config — mark all configured providers as "online"
         # so the doctor shows configured routes, not just live-probed ones.
-        cfg_path = os.path.expanduser("~/.hermes/config.yaml")
+        cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
         results: dict[str, dict] = {}
         if os.path.exists(cfg_path):
             try:
@@ -339,8 +340,8 @@ def _load_hermes_env() -> dict[str, str]:
                 if k:
                     result[k] = v
 
-    _parse(os.path.expanduser("~/.hermes/.env"))
-    _parse(os.path.expanduser("~/.hermes/.env.generated"))
+    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env"))
+    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env.generated"))
     return result
 
 
@@ -416,7 +417,7 @@ def _check_credentials_section(
     credentials, so fallback-chain entries like ``anthropic-api`` match
     the ``ANTHROPIC_API_KEY`` check.
     """
-    cfg_path = os.path.expanduser("~/.hermes/config.yaml")
+    cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     providers_seen: set[str] = set()
     if os.path.exists(cfg_path):
         try:
@@ -536,7 +537,7 @@ def _handle_route_test(args: list[str]) -> int:
     json_mode = "--json" in args
     fallback_only = "--fallback" in args
 
-    cfg_path = os.path.expanduser("~/.hermes/config.yaml")
+    cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
     hc: dict = {}
     if os.path.exists(cfg_path):
         try:
@@ -591,7 +592,7 @@ def _handle_route_test(args: list[str]) -> int:
     from .route_runtime_harness import build_report
 
     try:
-        routes_cfg_path = os.path.expanduser("~/.hermes/ops-kit/routes.yaml")
+        routes_cfg_path = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/routes.yaml")
         if not os.path.exists(routes_cfg_path):
             routes_cfg_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), "config", "routes.yaml"
@@ -604,7 +605,7 @@ def _handle_route_test(args: list[str]) -> int:
         # Deployed registry wins (managed by `assistants` command); packaged
         # copy is only the default — mirrors the routes.yaml/image_routes.yaml
         # fallback pattern.
-        assistants_path = os.path.expanduser("~/.hermes/ops-kit/assistants.yaml")
+        assistants_path = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/assistants.yaml")
         if not os.path.exists(assistants_path):
             assistants_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), "config", "assistants.yaml"
@@ -612,7 +613,7 @@ def _handle_route_test(args: list[str]) -> int:
         with open(assistants_path) as f:
             ac = _y.safe_load(f) or {}
 
-        img_path = os.path.expanduser("~/.hermes/ops-kit/image_routes.yaml")
+        img_path = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/image_routes.yaml")
         if not os.path.exists(img_path):
             img_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
@@ -1103,8 +1104,8 @@ def _handle_install(_args: list[str]) -> int:
         return bootstrap_main(rest)
 
     if subcmd == "repair":
-        backup_path = os.path.expanduser("~/.hermes/config.yaml.bak")
-        config_path = os.path.expanduser("~/.hermes/config.yaml")
+        backup_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml.bak")
+        config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
         if os.path.exists(backup_path):
             from .security.plugin_scanner.enforce import _restore_hermes_config  # pyright: ignore[reportMissingImports]
 
@@ -1233,9 +1234,9 @@ def _handle_install(_args: list[str]) -> int:
     )
 
     # Env file permissions — check .env.generated first, then .env
-    generated = os.path.expanduser("~/.hermes/.env.generated")
+    generated = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
     env_path = (
-        generated if os.path.exists(generated) else os.path.expanduser("~/.hermes/.env")
+        generated if os.path.exists(generated) else os.path.join(ops_config_io.HERMES_HOME, ".env")
     )
     env_ok = False
     if os.path.exists(env_path):

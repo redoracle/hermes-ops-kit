@@ -55,6 +55,7 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
 }
 
 from .config.route_map import aux_harness_triples  # noqa: E402
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 # AUX route map — canonical source: config/route_map.py
 AUX_MAP = aux_harness_triples()
@@ -608,7 +609,7 @@ def verify_fallback_chain(
         }
     """
     if hermes_cfg is None:
-        cfg_path = os.path.expanduser("~/.hermes/config.yaml")
+        cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
         hermes_cfg = _load_yaml_text(cfg_path) if os.path.exists(cfg_path) else {}
 
     model_cfg = hermes_cfg.get("model", {})

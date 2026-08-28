@@ -13,9 +13,10 @@ from __future__ import annotations
 import os
 import sqlite3
 import time
+from hermes_ops_kit import ops_config_io  # noqa: E402
 
 
-DB_PATH = os.path.expanduser("~/.hermes/assistants/tasks.sqlite")
+DB_PATH = os.path.join(ops_config_io.HERMES_HOME, "assistants/tasks.sqlite")
 
 
 def _ensure_db() -> sqlite3.Connection:
