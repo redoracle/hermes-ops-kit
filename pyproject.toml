@@ -1,6 +1,6 @@
 [project]
 name = "hermes-ops-kit"
-version = "0.5.4"
+version = "0.5.5"
 description = "Operational and security plugin for Hermes Agent: provider routing, secret and key lifecycle, preflight plugin scanning, MCP auditing, cost governance, diagnostics, and remote assistant delegation."
 requires-python = ">=3.11"
 dependencies = [
