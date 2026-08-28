@@ -205,48 +205,23 @@ def _timeout_reason(e: Exception) -> str:
 # ─── Env loading ─────────────────────────────────────────────────
 
 
-def _parse_env_file(path: str) -> None:
-    """Parse a .env-style file into os.environ (no-op if missing)."""
-    if not os.path.exists(path):
-        return
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "#" in line:
-                for i, c in enumerate(line):
-                    if c in ('"', "'"):
-                        break
-                    elif c == "#":
-                        line = line[:i].strip()
-                        break
-            if "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            if key:
-                os.environ[key] = value.strip().strip('"').strip("'")
-
 
 def load_env_file(path: str | None = None) -> None:
-    """Load .env and .env.generated into os.environ.
+    """Load .env and .env.generated into os.environ (setdefault, no clobber).
 
-    .env is loaded first, then .env.generated on top — generated
-    keys take precedence, but vars set only in .env are preserved.
-    When *path* is given, loads only that single file.
+    Real environment variables always win; generated keys take precedence
+    over .env keys, matching env.loader.load_dotenv() precedence.
     """
+    from .env.loader import parse_env_file
+
     if path is not None:
-        _parse_env_file(path)
+        for key, value in parse_env_file(path).items():
+            os.environ.setdefault(key, value)
         return
-    _parse_env_file(os.path.join(ops_config_io.HERMES_HOME, ".env"))
-    _parse_env_file(os.path.join(ops_config_io.HERMES_HOME, ".env.generated"))
-
-
-# ─── Shared redaction ────────────────────────────────────────────
-from .security.redaction import redact  # noqa: E402  # pyright: ignore[reportMissingImports]
-
-# ─── Provider Checks ────────────────────────────────────────────
+    for filename in (".env", ".env.generated"):
+        env_path = os.path.join(ops_config_io.HERMES_HOME, filename)
+        for key, value in parse_env_file(env_path).items():
+            os.environ.setdefault(key, value)
 
 
 def _cat_openai(data: dict) -> dict:

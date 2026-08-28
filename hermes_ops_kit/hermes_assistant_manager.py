@@ -855,12 +855,9 @@ def _ping_assistant(config_path: str, assistant_id: str, timeout: int = 15) -> d
     """Ping a Hermes assistant by ID."""
     # Load env into os.environ so endpoint env vars are available.
     # .env is loaded first, then .env.generated on top.
-    from .env.env_loader import load_dotenv as _load_dotenv
+    from .env.loader import load_dotenv
 
-    _load_dotenv(os.path.join(ops_config_io.HERMES_HOME, ".env"), set_environ=True)
-    gen = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
-    if os.path.exists(gen):
-        _load_dotenv(gen, set_environ=True)
+    load_dotenv()
 
     mgr = AssistantManager(config_path)
     _aid = mgr.get(assistant_id)

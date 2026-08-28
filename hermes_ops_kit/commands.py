@@ -324,62 +324,10 @@ def _try_build_routes() -> dict:
 
 def _load_hermes_env() -> dict[str, str]:
     """Parse .env and .env.generated into a dict (generated wins on overlap)."""
-    result: dict[str, str] = {}
+    from .env.loader import load_env_dict
 
-    def _parse(path: str) -> None:
-        if not os.path.exists(path):
-            return
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                k = k.strip()
-                v = v.strip().strip('"').strip("'")
-                if k:
-                    result[k] = v
+    return load_env_dict()
 
-    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env"))
-    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env.generated"))
-    return result
-
-
-# Provider → (env_var, key_format_check)
-#
-# NOTE: this list is broader than usage_metrics_v2.PROVIDERS on purpose. It
-# recognizes OpenAI-compatible providers (openrouter, zai) for credential
-# validation in `install doctor`, even though they have no dedicated
-# adapter/health/cost endpoint and therefore are NOT first-class entries in
-# the usage registry — they route via the openai adapter / provider_routing.
-# Keep this list, route_verifier._credential_for_provider, and the redaction
-# patterns in security/redaction.py aligned when adding a provider.
-_CREDENTIAL_CHECKS: list[tuple[str, str, str | None]] = [
-    ("gemini", "GOOGLE_API_KEY", None),  # AI Studio keys have varied formats
-    ("gemini", "GEMINI_API_KEY", None),
-    ("openai", "OPENAI_API_KEY", "sk-"),
-    ("anthropic", "ANTHROPIC_API_KEY", "sk-ant-"),
-    ("deepseek", "DEEPSEEK_API_KEY", "sk-"),
-    ("nvidia", "NVIDIA_API_KEY", "nvapi-"),
-    (
-        "fireworks",
-        "FIREWORKS_API_KEY",
-        None,
-    ),  # fw-/fw_/fpk_ prefixes (see security/redaction.py)
-    ("deepinfra", "DEEPINFRA_API_KEY", None),  # opaque tokens, no vendor prefix
-    ("openrouter", "OPENROUTER_API_KEY", "sk-or-"),  # OpenAI-compat, no adapter
-    (
-        "zai",
-        "GLM_API_KEY",
-        None,
-    ),  # Z.AI / ZhipuAI GLM — mirrors hermes_cli.auth zai ProviderConfig
-    ("zai", "ZAI_API_KEY", None),
-    ("zai", "Z_AI_API_KEY", None),
-    ("github", "GITHUB_TOKEN", None),
-    ("github", "GH_TOKEN", None),
-    ("copilot", "GITHUB_TOKEN", None),  # copilot → github normalization
-    ("copilot", "GH_TOKEN", None),
-]
 
 
 def _credential_for_provider(

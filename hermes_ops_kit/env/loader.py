@@ -40,3 +40,60 @@ def load_dotenv() -> None:
             if os.path.isfile(env_path):
                 _dotenv_load(env_path, override=True)
         _ENV_LOADED = True
+
+
+REQUIRED_BOOTSTRAP_VARS = [
+    "HERMES_SECRET_BACKEND",
+    "VAULTWARDEN_SERVER_URL",
+]
+
+
+def _parse_line(line: str) -> tuple[str, str] | None:
+    """Parse one .env line → (key, value); inline # comments honored."""
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        return None
+    if "#" in line:
+        for i, c in enumerate(line):
+            if c in ('"', "'"):
+                break
+            if c == "#":
+                line = line[:i].strip()
+                break
+    if "=" not in line:
+        return None
+    key, _, value = line.partition("=")
+    key = key.strip()
+    if not key:
+        return None
+    return key, value.strip().strip('"').strip("'")
+
+
+def parse_env_file(path: str) -> dict[str, str]:
+    """Parse a .env-style file into a dict. Missing file → {}."""
+    result: dict[str, str] = {}
+    if not os.path.exists(path):
+        return result
+    with open(path) as f:
+        for line in f:
+            kv = _parse_line(line)
+            if kv:
+                result[kv[0]] = kv[1]
+    return result
+
+
+def load_env_dict(hermes_home: str | None = None) -> dict[str, str]:
+    """Parse .env then .env.generated into a dict (generated wins on overlap).
+
+    Same files, precedence and comment semantics as load_dotenv().
+    """
+    home = hermes_home or ops_config_io.HERMES_HOME
+    result: dict[str, str] = {}
+    for filename in (".env", ".env.generated"):
+        result.update(parse_env_file(os.path.join(home, filename)))
+    return result
+
+
+def validate_bootstrap(env: dict[str, str]) -> list[str]:
+    """Return missing required bootstrap variables. Empty list = valid."""
+    return [var for var in REQUIRED_BOOTSTRAP_VARS if not env.get(var)]

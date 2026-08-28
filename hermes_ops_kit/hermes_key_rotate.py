@@ -34,7 +34,7 @@ import os
 import sys
 import time
 
-from .env.env_loader import load_hermes_env, get_generated_env_path  # pyright: ignore[reportMissingImports]
+from .env.env_loader import load_hermes_env, get_generated_env_path  # noqa: F401  # compat shim
 from .security.file_permissions import check_env_file  # pyright: ignore[reportMissingImports]
 from .security.redaction import redact  # pyright: ignore[reportMissingImports]
 from .security.vaultwarden_backend import VaultwardenSecretBackend  # pyright: ignore[reportMissingImports]
@@ -760,17 +760,17 @@ def cmd_diff_vault(
     generated_path: str | None = None,
 ) -> dict:
     """Compare Vaultwarden state vs .env vs .env.generated."""
-    from .env.env_loader import load_dotenv as _load_dotenv
+    from .env.loader import parse_env_file as _parse_env_file
 
     vault_refs = set(backend.list_secret_refs())
 
     # .env state
     dotenv_path = env_path or os.path.join(ops_config_io.HERMES_HOME, ".env")
-    dotenv = _load_dotenv(dotenv_path) if os.path.exists(dotenv_path) else {}
+    dotenv = _parse_env_file(dotenv_path) if os.path.exists(dotenv_path) else {}
 
     # .env.generated state
     gen_path = generated_path or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
-    gen_env = _load_dotenv(gen_path) if os.path.exists(gen_path) else {}
+    gen_env = _parse_env_file(gen_path) if os.path.exists(gen_path) else {}
 
     # Load projection to map env vars → refs
     projection_path = os.path.join(
@@ -823,9 +823,9 @@ def cmd_migrate(backend: VaultwardenSecretBackend) -> dict:
     if not _os.path.exists(dotenv_path):
         return {"ok": False, "error": f"{dotenv_path} not found"}
 
-    from .env.env_loader import load_dotenv as _load_dotenv
+    from .env.loader import parse_env_file as _parse_env_file
 
-    _load_dotenv(dotenv_path)
+    _parse_env_file(dotenv_path)
 
     # Show what we found
     result = cmd_seed_from_env(backend, dry_run=True)
@@ -848,7 +848,7 @@ def cmd_migrate(backend: VaultwardenSecretBackend) -> dict:
     render_result = cmd_render_env(backend, dry_run=False)
 
     # Check what's left in .env
-    dotenv_after = _load_dotenv(dotenv_path)
+    dotenv_after = _parse_env_file(dotenv_path)
     still_in_dotenv = [k for k in to_migrate if k in dotenv_after]
 
     return {
@@ -884,9 +884,9 @@ def cmd_seed_from_env(
     if not _os.path.exists(env_path):
         return {"ok": False, "error": f"{env_path} not found"}
 
-    from .env.env_loader import load_dotenv as _load_dotenv
+    from .env.loader import parse_env_file as _parse_env_file
 
-    dotenv = _load_dotenv(env_path)
+    dotenv = _parse_env_file(env_path)
 
     # Load projection mapping to discover which env vars map to runtime keys
     projection_path = _os.path.join(

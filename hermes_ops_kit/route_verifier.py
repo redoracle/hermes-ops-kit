@@ -71,25 +71,9 @@ def _load_yaml(path: str) -> dict[str, Any]:
 
 def _load_env() -> dict[str, str]:
     """Parse .env and .env.generated into a dict (generated wins on overlap)."""
-    result: dict[str, str] = {}
+    from .env.loader import load_env_dict
 
-    def _parse(path: str) -> None:
-        if not os.path.exists(path):
-            return
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                k = k.strip()
-                v = v.strip().strip('"').strip("'")
-                if k:
-                    result[k] = v
-
-    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env"))
-    _parse(os.path.join(ops_config_io.HERMES_HOME, ".env.generated"))
-    return result
+    return load_env_dict()
 
 
 def _config_mtime(path: str) -> datetime | None:
