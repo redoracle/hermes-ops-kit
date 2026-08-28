@@ -233,3 +233,73 @@ def test_cli_json_output(tmp_path: Path):
     data = json.loads(result.stdout)
     assert data["ok"] is True
     assert data["summary"]["total_routes_tested"] >= 10
+
+
+def test_custom_provider_route_roundtrip():
+    """custom:<name> providers must survive route string round-trips.
+
+    Regression for the _split_route bug that turned "custom:freellm:auto"
+    into ("custom", "auto") and failed every custom-provider aux check.
+    """
+    from hermes_ops_kit.route_runtime_harness import _split_route
+
+    assert _split_route("custom:freellm:auto") == ("custom:freellm", "auto")
+    assert _split_route("custom:whiplash-local:nemotron-3.5-lightning") == (
+        "custom:whiplash-local",
+        "nemotron-3.5-lightning",
+    )
+    assert _split_route("github/copilot:gpt-5.4-mini") == ("github", "gpt-5.4-mini")
+    assert _split_route("gemini:gemini-2.5-flash") == ("gemini", "gemini-2.5-flash")
+
+
+def test_custom_provider_full_report():
+    """A config using custom providers must produce a passing route report."""
+    import os
+
+    from hermes_ops_kit.route_runtime_harness import build_report
+
+    os.environ.setdefault("FREELLM_API_KEY", "test-key")
+    os.environ.setdefault("WHIPLASH_LLM_API_KEY", "test-key")
+    hermes_cfg = {
+        "custom_providers": [
+            {
+                "name": "freellm",
+                "base_url": "http://172.14.0.10:3001/v1",
+                "key_env": "FREELLM_API_KEY",
+            },
+            {
+                "name": "whiplash-local",
+                "base_url": "http://100.64.0.8:8080/v1",
+                "key_env": "WHIPLASH_LLM_API_KEY",
+            },
+        ],
+        "model": {"provider": "custom:whiplash-local", "default": "nemotron-3.5-lightning"},
+        "fallback_providers": [{"provider": "custom:freellm", "model": "auto"}],
+        "auxiliary": {
+            # every enabled aux slot pinned to the custom gateway, as in the
+            # live FreeLLM setup
+            **{
+                key: {"provider": "custom:freellm", "model": "auto"}
+                for key in (
+                    "vision",
+                    "web_extract",
+                    "compression",
+                    "skills_hub",
+                    "approval",
+                    "mcp",
+                    "triage_specifier",
+                    "kanban_decomposer",
+                    "profile_describer",
+                    "curator",
+                )
+            },
+            "title_generation": {"enabled": False, "provider": "auto", "model": ""},
+        },
+    }
+    report = build_report(hermes_cfg, {}, {"assistants": {}}, {})
+    assert report["ok"], [e for e in report["routes"] if e["result"] != "passed"]
+    roles = {e["route"]: e for e in report["routes"]}
+    assert roles["primary"]["result"] == "passed"
+    assert roles["vision"]["result"] == "passed"
+    assert roles["fallback[0]"]["result"] == "passed"
+    assert "title" not in roles  # disabled slot must be skipped

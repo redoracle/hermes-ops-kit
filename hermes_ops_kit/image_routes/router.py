@@ -98,6 +98,10 @@ def _get_adapter(provider: str, route_config: dict) -> Any:
         from ..image_routes.adapters.fal_image import FALImageAdapter
 
         return FALImageAdapter()
+    elif provider == "cloudflare":
+        from ..image_routes.adapters.cloudflare_image import CloudflareImageAdapter
+
+        return CloudflareImageAdapter()
     else:
         raise ValueError(f"Unknown image provider: {provider}")
 
@@ -354,6 +358,7 @@ def healthcheck() -> dict:
                 "gemini": "GEMINI_API_KEY",
                 "openai": "OPENAI_API_KEY",
                 "fal": "FAL_KEY",
+                "cloudflare": "CLOUDFLARE_API_TOKEN",
             }.get(provider, "")
             has_key = bool(env_var and os.environ.get(env_var))
             status = "no-quota" if has_key else "no-key"

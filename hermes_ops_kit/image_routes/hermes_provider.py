@@ -69,6 +69,16 @@ _MODELS: Dict[str, Dict[str, Any]] = {
         "speed": "~30-90s",
         "strengths": "Private, no API key needed, no rate limits.",
     },
+    "free-fast": {
+        "display": "Cloudflare Workers AI (flux-1-schnell)",
+        "speed": "~5-20s",
+        "strengths": "Free tier (10k neurons/day shared), no per-image cost.",
+    },
+    "free-alt": {
+        "display": "Cloudflare Workers AI (SDXL base 1.0)",
+        "speed": "~5-20s",
+        "strengths": "Free tier (10k neurons/day shared), SDXL alternative.",
+    },
     "fast": {
         "display": "Gemini 2.5 Flash Image (Nano Banana)",
         "speed": "~3-10s",

@@ -24,6 +24,7 @@ import sys
 import time
 
 from ._subprocess import module_file, run_module
+from .provider_catalog import PROVIDER_MODELS
 
 PROVIDERS = {
     "openai": "providers.openai_adapter",
@@ -41,13 +42,13 @@ CAPABILITIES = {
         "surfaces": ["api"],
         "operations": ["chat", "extract", "review", "models"],
         "requires_approval_for": [],
-        "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"],
+        "models": list(PROVIDER_MODELS['openai']),
     },
     "anthropic": {
         "surfaces": ["api", "cli"],
         "operations": ["api_chat", "api_extract", "review", "analyze", "readonly"],
         "requires_approval_for": ["file_edit", "shell_execute"],
-        "models": ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        "models": list(PROVIDER_MODELS['anthropic']),
     },
     "github": {
         "surfaces": ["cli"],
@@ -67,46 +68,31 @@ CAPABILITIES = {
         "surfaces": ["api", "cli"],
         "operations": ["generate", "grounded", "cli_plan", "models"],
         "requires_approval_for": [],
-        "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"],
+        "models": list(PROVIDER_MODELS['gemini']),
     },
     "deepseek": {
         "surfaces": ["api"],
         "operations": ["chat", "extract", "review", "models"],
         "requires_approval_for": [],
-        "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+        "models": list(PROVIDER_MODELS['deepseek']),
     },
     "nvidia": {
         "surfaces": ["api"],
         "operations": ["chat", "extract", "review", "models"],
         "requires_approval_for": [],
-        "models": [
-            "nvidia/nemotron-3-ultra-550b-a55b",
-            "nvidia/nemotron-3-super-120b-a12b",
-            "nvidia/nemotron-3-nano-30b-a3b",
-            "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-            "meta/llama-4-maverick-17b-128e-instruct",
-            "mistralai/mistral-nemotron",
-        ],
+        "models": list(PROVIDER_MODELS['nvidia']),
     },
     "fireworks": {
         "surfaces": ["api"],
         "operations": ["chat", "extract", "review", "models"],
         "requires_approval_for": [],
-        "models": [
-            "accounts/fireworks/models/glm-5p2",
-            "accounts/fireworks/models/kimi-k2p6",
-            "accounts/fireworks/models/kimi-k2p7-code",
-        ],
+        "models": list(PROVIDER_MODELS['fireworks']),
     },
     "deepinfra": {
         "surfaces": ["api"],
         "operations": ["chat", "extract", "review", "models"],
         "requires_approval_for": [],
-        "models": [
-            "deepseek-ai/DeepSeek-V4-Flash",
-            "Qwen/Qwen3-235B-A22B-Instruct-2507",
-            "Qwen/Qwen3-30B",
-        ],
+        "models": list(PROVIDER_MODELS['deepinfra']),
     },
 }
 
@@ -241,6 +227,15 @@ def cmd_invoke(provider: str, operation: str, **kwargs):
 
 
 def main():
+    # Load ~/.hermes/.env(+.env.generated) once for every subcommand so
+    # provider adapters (invoke) see credentials regardless of the ambient
+    # shell; previously only the assistants path loaded dotenv.
+    try:
+        from .env.loader import load_dotenv  # pyright: ignore[reportMissingImports]
+
+        load_dotenv()
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(
         description="Hermes Ops Kit — Multi-Provider CLI Wrapper"
     )

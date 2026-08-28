@@ -55,3 +55,53 @@ def test_bridge_capabilities_cover_every_provider() -> None:
     """Every dispatchable provider must have a CAPABILITIES entry."""
     for p in bridge.PROVIDERS:
         assert p in bridge.CAPABILITIES, f"{p} missing from CAPABILITIES"
+
+
+def test_capabilities_models_match_catalog() -> None:
+    """CAPABILITIES model lists must be exactly the provider_catalog lists."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_MODELS
+
+    for p, meta in bridge.CAPABILITIES.items():
+        assert meta["models"] == PROVIDER_MODELS.get(p, []), (
+            f"{p}: CAPABILITIES models drifted from provider_catalog"
+        )
+
+
+def test_preferred_models_subset_of_catalog() -> None:
+    """PROVIDER_META preferred_models must not name models outside the catalog."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_MODELS
+
+    for p, meta in um.PROVIDER_META.items():
+        catalog = set(PROVIDER_MODELS.get(p, []))
+        # nvidia preferred list omits the vendor prefix used in the catalog
+        if p == "nvidia":
+            catalog |= {m.split("/", 1)[1] for m in catalog if "/" in m}
+        # github/copilot routes openai+anthropic models through its CLI surface
+        if p == "github":
+            catalog |= set(PROVIDER_MODELS.get("openai", [])) | set(
+                PROVIDER_MODELS.get("anthropic", [])
+            )
+        unknown = [m for m in meta["preferred_models"] if m not in catalog]
+        assert not unknown, f"{p}: preferred models not in catalog: {unknown}"
+
+
+def test_builtin_profile_models_in_catalog() -> None:
+    """BUILTIN_PROFILES must only reference catalog models."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_MODELS
+    from hermes_ops_kit.hermes_route_manager import BUILTIN_PROFILES
+
+    for name, profile in BUILTIN_PROFILES.items():
+        pairs = [(profile["primary"]["provider"], profile["primary"]["model"])]
+        pairs.append((profile["utility"]["provider"], profile["utility"]["model"]))
+        for fb in profile.get("fallbacks", []):
+            pairs.append((fb["provider"], fb["model"]))
+        for provider, model in pairs:
+            if provider in ("copilot",):
+                provider = "github"
+            catalog = set(PROVIDER_MODELS.get(provider, []))
+            if provider == "nvidia" and "/" in model:
+                catalog |= {m.split("/", 1)[1] for m in catalog if "/" in m}
+            if catalog:
+                assert model in catalog, (
+                    f"profile {name}: {provider}/{model} not in catalog"
+                )

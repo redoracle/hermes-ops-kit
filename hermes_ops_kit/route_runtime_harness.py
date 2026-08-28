@@ -68,12 +68,17 @@ def _split_route(route: str) -> tuple[str, str]:
     Handles both forms uniformly:
       - "github/copilot:gpt-5.4-mini" → ("github", "gpt-5.4-mini")
       - "gemini:gemini-2.5-flash"      → ("gemini", "gemini-2.5-flash")
+      - "custom:freellm:auto"          → ("custom:freellm", "auto")
       - ""                              → ("", "")
+
+    The model is everything after the LAST colon, so provider IDs that
+    themselves contain a colon (``custom:<name>``) survive intact.
     """
     if not route:
         return "", ""
-    provider = route.split(":", 1)[0].split("/", 1)[0]
-    model = route.rsplit(":", 1)[-1] if ":" in route else ""
+    provider, _, model = route.rpartition(":")
+    if "/" in provider and not provider.startswith("custom:"):
+        provider = provider.split("/", 1)[0]
     return provider, model
 
 
@@ -98,8 +103,33 @@ def _load_yaml_text(path: str | os.PathLike[str]) -> dict[str, Any]:
     return _yaml.safe_load(text) or {}
 
 
-def _all_online_results() -> dict[str, dict[str, Any]]:
-    return _deep_copy(PROVIDER_RESULTS_TEMPLATE)
+def _all_online_results(
+    hermes_cfg: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    results = _deep_copy(PROVIDER_RESULTS_TEMPLATE)
+    # Custom providers (custom:<name> in ~/.hermes/config.yaml) participate in
+    # the offline matrix: online when their key_env is present in the
+    # environment (after dotenv), so route discovery is provable without live
+    # API calls.  Mirrors the precedent of the static "zai" entry above.
+    for cp in (hermes_cfg or {}).get("custom_providers", []) or []:
+        name = str(cp.get("name", "")).strip()
+        key_env = str(cp.get("key_env", "")).strip()
+        if not name:
+            continue
+        try:
+            from .image_routes.adapters.base import load_dotenv
+
+            load_dotenv()
+        except Exception:
+            pass
+        if key_env and not os.environ.get(key_env):
+            continue
+        results[f"custom:{name}"] = {
+            "provider": f"custom:{name}",
+            "status": "online",
+            "api_latency_ms": 500,
+        }
+    return results
 
 
 @dataclass
@@ -241,7 +271,7 @@ def _build_route_entries(
 
     if _aux_explicit:
         _best = max(_aux_explicit, key=lambda k: _aux_explicit[k])
-        utility_expected_provider, utility_expected_model = _best.split(":", 1)
+        utility_expected_provider, utility_expected_model = _best.rsplit(":", 1)
     else:
         utility_expected_provider = _norm.get(primary_provider, primary_provider)
         utility_expected_model = primary_model
@@ -286,6 +316,10 @@ def _build_route_entries(
     aux_routes = {r.get("role"): r for r in route_data.get("aux_routes", [])}
     for short_key, hermes_key, route_key in AUX_MAP:
         slot = aux_cfg.get(hermes_key, {}) or {}
+        if slot.get("enabled") is False:
+            # Disabled aux slots (e.g. title_generation.enabled: false) never
+            # route at runtime — nothing to verify.
+            continue
         exp_provider = str(slot.get("provider", "auto") or "auto")
         exp_model = str(slot.get("model", "") or "")
         actual = aux_routes.get(f"aux_{short_key}", {})
@@ -515,7 +549,7 @@ def build_report(
     mcp_cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic route verification report."""
-    results = _all_online_results()
+    results = _all_online_results(hermes_cfg)
 
     old_hermes = um._HERMES_CONFIG_CACHE
     old_routes = um._ROUTES_CONFIG_CACHE

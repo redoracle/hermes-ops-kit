@@ -1571,7 +1571,7 @@ def build_routes(results: dict) -> dict:
 
     if _aux_explicit:
         _best = max(_aux_explicit, key=lambda k: _aux_explicit[k])  # type: ignore[arg-type]
-        util_provider, util_model = _best.split(":", 1)
+        util_provider, util_model = _best.rsplit(":", 1)
     else:
         util_provider = primary_provider
         util_model = primary_model

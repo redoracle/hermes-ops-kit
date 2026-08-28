@@ -213,17 +213,19 @@ def check_credential_gaps(
     def _credential_for_provider(provider: str) -> tuple[bool, str]:
         """Check if a provider has credentials in the env."""
         provider_lower = provider.lower()
-        env_map = {
-            "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-            "openai": ("OPENAI_API_KEY",),
-            "anthropic": ("ANTHROPIC_API_KEY",),
-            "deepseek": ("DEEPSEEK_API_KEY",),
-            "nvidia": ("NVIDIA_API_KEY",),
-            "openrouter": ("OPENROUTER_API_KEY",),
-            "zai": ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
-            "github": ("GITHUB_TOKEN", "GH_TOKEN"),
-            "copilot": ("GITHUB_TOKEN", "GH_TOKEN"),
-        }
+        from .provider_catalog import PROVIDER_ENV_KEYS
+
+        env_map = PROVIDER_ENV_KEYS
+        # Custom providers (custom:<name>) carry their own key_env in the
+        # Hermes config — resolve it instead of relying on the static map.
+        if provider_lower.startswith("custom:"):
+            for cp in cfg.get("custom_providers", []) or []:
+                if f"custom:{cp.get('name', '')}" == provider_lower:
+                    key_env = str(cp.get("key_env", "")).strip()
+                    if key_env and env_vars.get(key_env, "").strip():
+                        return True, f"{key_env} set"
+                    break
+            return False, f"no credential for {provider}"
         for env_var in env_map.get(provider_lower, ()):
             if env_vars.get(env_var, "").strip():
                 return True, f"{env_var} set"

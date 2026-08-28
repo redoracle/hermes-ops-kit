@@ -601,9 +601,14 @@ def _handle_route_test(args: list[str]) -> int:
         with open(routes_cfg_path) as f:
             rc = _y.safe_load(f) or {}
 
-        assistants_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "config", "assistants.yaml"
-        )
+        # Deployed registry wins (managed by `assistants` command); packaged
+        # copy is only the default — mirrors the routes.yaml/image_routes.yaml
+        # fallback pattern.
+        assistants_path = os.path.expanduser("~/.hermes/ops-kit/assistants.yaml")
+        if not os.path.exists(assistants_path):
+            assistants_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "config", "assistants.yaml"
+            )
         with open(assistants_path) as f:
             ac = _y.safe_load(f) or {}
 
