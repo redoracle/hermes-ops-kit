@@ -103,7 +103,7 @@ def cmd_health():
         json.dumps(
             {
                 "status": "ok",
-                "version": "0.1.0",
+                "version": __import__("hermes_ops_kit").__version__,
                 "providers": {
                     p: module_file(module).is_file() for p, module in PROVIDERS.items()
                 },
@@ -270,6 +270,10 @@ def main():
     # ── New plugin commands ──
     sub.add_parser("doctor", help="Full system diagnostic")
     sub.add_parser("status", help="Quick health overview")
+    usage_p = sub.add_parser("usage", help="Usage metrics (args passed through)")
+    usage_p.add_argument("usage_args", nargs=argparse.REMAINDER, default=[])
+    rot = sub.add_parser("rotate", help="Key rotation (args passed through)")
+    rot.add_argument("rotate_args", nargs=argparse.REMAINDER, default=[])
     asst = sub.add_parser(
         "assistants", help="Manage remote assistants", aliases=["assistant"]
     )
@@ -392,7 +396,15 @@ def main():
         "--force", action="store_true", help="Force fresh scan (skip cache)"
     )
 
-    args = parser.parse_args()
+    # Delegated subcommands accept passthrough flags (usage/rotate/mcp evolve
+    # independently of this dispatcher); native commands stay strict.
+    args, unknown = parser.parse_known_args()
+    if unknown and args.command not in (
+        "doctor", "status", "usage", "rotate", "assistants", "assistant",
+        "audit", "mcp", "budget", "maintenance", "image", "headroom",
+        "install", "route-test", "preflight", "plugin",
+    ):
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     if args.command == "health":
         cmd_health()
@@ -408,6 +420,8 @@ def main():
     elif args.command in (
         "doctor",
         "status",
+        "usage",
+        "rotate",
         "assistants",
         "assistant",
         "audit",
@@ -425,6 +439,7 @@ def main():
         from .commands import handle_ops_kit_command  # pyright: ignore[reportMissingImports]
 
         cmd_args = [args.command]
+        cmd_args.extend(unknown)
         # Map command to its action arg name (not always f"{cmd}_action")
         action_map = {
             "assistants": "assistant_action",
@@ -451,6 +466,10 @@ def main():
             cmd_args.extend(getattr(args, "mcp_args", []))
         if args.command == "plugin":
             cmd_args.extend(getattr(args, "plugin_args", []))
+        if args.command == "rotate":
+            cmd_args.extend(getattr(args, "rotate_args", []))
+        if args.command == "usage":
+            cmd_args.extend(getattr(args, "usage_args", []))
         if args.command == "image":
             cmd_args.extend(getattr(args, "image_args", []))
         if args.command == "headroom":

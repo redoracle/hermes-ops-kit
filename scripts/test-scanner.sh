@@ -105,7 +105,7 @@ banner "5. gotify-notify (overrides preserve unrelated findings)"
 check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
 import os
 from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
-path = os.path.expanduser('~/.hermes/plugins/gotify-notify')
+path = os.path.join(os.path.expanduser(os.environ.get('HERMES_HOME', '~/.hermes')), 'plugins', 'gotify-notify')
 if not os.path.isdir(path):
     print('SKIP: gotify-notify not installed')
     raise SystemExit(0)
@@ -145,7 +145,7 @@ from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
 # Skills are text-heavy: they should get softer treatment
 # Check a known skill (apple is clean, but let's verify)
 import os
-skills_dir = os.path.expanduser('~/.hermes/skills')
+skills_dir = os.path.join(os.path.expanduser(os.environ.get('HERMES_HOME', '~/.hermes')), 'skills')
 if os.path.isdir(skills_dir):
     for name in sorted(os.listdir(skills_dir))[:3]:
         path = os.path.join(skills_dir, name)

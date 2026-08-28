@@ -57,3 +57,29 @@ def atomic_append(path: str, line: str) -> None:
             f.write("\n")
         f.flush()
         os.fsync(f.fileno())
+
+
+def atomic_write_json(path: str, data: object, mode: int = 0o600) -> None:
+    """Atomically serialize *data* as JSON to *path* (temp → chmod → rename).
+
+    For state/checkpoint JSON files where a partial write on crash must
+    never be observable.
+    """
+    import json
+    import tempfile
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(path)),
+        prefix=f".{os.path.basename(path)}.",
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)

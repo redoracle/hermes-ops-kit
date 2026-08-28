@@ -118,13 +118,11 @@ def load_snapshot(settings: dict) -> dict:
 
 
 def _write_snapshot(settings: dict, snapshot: dict) -> None:
+    from ..env.atomic_write import atomic_write_json
+
     path = settings["state_file"]
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(snapshot, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    atomic_write_json(path, snapshot)
 
 
 def _clear_snapshot(settings: dict) -> None:

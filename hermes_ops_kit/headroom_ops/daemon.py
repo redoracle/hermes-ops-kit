@@ -208,20 +208,21 @@ def up(settings: dict, upstream_url: str, dry_run: bool = False) -> dict:
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-    with open(pid_file, "w") as f:
-        f.write(str(proc.pid))
-    with open(meta_file, "w") as f:
-        json.dump(
-            {
-                "port": port,
-                "upstream_url": sanitize_url_for_display(upstream_url),
-                "flags": sanitized_proxy_flags(settings),
-                "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "pid": proc.pid,
-            },
-            f,
-            indent=2,
-        )
+    from ..env.atomic_write import atomic_write
+
+    atomic_write(pid_file, str(proc.pid))
+    from ..env.atomic_write import atomic_write_json
+
+    atomic_write_json(
+        meta_file,
+        {
+            "port": port,
+            "upstream_url": sanitize_url_for_display(upstream_url),
+            "flags": sanitized_proxy_flags(settings),
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "pid": proc.pid,
+        },
+    )
 
     deadline = time.time() + float(settings.get("startup_timeout_seconds", 20))
     while time.time() < deadline:

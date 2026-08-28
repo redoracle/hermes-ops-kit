@@ -153,3 +153,16 @@ def test_budget_provider_classes_in_catalog() -> None:
     for classes in DEFAULT_BUDGET["provider_classes"].values():
         unknown = [p for p in classes if p not in known]
         assert not unknown, f"budget provider_classes unknown: {unknown}"
+
+
+def test_providers_subset_of_catalog() -> None:
+    """Every probed provider must exist in provider_catalog.PROVIDER_ENV_KEYS.
+
+    usage_metrics_v2.PROVIDERS is the *probed* subset (openrouter/zai/copilot
+    are catalog-only); this pins name drift — a provider renamed or typo'd in
+    either place fails here.
+    """
+    from hermes_ops_kit.provider_catalog import PROVIDER_ENV_KEYS
+
+    unknown = [p for p in um.PROVIDERS if p not in PROVIDER_ENV_KEYS]
+    assert not unknown, f"PROVIDERS not backed by provider_catalog: {unknown}"

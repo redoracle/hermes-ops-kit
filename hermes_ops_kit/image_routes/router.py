@@ -13,24 +13,23 @@ from __future__ import annotations
 import os
 from typing import Any
 
-OPS_KIT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IMAGE_ROUTES_CONFIG = os.path.join(OPS_KIT_DIR, "config", "image_routes.yaml")
+BUNDLED_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+IMAGE_ROUTES_CONFIG = os.path.join(BUNDLED_DIR, "config", "image_routes.yaml")
 
-HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
-DEPLOYED_CONFIG = os.path.join(HERMES_HOME, "ops-kit", "image_routes.yaml")
+from ..ops_config_io import OPS_KIT_DIR  # noqa: E402
+
+DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
 
 
 def _load_config() -> dict:
     """Load image_routes.yaml from deployed path, falling back to bundled."""
+    from ..ops_config_io import load_yaml
+
     for path in (DEPLOYED_CONFIG, IMAGE_ROUTES_CONFIG):
         if os.path.exists(path):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-                with open(path) as f:
-                    return _yaml.safe_load(f) or {}
-            except ImportError:
-                pass
+            cfg = load_yaml(path)
+            if cfg:
+                return cfg
     return {}
 
 

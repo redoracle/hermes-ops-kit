@@ -39,6 +39,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List
 from hermes_ops_kit import ops_config_io  # noqa: E402
+from hermes_ops_kit.provider_catalog import provider_base_url  # noqa: E402
+from hermes_ops_kit.security.redaction import redact  # noqa: E402
 
 # ─── Provider registry (single source of truth) ──────────────────
 # Every "which providers exist" decision derives from here so a new provider
@@ -209,19 +211,13 @@ def _timeout_reason(e: Exception) -> str:
 def load_env_file(path: str | None = None) -> None:
     """Load .env and .env.generated into os.environ (setdefault, no clobber).
 
-    Real environment variables always win; generated keys take precedence
-    over .env keys, matching env.loader.load_dotenv() precedence.
+    Delegates to the kit's sole env parser (env.loader.load_env_setdefault):
+    real environment variables always win; generated keys take precedence
+    over .env keys.
     """
-    from .env.loader import parse_env_file
+    from .env.loader import load_env_setdefault
 
-    if path is not None:
-        for key, value in parse_env_file(path).items():
-            os.environ.setdefault(key, value)
-        return
-    for filename in (".env", ".env.generated"):
-        env_path = os.path.join(ops_config_io.HERMES_HOME, filename)
-        for key, value in parse_env_file(env_path).items():
-            os.environ.setdefault(key, value)
+    load_env_setdefault(path)
 
 
 def _cat_openai(data: dict) -> dict:
@@ -1179,35 +1175,23 @@ def check_all_assistants(timeout: float = 5.0) -> dict[str, dict]:
 def _load_hermes_config() -> dict:
     """Load ~/.hermes/config.yaml for model/auxiliary/fallback data.
 
-    Tries PyYAML first, then ruamel.yaml, then a built-in tokeniser
-    that handles the subset of YAML used by Hermes config files
+    Canonical chain via ops_config_io.load_yaml (ruamel → PyYAML),
+    then the built-in tokeniser as the no-YAML-dependency last resort
     (scalars, nested mappings, and flow-style lists of mappings).
     """
-    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+    config_path = ops_config_io.hermes_config()
     if not os.path.exists(config_path):
         return {}
 
-    # 1. PyYAML
+    cfg = ops_config_io.load_yaml(config_path)
+    if cfg:
+        return cfg
+
+    # Built-in tokeniser (no YAML dependency)
     try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        with open(config_path) as f:
-            return _yaml.safe_load(f) or {}
+        return _parse_yaml_strict(config_path) or {}
     except Exception:
-        pass
-
-    # 2. ruamel.yaml
-    try:
-        from ruamel.yaml import YAML  # pyright: ignore[reportMissingImports]
-
-        yml = YAML(typ="safe")
-        with open(config_path) as f:
-            return yml.load(f) or {}
-    except Exception:
-        pass
-
-    # 3. Built-in tokeniser (no YAML dependency)
-    return _parse_yaml_strict(config_path)
+        return {}
 
 
 def _parse_yaml_strict(path: str) -> dict:
@@ -1315,23 +1299,8 @@ def _parse_yaml_strict(path: str) -> dict:
 
 
 def _load_routes_config() -> dict:
-    """Load routes.yaml display config (fallback to bundled)."""
-    paths = [
-        os.path.join(ops_config_io.HERMES_HOME, "ops-kit/routes.yaml"),
-        os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "config", "routes.yaml"
-        ),
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-                with open(p) as f:
-                    return _yaml.safe_load(f) or {}
-            except Exception:
-                pass
-    return {}
+    """Load routes.yaml display config (deployed wins, else bundled)."""
+    return ops_config_io.load_yaml(ops_config_io.deployed_or_bundled("routes.yaml"))
 
 
 _HERMES_CONFIG_CACHE: dict | None = None
@@ -1356,22 +1325,11 @@ _IMAGE_ROUTES_CONFIG_CACHE: dict | None = None
 
 
 def _load_image_routes_config() -> dict:
-    """Load image_routes.yaml config (fallback to bundled)."""
-    paths = [
-        os.path.join(ops_config_io.HERMES_HOME, "ops-kit/image_routes.yaml"),
-        os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "config", "image_routes.yaml"
-        ),
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
+    """Load image_routes.yaml config (deployed wins, else bundled)."""
+    return ops_config_io.load_yaml(
+        ops_config_io.deployed_or_bundled("image_routes.yaml")
+    )
 
-                with open(p) as f:
-                    return _yaml.safe_load(f) or {}
-            except Exception:
-                pass
     return {}
 
 

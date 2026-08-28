@@ -13,8 +13,10 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
+from ...env import loader as _env_loader
+from ...ops_config_io import HERMES_HOME
 
-HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
+
 IMAGE_CACHE_DIR = os.path.join(HERMES_HOME, "cache", "images")
 _ENV_LOADED = False
 _ENV_LOCK = threading.Lock()
@@ -23,9 +25,8 @@ _ENV_LOCK = threading.Lock()
 def load_dotenv() -> None:
     """Load environment variables from ~/.hermes/.env and ~/.hermes/.env.generated.
 
-    .env is the bootstrap file (BW_SESSION, VAULTWARDEN_*); .env.generated
-    is the rendered output from hermes-key-rotate --render-env that contains
-    the actual provider API keys.
+    Delegates to the kit's sole env parser (env/loader.py): generated wins
+    over .env, real env vars are never clobbered.
 
     Called automatically by adapters before API key checks.
     Thread-safe: only loads once per process; safe to call repeatedly.
@@ -36,19 +37,7 @@ def load_dotenv() -> None:
     with _ENV_LOCK:
         if _ENV_LOADED:
             return
-        for filename in (".env.generated", ".env"):
-            env_path = os.path.join(HERMES_HOME, filename)
-            if os.path.exists(env_path):
-                with open(env_path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#") or "=" not in line:
-                            continue
-                        key, _, val = line.partition("=")
-                        key = key.strip()
-                        val = val.strip().strip('"').strip("'")
-                        if key and val and key not in os.environ:
-                            os.environ[key] = val
+        _env_loader.load_dotenv()
         _ENV_LOADED = True
 
 

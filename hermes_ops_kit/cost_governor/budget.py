@@ -11,12 +11,7 @@ from typing import Any
 from hermes_ops_kit import ops_config_io  # noqa: E402
 
 BUDGET_CONFIG_PATHS = [
-    os.path.join(ops_config_io.HERMES_HOME, "ops-kit/budget.yaml"),
-    os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "config",
-        "budget.yaml",
-    ),
+    ops_config_io.deployed_or_bundled("budget.yaml"),
 ]
 
 DEFAULT_BUDGET = {
@@ -54,14 +49,9 @@ class BudgetDecision:
 def _load_budget() -> dict[str, Any]:
     for p in BUDGET_CONFIG_PATHS:
         if os.path.exists(p):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-                with open(p) as f:
-                    cfg = _yaml.safe_load(f) or {}
+            cfg = ops_config_io.load_yaml(p)
+            if cfg:
                 return {**DEFAULT_BUDGET, **cfg}
-            except Exception:
-                pass
     return dict(DEFAULT_BUDGET)
 
 

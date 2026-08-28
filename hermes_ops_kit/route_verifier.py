@@ -26,7 +26,6 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from datetime import datetime, timezone
@@ -51,22 +50,7 @@ except ImportError:
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
-    if not os.path.exists(path):
-        return {}
-    with open(path) as f:
-        text = f.read()
-    try:
-        loaded = json.loads(text)
-        return loaded if isinstance(loaded, dict) else {}
-    except Exception:
-        pass
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        return _yaml.safe_load(text) or {}
-    except ImportError:
-        # No PyYAML — best-effort: return empty, caller handles gracefully
-        return {}
+    return ops_config_io.load_yaml(path)
 
 
 def _load_env() -> dict[str, str]:

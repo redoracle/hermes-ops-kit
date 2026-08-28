@@ -49,9 +49,8 @@ from .ui.json_output import ok_envelope
 from .security.redaction import sanitize_url_for_display
 from .config.route_map import AUX_SHORT_KEYS, aux_config_key, aux_hermes_path
 
-HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
-HERMES_CONFIG = os.path.join(HERMES_HOME, "config.yaml")
-OPS_KIT_DIR = os.path.join(HERMES_HOME, "ops-kit")
+from .ops_config_io import OPS_KIT_DIR
+
 ROUTES_CONFIG = os.path.join(OPS_KIT_DIR, "routes.yaml")
 IMAGE_ROUTES_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
 BUNDLED_ROUTES = os.path.join(
@@ -127,6 +126,7 @@ BUILTIN_PROFILES = {
 
 
 from .ops_config_io import load_yaml as _load_yaml, save_yaml as _save_yaml  # noqa: E402
+from .ops_config_io import hermes_config  # noqa: E402
 
 
 # ─── Commands ──────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ def _headroom_overlay(hc: dict) -> dict[str, Any] | None:
 def cmd_show(args: argparse.Namespace) -> None:
     """Display current route configuration."""
     con = Console(json_mode=args.json)
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
     _rc = _load_yaml(ROUTES_CONFIG) or _load_yaml(BUNDLED_ROUTES)
     img_cfg = _load_yaml(IMAGE_ROUTES_CONFIG) or _load_yaml(BUNDLED_IMAGE_ROUTES)
 
@@ -181,7 +181,9 @@ def cmd_show(args: argparse.Namespace) -> None:
 
     # ── Assemble image route data ──────────────────────────────────
     img_routes = img_cfg.get("routes", {})
-    img_default = img_cfg.get("default_route", "fast")
+    # Canonical default is "local" (matches config/image_routes.yaml and
+    # image manager) — never a divergent per-module fallback.
+    img_default = img_cfg.get("default_route", "local")
     img_data: dict[str, dict[str, Any]] = {}
     for name, cfg in img_routes.items():
         img_data[name] = {
@@ -270,12 +272,12 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     """Validate route configuration."""
     issues = []
 
-    if not os.path.exists(HERMES_CONFIG):
+    if not os.path.exists(hermes_config()):
         issues.append(
-            ("config_missing", "~/.hermes/config.yaml not found — using defaults")
+            ("config_missing", f"{hermes_config()} not found — using defaults")
         )
     else:
-        hc = _load_yaml(HERMES_CONFIG)
+        hc = _load_yaml(hermes_config())
         if not hc.get("model", {}).get("provider"):
             issues.append(
                 ("no_primary", "No primary model configured. Run: hermes model")
@@ -319,24 +321,24 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             print(f"⚠ {code}: {msg}")
     else:
         print("✓ Route configuration valid")
-    print(f"  config: {HERMES_CONFIG}")
+    print(f"  config: {hermes_config()}")
     print(f"  routes: {ROUTES_CONFIG}")
 
 
 def cmd_set_primary(args: argparse.Namespace) -> None:
     """Set primary model in Hermes config."""
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
     if "model" not in hc:
         hc["model"] = {}
     hc["model"]["provider"] = args.provider
     hc["model"]["default"] = args.model
-    _save_yaml(HERMES_CONFIG, hc)
+    _save_yaml(hermes_config(), hc)
     print(f"Primary: {args.provider}:{args.model}")
 
 
 def cmd_set_aux(args: argparse.Namespace) -> None:
     """Set auxiliary route in Hermes config."""
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
     try:
         config_key = aux_config_key(args.aux_kind)
         _hermes_path = aux_hermes_path(args.aux_kind)
@@ -350,13 +352,13 @@ def cmd_set_aux(args: argparse.Namespace) -> None:
         "model": args.model,
         "timeout": existing_timeout,
     }
-    _save_yaml(HERMES_CONFIG, hc)
+    _save_yaml(hermes_config(), hc)
     print(f"Aux {args.aux_kind}: {args.provider}:{args.model}")
 
 
 def cmd_fallback(args: argparse.Namespace) -> None:
     """Manage fallback providers."""
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
     fb = hc.get("fallback_providers", [])
 
     if args.fb_action == "list":
@@ -367,16 +369,16 @@ def cmd_fallback(args: argparse.Namespace) -> None:
     elif args.fb_action == "add":
         fb.append({"provider": args.provider, "model": args.model})
         hc["fallback_providers"] = fb
-        _save_yaml(HERMES_CONFIG, hc)
+        _save_yaml(hermes_config(), hc)
         print(f"Added fallback: {args.provider}:{args.model}")
     elif args.fb_action == "remove":
         provider = args.provider
         hc["fallback_providers"] = [f for f in fb if f.get("provider") != provider]
-        _save_yaml(HERMES_CONFIG, hc)
+        _save_yaml(hermes_config(), hc)
         print(f"Removed fallback: {provider}")
     elif args.fb_action == "clear":
         hc["fallback_providers"] = []
-        _save_yaml(HERMES_CONFIG, hc)
+        _save_yaml(hermes_config(), hc)
         print("Fallbacks cleared")
 
 
@@ -399,7 +401,7 @@ def cmd_apply_profile(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
 
     # ── Primary ─────────────────────────────────────────────────────
     primary = profile["primary"]
@@ -443,12 +445,12 @@ def cmd_apply_profile(args: argparse.Namespace) -> None:
     if effort:
         hc.setdefault("agent", {})["reasoning_effort"] = effort
 
-    _save_yaml(HERMES_CONFIG, hc)
+    _save_yaml(hermes_config(), hc)
 
     aux_count = (
         len(aux_entries) if aux_entries else (len(AUX_SHORT_KEYS) if utility else 0)
     )
-    print(f"Profile '{args.profile_name}' applied → {HERMES_CONFIG}")
+    print(f"Profile '{args.profile_name}' applied → {hermes_config()}")
     print(f"  primary:     {primary['provider']}:{primary['model']}")
     if utility:
         print(
@@ -470,7 +472,7 @@ def cmd_apply_profile(args: argparse.Namespace) -> None:
 
 def cmd_providers(_args: argparse.Namespace) -> None:
     """List configured providers from Hermes config."""
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
     providers = hc.get("providers", {})
     model = hc.get("model", {})
 
@@ -489,7 +491,7 @@ def cmd_providers(_args: argparse.Namespace) -> None:
 
 def cmd_export(args: argparse.Namespace) -> None:
     """Export full route configuration as JSON."""
-    hc = _load_yaml(HERMES_CONFIG)
+    hc = _load_yaml(hermes_config())
     rc = _load_yaml(ROUTES_CONFIG) or _load_yaml(BUNDLED_ROUTES)
 
     output = {

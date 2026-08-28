@@ -9,14 +9,9 @@ import os
 from typing import Any
 from hermes_ops_kit import ops_config_io  # noqa: E402
 
-PROFILE_PATHS = [
-    os.path.join(ops_config_io.HERMES_HOME, "ops-kit/obsidian_maintenance.yaml"),
-    os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "config",
-        "obsidian_maintenance.yaml",
-    ),
-]
+# Resolved at load time (not import time) so a deployed file created after
+# import takes precedence.
+PROFILE_NAME = "obsidian_maintenance.yaml"
 
 DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
     "generic-obsidian-daily": {
@@ -60,16 +55,11 @@ DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
 
 def load_profiles() -> dict[str, dict[str, Any]]:
     """Load assistant task profiles from config."""
-    for p in PROFILE_PATHS:
+    for p in (ops_config_io.deployed_or_bundled(PROFILE_NAME),):
         if os.path.exists(p):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-                with open(p) as f:
-                    cfg = _yaml.safe_load(f) or {}
+            cfg = ops_config_io.load_yaml(p)
+            if cfg:
                 return cfg.get("profiles", DEFAULT_PROFILES)
-            except Exception:
-                pass
     return dict(DEFAULT_PROFILES)
 
 

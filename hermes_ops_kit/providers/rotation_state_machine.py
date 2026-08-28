@@ -154,11 +154,9 @@ class RotationState:
                 "errors": self.errors,
                 "warnings": self.warnings,
             }
-            path = self._checkpoint_path()
-            with open(path, "w") as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
+            from ..env.atomic_write import atomic_write_json
+
+            atomic_write_json(self._checkpoint_path(), data)
         except OSError as exc:
             logger.error(
                 "Failed to save rotation checkpoint for %s at %s: %s",

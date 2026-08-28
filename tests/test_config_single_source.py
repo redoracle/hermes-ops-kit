@@ -60,19 +60,56 @@ def test_load_env_file_does_not_clobber_real_env(tmp_path, monkeypatch):
 
 
 def test_hermes_home_override_honored(tmp_path, monkeypatch):
-    """All path authorities must follow HERMES_HOME."""
+    """Path authorities must follow HERMES_HOME at READ time, not import time.
+
+    Monkeypatching ops_config_io.HERMES_HOME (the documented test/embedder
+    contract) must redirect every canonical reader: hermes_config(),
+    OPS_KIT_DIR-derived deployed configs, and the env loader.
+    """
+    from hermes_ops_kit import ops_config_io
+
     home = tmp_path / "hermes"
-    home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    for mod_name in (
-        "hermes_ops_kit",
-        "hermes_ops_kit.route_verifier",
-        "hermes_ops_kit.hermes_route_manager",
-        "hermes_ops_kit.env.loader",
-    ):
-        mod = sys.modules.get(mod_name) or __import__(mod_name, fromlist=["x"])
-        # modules cache HERMES_HOME at import; recompute as they would
-        assert os.environ["HERMES_HOME"] == str(home)
+    (home / "ops-kit").mkdir(parents=True)
+    (home / "config.yaml").write_text("model:\n  provider: openai\n")
+    (home / "ops-kit" / "routes.yaml").write_text("routes: {}\n")
+    monkeypatch.setattr(ops_config_io, "HERMES_HOME", str(home))
+    monkeypatch.setattr(ops_config_io, "OPS_KIT_DIR", str(home / "ops-kit"))
+
+    # hermes_config() derives from HERMES_HOME at call time
+    assert ops_config_io.hermes_config() == str(home / "config.yaml")
+    # canonical loader reads the redirected config
+    cfg = ops_config_io.load_yaml(ops_config_io.hermes_config())
+    assert cfg.get("model", {}).get("provider") == "openai"
+    # deployed_or_bundled resolves inside the redirected home
+    assert ops_config_io.deployed_or_bundled("routes.yaml").startswith(str(home))
+    monkeypatch.undo()
+
+
+def test_no_local_hermes_home_env_reads():
+    """No module may read HERMES_HOME from the environment except ops_config_io.
+
+    Local ``os.environ.get("HERMES_HOME", "~/.hermes")`` copies escape the
+    literal-path grep below while still drifting from the authority.
+    """
+    import subprocess
+
+    root = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hermes_ops_kit"
+    )
+    result = subprocess.run(
+        ["grep", "-rn", "-e", 'environ.get("HERMES_HOME"', root, "--include=*.py"],
+        capture_output=True,
+        text=True,
+    )
+    offenders = [
+        line
+        for line in result.stdout.strip().splitlines()
+        if "ops_config_io.py" not in line
+        # credential_read_guard probes the raw env (profile-mode dual root)
+        # by design — it never derives paths from the default.
+        and "credential_read_guard.py" not in line
+    ]
+    assert not offenders, f"local HERMES_HOME env reads: {offenders}"
 
 
 def test_no_hardcoded_hermes_home_paths():
@@ -85,6 +122,28 @@ def test_no_hardcoded_hermes_home_paths():
         capture_output=True,
         text=True,
     )
+    # shell scripts too: HERMES_HOME must be honored, not hardcoded
+    scripts_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
+    )
+    sh = subprocess.run(
+        ["grep", "-rn", "-e", "~/.hermes", scripts_dir, "--include=*.sh"],
+        capture_output=True,
+        text=True,
+    )
+    # scripts may reference ~/.hermes only as the fallback of an expansion
+    def _honors_hermes_home(line: str) -> bool:
+        return (
+            "${HERMES_HOME" in line
+            or "os.environ.get('HERMES_HOME'" in line  # embedded python heredoc
+            or 'os.environ.get("HERMES_HOME"' in line
+        )
+
+    sh_offenders = [
+        line
+        for line in sh.stdout.strip().splitlines()
+        if line and not _honors_hermes_home(line)
+    ]
     # Allowlist: ops_config_io (authority), the expand_home docstring/default
     # strings, and display-only messages.
     allowed_substrings = (
@@ -110,3 +169,4 @@ def test_no_hardcoded_hermes_home_paths():
         if line and not any(a in line for a in allowed_substrings)
     ]
     assert not offenders, f"Hardcoded ~/.hermes paths:\n{chr(10).join(offenders)}"
+    assert not sh_offenders, f"scripts hardcoding ~/.hermes: {sh_offenders}"

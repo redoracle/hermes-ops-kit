@@ -274,8 +274,9 @@ def _merge_generated_into_env(generated_path: str) -> dict:
             lines.append(gen_line)
 
     if updated or added:
-        with open(env_path, "w") as f:
-            f.write("\n".join(lines) + "\n")
+        from .env.atomic_write import atomic_write
+
+        atomic_write(env_path, "\n".join(lines) + "\n")
 
     return {
         "merged_count": len(updated) + len(added),
@@ -1239,11 +1240,10 @@ def main() -> None:
         help="Bulk-migrate all provider keys from ~/.hermes/.env into Vaultwarden",
     )
     seed_env_p.add_argument("--dry-run", action="store_true")
+    # Hidden no-op compat flag: the handler always skips existing keys
+    # (store_true with default=True made it un-disableable).
     seed_env_p.add_argument(
-        "--skip-existing",
-        action="store_true",
-        default=True,
-        help="Skip keys already in Vaultwarden (default: true)",
+        "--skip-existing", action="store_true", default=True, help=argparse.SUPPRESS
     )
 
     backup_p = sub.add_parser(

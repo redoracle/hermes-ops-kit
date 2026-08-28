@@ -42,8 +42,8 @@ from typing import Any
 
 # ─── Constants ────────────────────────────────────────────────────────
 
-HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
-CONFIG_DIR = os.path.join(HERMES_HOME, "ops-kit")
+from .ops_config_io import OPS_KIT_DIR as CONFIG_DIR  # noqa: E402
+
 BACKUP_DIR = os.path.join(CONFIG_DIR, "backups")
 DEFAULT_CONFIG = os.path.join(CONFIG_DIR, "assistants.yaml")
 BUNDLED_CONFIG = os.path.join(
@@ -91,7 +91,6 @@ ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 # ─── Secret scanner (uses shared security.redaction) ──────────────────
 
 from .security.redaction import SECRET_PATTERNS  # noqa: E402  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit import ops_config_io  # noqa: E402
 
 SUSPICIOUS_KEYS = {
     "api_key",
@@ -129,80 +128,22 @@ class PermissionError_(AssistantManagerError):
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
-    """Load assistants.yaml. Tries ruamel.yaml, PyYAML, then falls back to inline parser."""
+    """Load assistants.yaml via the canonical loader (ruamel → PyYAML → JSON)."""
+    from .ops_config_io import load_yaml
+
     if not os.path.exists(path):
         return {"version": 1, "assistants": {}}
-
-    # Try ruamel.yaml first (preserves comments)
-    try:
-        from ruamel.yaml import YAML  # pyright: ignore[reportMissingImports]
-
-        yaml = YAML(typ="safe")
-        with open(path) as f:
-            return yaml.load(f) or {"version": 1, "assistants": {}}
-    except ImportError:
-        pass
-
-    # Try PyYAML
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        with open(path) as f:
-            return _yaml.safe_load(f) or {"version": 1, "assistants": {}}
-    except ImportError:
-        pass
-
-    # Fallback: use our custom registry parser (read-only, no dependencies)
-    from .assistants.registry import (
-        _load_yaml as _reg_load,
-    )  # pyright: ignore[reportMissingImports]
-
-    return _reg_load(path)
+    data = load_yaml(path)
+    if not data:
+        return {"version": 1, "assistants": {}}
+    return data
 
 
 def _save_yaml(path: str, data: dict[str, Any]) -> None:
-    """Atomically save assistants.yaml, preserving comments if ruamel.yaml is available."""
-    # Try ruamel.yaml for comment preservation
-    try:
-        from ruamel.yaml import YAML  # pyright: ignore[reportMissingImports]
+    """Atomically save assistants.yaml (canonical writer, comment-preserving)."""
+    from .ops_config_io import save_yaml
 
-        yaml = YAML()
-        yaml.indent(mapping=2, sequence=4, offset=2)
-        yaml.width = 120
-        _atomic_write(path, data, serializer=lambda d, f: yaml.dump(d, f))
-        return
-    except ImportError:
-        pass
-
-    # Fallback: PyYAML
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        _atomic_write(
-            path,
-            data,
-            serializer=lambda d, f: _yaml.safe_dump(d, f, indent=2, sort_keys=False),
-        )
-        return
-    except ImportError:
-        pass
-
-    # Last resort: JSON (lossy — no comments, different format)
-    import json as _json
-
-    _atomic_write(path, data, serializer=lambda d, f: _json.dump(d, f, indent=2))
-
-
-def _atomic_write(path: str, data: dict[str, Any], serializer) -> None:
-    """Write to temp file, fsync, os.replace, chmod 600."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w") as f:
-        serializer(data, f)
-        f.flush()
-        os.fsync(f.fileno())
-    os.chmod(tmp_path, 0o600)
-    os.replace(tmp_path, path)
+    save_yaml(path, data)
 
 
 # ─── Secret Scanner ───────────────────────────────────────────────────

@@ -94,6 +94,28 @@ def load_env_dict(hermes_home: str | None = None) -> dict[str, str]:
     return result
 
 
+def load_env_setdefault(path: str | None = None) -> None:
+    """Load env vars into os.environ WITHOUT clobbering real env vars.
+
+    Same files/precedence as load_dotenv(), but os.environ.setdefault
+    semantics: variables already present in the process environment win.
+    A single explicit *path* loads just that file.
+    """
+    if path is not None:
+        files = [path]
+    else:
+        home = ops_config_io.HERMES_HOME
+        files = [os.path.join(home, f) for f in (".env", ".env.generated")]
+    # Merge all files first (later files — generated — win on overlap), THEN
+    # setdefault once per key: per-file setdefault would let a .env value
+    # block its .env.generated override.
+    values: dict[str, str] = {}
+    for fp in files:
+        values.update(parse_env_file(fp))
+    for key, value in values.items():
+        os.environ.setdefault(key, value)
+
+
 def validate_bootstrap(env: dict[str, str]) -> list[str]:
     """Return missing required bootstrap variables. Empty list = valid."""
     return [var for var in REQUIRED_BOOTSTRAP_VARS if not env.get(var)]

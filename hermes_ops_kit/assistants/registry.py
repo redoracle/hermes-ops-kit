@@ -10,6 +10,7 @@ import os
 from typing import Any
 
 from ..assistants.base import AssistantConfig  # pyright: ignore[reportMissingImports]
+from ..ops_config_io import HERMES_HOME  # noqa: E402
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -197,11 +198,7 @@ def load_registry(config_path: str | None = None) -> dict[str, AssistantConfig]:
       4. <plugin>/config/assistants.yaml      (bundled fallback)
     """
     plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    runtime_config = os.path.join(
-        os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes")),
-        "ops-kit",
-        "assistants.yaml",
-    )
+    runtime_config = os.path.join(HERMES_HOME, "ops-kit", "assistants.yaml")
 
     path = (
         config_path

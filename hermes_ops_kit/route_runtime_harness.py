@@ -88,20 +88,14 @@ def _deep_copy(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_yaml_text(path: str | os.PathLike[str]) -> dict[str, Any]:
-    with open(path) as f:
-        text = f.read()
-    # Prefer JSON parsing first so tests can write deterministic fixtures without
-    # requiring PyYAML in the runtime environment.
-    try:
-        loaded = json.loads(text)
-        return loaded if isinstance(loaded, dict) else {}
-    except Exception:
-        pass
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-    except Exception as e:  # pragma: no cover - dependency optional at runtime
-        raise RuntimeError(f"YAML parser unavailable for {path}: {e}") from e
-    return _yaml.safe_load(text) or {}
+    """Canonical YAML/JSON read via ops_config_io (ruamel → PyYAML → JSON).
+
+    JSON fixtures written by tests still load: ops_config_io falls through
+    to json.loads when the content is not valid YAML.
+    """
+    from .ops_config_io import load_yaml
+
+    return load_yaml(str(path))
 
 
 def _all_online_results(
@@ -497,7 +491,7 @@ def _build_image_entries(
 
     route_by_name = {r.get("role"): r for r in image_routes}
     routes_cfg = image_cfg.get("routes", {}) or {}
-    default = image_cfg.get("default_route", "fast")
+    default = image_cfg.get("default_route", "local")
     for name in IMAGE_ROLES:
         cfg = routes_cfg.get(name, {}) or {}
         actual = route_by_name.get(name, {})

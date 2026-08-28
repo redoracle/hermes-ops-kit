@@ -28,10 +28,11 @@ import sys
 
 from ..ui.console import Console
 
-OPS_KIT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
-DEPLOYED_CONFIG = os.path.join(HERMES_HOME, "ops-kit", "image_routes.yaml")
-BUNDLED_CONFIG = os.path.join(OPS_KIT_DIR, "config", "image_routes.yaml")
+BUNDLED_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from ..ops_config_io import OPS_KIT_DIR, HERMES_HOME  # noqa: E402
+
+DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
+BUNDLED_CONFIG = os.path.join(BUNDLED_DIR, "config", "image_routes.yaml")
 
 
 def _config_path() -> str:
@@ -50,59 +51,37 @@ def _load_config() -> dict:
         else:
             return {}
 
-    path = DEPLOYED_CONFIG
+    from ..ops_config_io import load_yaml
 
-    # Read file content first so we can attempt YAML then JSON parsing.
-    try:
-        with open(path, "r") as f:
-            content = f.read()
-    except Exception:
-        return {}
-
-    # Try YAML parsing if PyYAML is available; on parse error fall back to JSON.
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        try:
-            return _yaml.safe_load(content) or {}
-        except Exception:
-            # YAML parse failed; fall through to JSON fallback below
-            pass
-    except ImportError:
-        # PyYAML not installed — try JSON below
-        pass
-
-    # JSON fallback
-    try:
-        return json.loads(content) or {}
-    except Exception:
-        return {}
+    return load_yaml(DEPLOYED_CONFIG)
 
 
 def _seed_config() -> None:
     """Copy the bundled image_routes.yaml to the deployed location on first run."""
+    import shutil
+    import tempfile
+
     os.makedirs(os.path.dirname(DEPLOYED_CONFIG), exist_ok=True)
-    with open(BUNDLED_CONFIG, "r") as src:
-        with open(DEPLOYED_CONFIG, "w") as dst:
-            dst.write(src.read())
-    os.chmod(DEPLOYED_CONFIG, 0o600)
+    fd, tmp = tempfile.mkstemp(
+        dir=os.path.dirname(DEPLOYED_CONFIG),
+        prefix=".image_routes.",
+        text=True,
+    )
+    os.close(fd)
+    try:
+        shutil.copyfile(BUNDLED_CONFIG, tmp)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, DEPLOYED_CONFIG)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def _save_config(config: dict) -> None:
-    """Save config to the deployed path."""
-    target = os.path.join(HERMES_HOME, "ops-kit", "image_routes.yaml")
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    tmp = target + ".tmp"
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
+    """Save config to the deployed path (atomic, canonical writer)."""
+    from ..ops_config_io import save_yaml
 
-        with open(tmp, "w") as f:
-            _yaml.safe_dump(config, f, indent=2, sort_keys=False)
-    except ImportError:
-        with open(tmp, "w") as f:
-            json.dump(config, f, indent=2)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, target)
+    save_yaml(DEPLOYED_CONFIG, config)
 
 
 def cmd_routes(_args: argparse.Namespace) -> None:
@@ -388,7 +367,7 @@ def handle_image_command(args: list[str]) -> int:
 
     # export
     exp = sub.add_parser("export", help="Export image route config as JSON")
-    exp.add_argument("--json", action="store_true", help="JSON output")
+    # NOTE: --json removed — export is always JSON output.
 
     parsed = parser.parse_args(args)
 

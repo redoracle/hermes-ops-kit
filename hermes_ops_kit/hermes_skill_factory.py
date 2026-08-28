@@ -54,7 +54,7 @@ Show which keys are already present (never prints secret values):
 
 ```bash
 for k in HERMES_SECRET_BACKEND VAULTWARDEN_SERVER_URL VAULTWARDEN_USER VAULTWARDEN_PASSWORD; do
-  grep -q "^${k}=" ~/.hermes/.env 2>/dev/null && echo "$k: set" || echo "$k: MISSING — ask the user"
+  grep -q "^${k}=" "${HERMES_HOME:-$HOME/.hermes}/.env" 2>/dev/null && echo "$k: set" || echo "$k: MISSING — ask the user"
 done
 ```
 
@@ -66,8 +66,9 @@ that are still missing (the password is read silently):
 
 ```bash
 # Run with bash, interactively. Adds only the keys not already present in ~/.hermes/.env.
-env=~/.hermes/.env
-mkdir -p ~/.hermes && touch "$env" && chmod 600 "$env"
+hermes="${HERMES_HOME:-$HOME/.hermes}"
+env="$hermes/.env"
+mkdir -p "$hermes" && touch "$env" && chmod 600 "$env"
 grep -q '^HERMES_SECRET_BACKEND=' "$env" || printf 'HERMES_SECRET_BACKEND=%s\\n' vaultwarden >> "$env"
 grep -q '^VAULTWARDEN_SERVER_URL=' "$env" || { read -rp  'Vaultwarden URL: '     v; printf 'VAULTWARDEN_SERVER_URL=%s\\n' "$v" >> "$env"; }
 grep -q '^VAULTWARDEN_USER='       "$env" || { read -rp  'Vault account email: ' v; printf 'VAULTWARDEN_USER=%s\\n'       "$v" >> "$env"; }
@@ -175,10 +176,7 @@ def _extract_from_runbook(runbook_path: str) -> dict:
     """Extract title, description, and commands from an Obsidian runbook note."""
     from pathlib import Path
 
-    paths = [
-        runbook_path,
-        os.path.join(os.path.expanduser("~/GIT/INFRA"), runbook_path),
-    ]
+    paths = [runbook_path]
     content = ""
     for p in paths:
         if os.path.exists(p):

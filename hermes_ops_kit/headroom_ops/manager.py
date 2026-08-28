@@ -39,7 +39,7 @@ from ..headroom_ops.settings import (  # noqa: E402
     proxy_root,
     set_desired_enabled,
 )
-from ..ops_config_io import HERMES_CONFIG, load_yaml  # noqa: E402
+from ..ops_config_io import hermes_config, load_yaml  # noqa: E402
 from ..security.redaction import sanitize_url_for_display  # noqa: E402
 from ..ui.console import Console  # noqa: E402
 from ..ui.json_output import error_envelope, error_item, ok_envelope  # noqa: E402
@@ -48,7 +48,7 @@ from ..ui.json_output import error_envelope, error_item, ok_envelope  # noqa: E4
 def _gather_state() -> dict[str, Any]:
     """Shared snapshot used by status/doctor/export."""
     settings = load_settings()
-    hermes_cfg = load_yaml(HERMES_CONFIG)
+    hermes_cfg = load_yaml(hermes_config())
     provider, entry = rec.upstream_provider_entry(hermes_cfg, settings)
     return {
         "settings": settings,
@@ -161,7 +161,7 @@ def _doctor_checks(state: dict[str, Any]) -> list[tuple[str, bool, str]]:
     key_env = str(entry.get("api_key_env") or entry.get("key_env") or "")
     key_present = bool(key_env and os.environ.get(key_env))
     if key_env and not key_present:
-        env_file = os.path.join(os.path.dirname(HERMES_CONFIG), ".env")
+        env_file = os.path.join(os.path.dirname(hermes_config()), ".env")
         try:
             with open(env_file) as f:
                 key_present = any(line.strip().startswith(f"{key_env}=") for line in f)
@@ -277,7 +277,7 @@ def _resolve_upstream_or_fail(con: Console, state: dict[str, Any]) -> str | None
         con.print_error(
             f"cannot resolve an OpenAI-compatible upstream for provider "
             f"'{state['upstream_provider'] or '?'}' — add base_url to its "
-            f"providers entry in {HERMES_CONFIG}"
+            f"providers entry in {hermes_config()}"
         )
         return None
     return upstream

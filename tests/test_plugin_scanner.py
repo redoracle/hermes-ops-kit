@@ -1637,9 +1637,7 @@ class TestPreflightEnforcement:
         config_path = tmp_path / "config.yaml"
         config_path.write_text("mcp_servers: invalid")
         monkeypatch.setattr(
-            auditor.os.path,
-            "expanduser",
-            lambda path: str(config_path) if path == "~/.hermes/config.yaml" else path,
+            auditor.ops_config_io, "HERMES_HOME", str(tmp_path)
         )
         with pytest.raises(RuntimeError, match="mcp_servers"):
             auditor._load_hermes_mcp_config()

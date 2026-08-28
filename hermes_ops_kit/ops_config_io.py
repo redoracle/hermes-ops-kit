@@ -22,6 +22,16 @@ HERMES_CONFIG = os.path.join(HERMES_HOME, "config.yaml")
 OPS_KIT_DIR = os.path.join(HERMES_HOME, "ops-kit")
 
 
+def hermes_config() -> str:
+    """Dynamic path to ~/.hermes/config.yaml.
+
+    Prefer this over the frozen HERMES_CONFIG constant inside the kit:
+    it re-derives from HERMES_HOME at call time, so tests (and embedders)
+    that monkeypatch ``ops_config_io.HERMES_HOME`` fully control the path.
+    """
+    return os.path.join(HERMES_HOME, "config.yaml")
+
+
 def expand_home(path: str) -> str:
     """expanduser() that maps a leading ~/.hermes to the effective HERMES_HOME.
 
@@ -49,11 +59,17 @@ def _ruamel():
         return None
 
 
+class ConfigError(Exception):
+    """Raised by load_yaml_strict for missing/unparseable/non-mapping config."""
+
+
 def load_yaml(path: str) -> dict:
-    """Load a YAML (or JSON) file; missing/unparseable → {}.
+    """Load a YAML (or JSON) file; missing/unparseable/non-mapping → {}.
 
     With ruamel.yaml installed the returned mapping carries comment
     metadata, so a later ``save_yaml`` round-trips the file faithfully.
+    A root that is not a mapping (list/scalar) is treated as unparseable
+    so callers can rely on ``.get()``.
     """
     if not os.path.exists(path):
         return {}
@@ -67,22 +83,44 @@ def load_yaml(path: str) -> dict:
         try:
             import io
 
-            return ruamel.load(io.StringIO(content)) or {}
+            data = ruamel.load(io.StringIO(content))
+            if isinstance(data, dict):
+                return data
         except Exception:
             pass
     try:
         import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
 
         try:
-            return _yaml.safe_load(content) or {}
+            data = _yaml.safe_load(content)
+            if isinstance(data, dict):
+                return data
         except Exception:
             pass
     except ImportError:
         pass
     try:
-        return json.loads(content) or {}
+        data = json.loads(content)
+        if isinstance(data, dict):
+            return data
     except Exception:
-        return {}
+        pass
+    return {}
+
+
+def load_yaml_strict(path: str) -> dict:
+    """Fail-closed variant: raises ConfigError instead of returning {}.
+
+    For callers where a silently-empty config is worse than an error
+    (e.g. security-adjacent diagnostics). The security-critical loaders
+    in ``security/`` keep their own implementations deliberately.
+    """
+    if not os.path.exists(path):
+        raise ConfigError(f"missing: {path}")
+    data = load_yaml(path)
+    if not data:
+        raise ConfigError(f"empty or unparseable: {path}")
+    return data
 
 
 def save_yaml(path: str, data: dict) -> None:
@@ -123,3 +161,37 @@ def backup_file(path: str, suffix: str = "") -> str | None:
     backup = f"{path}.bak.{stamp}{suffix}"
     shutil.copy2(path, backup)
     return backup
+
+
+def bundled_path(name: str) -> str:
+    """Path of a packaged default config (hermes_ops_kit/config/<name>)."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "config", name)
+
+
+def deployed_or_bundled(name: str, *, seed: bool = False) -> str:
+    """Resolve an ops-kit config: deployed file wins, else the bundled default.
+
+    With seed=True the bundled default is copied to the deployed location on
+    first use so later edits land in ~/.hermes/ops-kit.  Single implementation
+    of the "deployed else bundled" pattern (headroom, plugin_scanner,
+    assistant_tasks, budget, routes, image_routes).
+    """
+    deployed = os.path.join(OPS_KIT_DIR, name)
+    if os.path.exists(deployed):
+        return deployed
+    bundled = bundled_path(name)
+    if seed and os.path.exists(bundled) and not os.path.exists(deployed):
+        import tempfile
+
+        os.makedirs(OPS_KIT_DIR, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=OPS_KIT_DIR, prefix=f".{name}.", text=True)
+        os.close(fd)
+        try:
+            shutil.copyfile(bundled, tmp)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, deployed)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        return deployed
+    return bundled

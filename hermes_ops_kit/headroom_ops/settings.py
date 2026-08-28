@@ -9,11 +9,9 @@ always ``~/.hermes/config.yaml``, written only by ``reconcile``.
 from __future__ import annotations
 
 import os
-import shutil
 
-
+from .. import ops_config_io  # noqa: E402
 from ..ops_config_io import OPS_KIT_DIR, load_yaml, save_yaml  # noqa: E402
-from hermes_ops_kit import ops_config_io  # noqa: E402
 
 BUNDLED_CONFIG = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -50,8 +48,7 @@ def seed_deployed() -> None:
     """Copy the bundled headroom.yaml to ~/.hermes/ops-kit on first use."""
     if os.path.exists(DEPLOYED_CONFIG) or not os.path.exists(BUNDLED_CONFIG):
         return
-    os.makedirs(os.path.dirname(DEPLOYED_CONFIG), exist_ok=True)
-    shutil.copy(BUNDLED_CONFIG, DEPLOYED_CONFIG)
+    ops_config_io.deployed_or_bundled("headroom.yaml", seed=True)
     os.chmod(DEPLOYED_CONFIG, 0o600)
 
 

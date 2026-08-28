@@ -230,11 +230,14 @@ def _handle_doctor() -> int:
 
     # ── ROUTE BYPASS ──
     _hdr("ROUTE BYPASS")
-    cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
-    if os.path.exists(cfg_path):
-        _check_bypass_section(cfg_path, env_vars, _check)
-    else:
+    cfg_path = ops_config_io.hermes_config()
+    if not os.path.exists(cfg_path):
         _check("config.yaml", False, "not found")
+    elif not ops_config_io.load_yaml(cfg_path):
+        # load_yaml returns {} for missing, empty, and unparseable alike —
+        # flag it so doctor never looks healthier with a broken config.
+        _check("config.yaml", False, "exists but empty/unparseable")
+    _check_bypass_section(cfg_path, env_vars, _check)
 
     # ── SUMMARY ──
     status = (
@@ -266,34 +269,26 @@ def _try_build_routes() -> dict:
 
         # Populate results from Hermes config — mark all configured providers as "online"
         # so the doctor shows configured routes, not just live-probed ones.
-        cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+        hc = ops_config_io.load_yaml(ops_config_io.hermes_config())
         results: dict[str, dict] = {}
-        if os.path.exists(cfg_path):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-                with open(cfg_path) as f:
-                    hc = _yaml.safe_load(f) or {}
-                model = hc.get("model", {})
-                providers_in_use = {model.get("provider", "copilot")}
-                for fb in hc.get("fallback_providers", []):
-                    providers_in_use.add(fb.get("provider", ""))
-                for aux in hc.get("auxiliary", {}).values():
-                    if isinstance(aux, dict) and aux.get("provider") not in (
-                        None,
-                        "auto",
-                        "",
-                    ):
-                        providers_in_use.add(aux["provider"])
-                for p in providers_in_use:
-                    if p:
-                        results[p] = {
-                            "provider": p,
-                            "status": "online",
-                            "api_latency_ms": 0,
-                        }
-            except Exception:
-                pass
+        model = hc.get("model", {})
+        providers_in_use = {model.get("provider", "copilot")}
+        for fb in hc.get("fallback_providers", []):
+            providers_in_use.add(fb.get("provider", ""))
+        for aux in hc.get("auxiliary", {}).values():
+            if isinstance(aux, dict) and aux.get("provider") not in (
+                None,
+                "auto",
+                "",
+            ):
+                providers_in_use.add(aux["provider"])
+        for p in providers_in_use:
+            if p:
+                results[p] = {
+                    "provider": p,
+                    "status": "online",
+                    "api_latency_ms": 0,
+                }
 
         # Fallback: mark all known providers as online for route display.
         # Derive from usage_metrics_v2.PROVIDERS (single source of truth).
@@ -329,10 +324,9 @@ def _load_hermes_env() -> dict[str, str]:
     return load_env_dict()
 
 
-
 # Provider → (env var, expected value prefix) for doctor credential checks.
 # Derived from provider_catalog so this list cannot drift from the kit's
-# provider registry.  (Was previously an undefined name — latent NameError.)
+# provider registry.
 from .provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
 
 _CREDENTIAL_CHECKS: list[tuple[str, str, str]] = [
@@ -375,27 +369,27 @@ def _check_credentials_section(
     Provider names from config.yaml are normalized (e.g. ``copilot`` →
     ``github``, ``openai-api`` → ``openai``) before looking up
     credentials, so fallback-chain entries like ``anthropic-api`` match
-    the ``ANTHROPIC_API_KEY`` check.
+    the ``ANTHROPIC_API_KEY`` check.  ``custom:<name>`` providers are
+    checked against their ``custom_providers[].key_env``.
     """
-    cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+    hc = ops_config_io.load_yaml(ops_config_io.hermes_config())
     providers_seen: set[str] = set()
-    if os.path.exists(cfg_path):
-        try:
-            import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-            with open(cfg_path) as f:
-                hc = _yaml.safe_load(f) or {}
-            model = hc.get("model", {})
-            providers_seen.add(model.get("provider", ""))
-            for fb in hc.get("fallback_providers", []):
-                providers_seen.add(fb.get("provider", ""))
-            for aux in hc.get("auxiliary", {}).values():
-                if isinstance(aux, dict):
-                    p = aux.get("provider", "")
-                    if p and p != "auto":
-                        providers_seen.add(p)
-        except Exception:
-            pass
+    custom_key_env: dict[str, str] = {}
+    for cp in hc.get("custom_providers", []) or []:
+        if not isinstance(cp, dict):
+            continue
+        name, key_env = str(cp.get("name", "")), str(cp.get("key_env", ""))
+        if name and key_env:
+            custom_key_env[f"custom:{name}"] = key_env
+    model = hc.get("model", {})
+    providers_seen.add(model.get("provider", ""))
+    for fb in hc.get("fallback_providers", []):
+        providers_seen.add(fb.get("provider", ""))
+    for aux in hc.get("auxiliary", {}).values():
+        if isinstance(aux, dict):
+            p = aux.get("provider", "")
+            if p and p != "auto":
+                providers_seen.add(p)
 
     # Normalize provider names: copilot→github, openai-api→openai, etc.
     try:
@@ -407,7 +401,12 @@ def _check_credentials_section(
         if not provider_raw:
             continue
         normalized = _PROVIDER_NORMALIZE.get(provider_raw, provider_raw)
-        ok, detail = _credential_for_provider(normalized, env_vars)
+        if normalized.startswith("custom:"):
+            key_env = custom_key_env.get(normalized)
+            ok = bool(key_env and env_vars.get(key_env, "").strip())
+            detail = f"{key_env} set" if ok else f"no credential for {normalized}"
+        else:
+            ok, detail = _credential_for_provider(normalized, env_vars)
         _check(provider_raw, ok, detail)  # type: ignore[call-arg]
 
 
@@ -421,12 +420,8 @@ def _check_bypass_section(
         from .config.route_map import AUX_SHORT_KEYS, aux_config_key
     except ImportError:
         return
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        with open(cfg_path) as f:
-            hc = _yaml.safe_load(f) or {}
-    except Exception:
+    hc = ops_config_io.load_yaml(cfg_path)
+    if not hc:
         return
 
     aux_cfg = hc.get("auxiliary", {}) or {}
@@ -497,16 +492,7 @@ def _handle_route_test(args: list[str]) -> int:
     json_mode = "--json" in args
     fallback_only = "--fallback" in args
 
-    cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
-    hc: dict = {}
-    if os.path.exists(cfg_path):
-        try:
-            import yaml as _y  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-            with open(cfg_path) as f:
-                hc = _y.safe_load(f) or {}
-        except ImportError:
-            pass
+    hc = ops_config_io.load_yaml(ops_config_io.hermes_config())
 
     if fallback_only:
         # ── Fallback chain cascade ──────────────────────────────────
@@ -552,36 +538,13 @@ def _handle_route_test(args: list[str]) -> int:
     from .route_runtime_harness import build_report
 
     try:
-        routes_cfg_path = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/routes.yaml")
-        if not os.path.exists(routes_cfg_path):
-            routes_cfg_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "config", "routes.yaml"
-            )
-        import yaml as _y  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
-
-        with open(routes_cfg_path) as f:
-            rc = _y.safe_load(f) or {}
-
         # Deployed registry wins (managed by `assistants` command); packaged
-        # copy is only the default — mirrors the routes.yaml/image_routes.yaml
-        # fallback pattern.
-        assistants_path = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/assistants.yaml")
-        if not os.path.exists(assistants_path):
-            assistants_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "config", "assistants.yaml"
-            )
-        with open(assistants_path) as f:
-            ac = _y.safe_load(f) or {}
-
-        img_path = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/image_routes.yaml")
-        if not os.path.exists(img_path):
-            img_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "config",
-                "image_routes.yaml",
-            )
-        with open(img_path) as f:
-            ic = _y.safe_load(f) or {}
+        # copy is only the default — canonical deployed-vs-bundled resolution.
+        rc = ops_config_io.load_yaml(ops_config_io.deployed_or_bundled("routes.yaml"))
+        ac = ops_config_io.load_yaml(ops_config_io.deployed_or_bundled("assistants.yaml"))
+        ic = ops_config_io.load_yaml(
+            ops_config_io.deployed_or_bundled("image_routes.yaml")
+        )
     except Exception as e:
         print(f"Failed to load configs: {e}")
         return 1
