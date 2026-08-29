@@ -34,7 +34,7 @@ import uuid
 from datetime import datetime
 
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
-from ..provider_catalog import first_available_key, key_envs_for
+from ..provider_catalog import first_available_key
 
 
 # ─── Adapter ──────────────────────────────────────────────────────────
