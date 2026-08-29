@@ -360,6 +360,9 @@ def cmd_validate(args: argparse.Namespace) -> None:
         console.print(f"  {'✅' if ok else '❌'} {label}")
     if all(ok for _, ok in checks):
         console.print(f"\n  Skill '{skill_name}' is valid ✅")
+    else:
+        console.print(f"\n  Skill '{skill_name}' is INVALID ❌")
+        sys.exit(1)
 
 
 def cmd_audit(_args: argparse.Namespace) -> None:

@@ -28,16 +28,12 @@ import sys
 
 from ..ui.console import Console
 
-BUNDLED_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-from ..ops_config_io import OPS_KIT_DIR  # noqa: E402
-
-DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
-BUNDLED_CONFIG = os.path.join(BUNDLED_DIR, "config", "image_routes.yaml")
+from ..ops_config_io import deployed_or_bundled, load_yaml, save_yaml
 
 
 def _config_path() -> str:
     """Return the active config path (deployed preferred)."""
-    return DEPLOYED_CONFIG if os.path.exists(DEPLOYED_CONFIG) else BUNDLED_CONFIG
+    return deployed_or_bundled("image_routes.yaml")
 
 
 def _load_config() -> dict:
@@ -45,43 +41,14 @@ def _load_config() -> dict:
 
     Auto-seeds the deployed file from the bundled default on first run.
     """
-    if not os.path.exists(DEPLOYED_CONFIG):
-        if os.path.exists(BUNDLED_CONFIG):
-            _seed_config()
-        else:
-            return {}
-
-    from ..ops_config_io import load_yaml
-
-    return load_yaml(DEPLOYED_CONFIG)
-
-
-def _seed_config() -> None:
-    """Copy the bundled image_routes.yaml to the deployed location on first run."""
-    import shutil
-    import tempfile
-
-    os.makedirs(os.path.dirname(DEPLOYED_CONFIG), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(
-        dir=os.path.dirname(DEPLOYED_CONFIG),
-        prefix=".image_routes.",
-        text=True,
-    )
-    os.close(fd)
-    try:
-        shutil.copyfile(BUNDLED_CONFIG, tmp)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, DEPLOYED_CONFIG)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+    path = deployed_or_bundled("image_routes.yaml", seed=True)
+    return load_yaml(path)
 
 
 def _save_config(config: dict) -> None:
     """Save config to the deployed path (atomic, canonical writer)."""
-    from ..ops_config_io import save_yaml
-
-    save_yaml(DEPLOYED_CONFIG, config)
+    path = deployed_or_bundled("image_routes.yaml", seed=True)
+    save_yaml(path, config)
 
 
 def cmd_routes(_args: argparse.Namespace) -> None:
@@ -90,8 +57,7 @@ def cmd_routes(_args: argparse.Namespace) -> None:
     config = _load_config()
     if not config:
         con.print_error("No image routes configured.")
-        con.print(f"  Expected: {DEPLOYED_CONFIG}")
-        con.print(f"  Bundled:  {BUNDLED_CONFIG}")
+        con.print(f"  Path: {_config_path()}")
         return
 
     from ..image_routes.router import healthcheck
@@ -138,7 +104,7 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     config = _load_config()
     if not config:
         issues.append(
-            ("config_missing", f"No image_routes.yaml found at {DEPLOYED_CONFIG}")
+            ("config_missing", f"No image_routes.yaml found at {_config_path()}")
         )
     else:
         routes = config.get("routes", {})
@@ -185,9 +151,10 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     con.print(
         f"Output:  {os.path.expanduser(config.get('policies', {}).get('output_dir', '~/.hermes/cache/images'))}"
     )
+    return 1 if issues else 0
 
 
-def cmd_test(args: argparse.Namespace) -> None:
+def cmd_test(args: argparse.Namespace) -> int:
     """Test image generation with the default or specified route."""
     con = Console()
     from ..image_routes.router import generate
@@ -236,6 +203,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         for i, p in enumerate(paths):
             size = os.path.getsize(p) if os.path.exists(p) else 0
             con.print(f"  Image {i + 1}:  {p} ({size} bytes)")
+        return 0
     else:
         con.print(f"{con.red('✘')} Generation failed")
         error_msg = result.get("error", "")
@@ -251,6 +219,7 @@ def cmd_test(args: argparse.Namespace) -> None:
                 provider = a.get("provider", "?")
                 err = a.get("error", "")[:120]
                 con.print(f"    {con.dim(f'{route} ({provider}): {err}')}")
+        return 1
 
 
 def cmd_set_default(args: argparse.Namespace) -> None:
@@ -386,7 +355,8 @@ def handle_image_command(args: list[str]) -> int:
 
     handler = handlers.get(parsed.subcommand)
     if handler:
-        handler(parsed)
+        ret = handler(parsed)
+        return ret if isinstance(ret, int) else 0
 
     return 0
 

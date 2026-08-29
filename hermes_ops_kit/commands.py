@@ -39,6 +39,12 @@ def handle_ops_kit_command(args: list[str]) -> int:
         return _handle_doctor()
     elif subcmd in ("assistants", "assistant"):
         return _handle_assistants(rest)
+    elif subcmd in ("route-manager", "routes"):
+        return _run_script("hermes_route_manager.py", rest)
+    elif subcmd in ("skill", "skill-factory", "skills"):
+        return _run_script("hermes_skill_factory.py", rest)
+    elif subcmd == "export":
+        return _run_script("hermes_export.py", rest)
     elif subcmd == "mcp":
         return _handle_mcp(rest)
     elif subcmd == "budget":
@@ -72,22 +78,25 @@ def _usage() -> int:
     print("  hermes-ops-kit preflight [--dry-run]     Scan + enforce plugin security")
     print("  hermes-ops-kit rotate --provider X --dry-run")
     print("  hermes-ops-kit doctor                    Full diagnostic")
-    print("  hermes-ops-kit assistant list            Manage assistants")
+    print("  hermes-ops-kit assistant <subcmd>        Manage assistants (list/add/doctor/ping)")
+    print("  hermes-ops-kit routes <subcmd>           Manage LLM routes and profiles")
+    print("  hermes-ops-kit skill <subcmd>            Generate and validate skills")
+    print("  hermes-ops-kit export <subcmd>           Export reports and audit logs")
     print("  hermes-ops-kit audit tail                Recent audit events")
     print("  hermes-ops-kit mcp audit                 MCP tool security audit")
     print("  hermes-ops-kit budget status             Cost governor status")
-    print("  hermes-ops-kit maintenance profiles            Assistant tasks profiles")
-    print("  hermes-ops-kit image routes               Image generation routes")
-    print('  hermes-ops-kit image test "prompt"        Test image generation')
-    print("  hermes-ops-kit image doctor               Validate image backends")
-    print("  hermes-ops-kit route-test [--fallback]  Verify route selection")
-    print("  hermes-ops-kit headroom status            Headroom proxy overlay status")
-    print("  hermes-ops-kit headroom enable|disable    Toggle proxied primary route")
-    print("  hermes-ops-kit headroom doctor            Headroom health + invariants")
+    print("  hermes-ops-kit maintenance profiles      Assistant tasks profiles")
+    print("  hermes-ops-kit image routes              Image generation routes")
+    print('  hermes-ops-kit image test "prompt"       Test image generation')
+    print("  hermes-ops-kit image doctor              Validate image backends")
+    print("  hermes-ops-kit route-test [--fallback]   Verify route selection")
+    print("  hermes-ops-kit headroom status           Headroom proxy overlay status")
+    print("  hermes-ops-kit headroom enable|disable   Toggle proxied primary route")
+    print("  hermes-ops-kit headroom doctor           Headroom health + invariants")
     print("  hermes-ops-kit install setup             First-install security bootstrap")
     print("  hermes-ops-kit install doctor            Install checks")
     print("  hermes-ops-kit plugin scan               Plugin security scanner")
-    print("  hermes-ops-kit plugin policy              Plugin approval policy")
+    print("  hermes-ops-kit plugin policy             Plugin approval policy")
     return 1
 
 
@@ -950,52 +959,12 @@ def _handle_audit(args: list[str]) -> int:
 def _handle_assistants(args: list[str]) -> int:
     """Handle `hermes-ops-kit assistants ...` subcommands."""
     if not args:
-        print("Subcommand required: list, ping, delegate")
-        return 1
+        return _run_script("hermes_assistant_manager.py", ["list"])
 
     sub = args[0]
     rest = args[1:]
 
-    if sub == "list":
-        # Quick assistant registry dump
-        try:
-            from .assistants.registry import load_registry  # pyright: ignore[reportMissingImports]
-
-            registry = load_registry()
-            for aid, cfg in registry.items():
-                caps = [c["id"] for c in cfg.capabilities]
-                print(f"  {cfg.display_name} ({cfg.role})")
-                print(f"    capabilities: {', '.join(caps[:5])}")
-                print(f"    transport: {cfg.transport}")
-        except Exception as e:
-            print(f"Error loading registry: {e}")
-            return 1
-        return 0
-
-    elif sub == "ping":
-        if not rest:
-            print("Assistant ID required: hermes-ops-kit assistants ping <id>")
-            return 1
-        aid = rest[0]
-        try:
-            from .env.loader import load_dotenv  # noqa: E402  # pyright: ignore[reportMissingImports]
-            from .assistants.registry import get_assistant  # pyright: ignore[reportMissingImports]
-            from .assistants.client import AssistantClient  # pyright: ignore[reportMissingImports]
-
-            load_dotenv()
-            config = get_assistant(aid)
-            if not config:
-                print(f"Assistant '{aid}' not found")
-                return 1
-            client = AssistantClient(config)
-            result = client.healthcheck()
-            print(json.dumps(result, indent=2))
-        except Exception as e:
-            print(f"Error: {e}")
-            return 1
-        return 0
-
-    elif sub == "delegate":
+    if sub == "delegate":
         if len(rest) < 2:
             print(
                 'Usage: hermes-ops-kit assistants delegate <id> --capability X --task "..."'
@@ -1032,9 +1001,7 @@ def _handle_assistants(args: list[str]) -> int:
             return 1
         return 0
 
-    else:
-        print(f"Unknown assistants subcommand: {sub}")
-        return 1
+    return _run_script("hermes_assistant_manager.py", args)
 
 
 def _handle_image(args: list[str]) -> int:

@@ -10,180 +10,12 @@ import os
 from typing import Any
 
 from ..assistants.base import AssistantConfig  # pyright: ignore[reportMissingImports]
-from ..ops_config_io import HERMES_HOME  # noqa: E402
+from ..ops_config_io import deployed_or_bundled, load_yaml  # noqa: E402
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
-    """Load YAML without PyYAML dependency (simple parser for our format)."""
-    result: dict[str, Any] = {}
-    current_section: str | None = None
-    current_assistant: str | None = None
-    current_subsection: str | None = None
-    list_context: list[Any] | None = None
-    current_list_item: dict[str, Any] | None = None
-
-    with open(path) as f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-
-            indent = len(line) - len(line.lstrip())
-
-            # Top-level key
-            if indent == 0 and stripped.endswith(":"):
-                current_section = stripped[:-1]
-                if current_section not in result:
-                    result[current_section] = {}
-                continue
-
-            # Assistant name under "assistants:"
-            if (
-                indent == 2
-                and current_section == "assistants"
-                and stripped.endswith(":")
-            ):
-                current_assistant = stripped[:-1]
-                result[current_section][current_assistant] = {}
-                current_subsection = None
-                list_context = None
-                current_list_item = None
-                continue
-
-            # Key-value at assistant level (indent 2)
-            if (
-                indent == 2
-                and current_section
-                and current_assistant
-                and not stripped.endswith(":")
-                and ":" in stripped
-            ):
-                key, _, val = stripped.partition(":")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if val == "true":
-                    val = True
-                elif val == "false":
-                    val = False
-                elif val.isdigit():
-                    val = int(val)
-                result[current_section][current_assistant][key] = val
-                continue
-
-            # Scalar key-value at indent 4 (e.g. "type: remote_hermes" — has value after colon)
-            if (
-                indent == 4
-                and current_section
-                and current_assistant
-                and ":" in stripped
-                and not stripped.rstrip(":").endswith(" ")
-            ):
-                after = stripped.split(":", 1)[1].strip()
-                if after:
-                    key = stripped.split(":", 1)[0].strip()
-                    val = after.strip().strip('"').strip("'")
-                    if val == "true":
-                        val = True
-                    elif val == "false":
-                        val = False
-                    elif val.isdigit():
-                        val = int(val)
-                    result[current_section][current_assistant][key] = val
-                    continue
-
-            # Section header under assistant (key with no value: endpoint:, security:, etc.)
-            if (
-                indent == 4
-                and current_section
-                and current_assistant
-                and stripped.endswith(":")
-            ):
-                current_subsection = stripped[:-1]
-                if current_subsection in (
-                    "capabilities",
-                    "blocked_capabilities",
-                    "require_approval_for",
-                    "data_classification",
-                ):
-                    result[current_section][current_assistant][current_subsection] = []  # pyright: ignore[reportArgumentType]
-                    list_context = result[current_section][current_assistant][
-                        current_subsection
-                    ]  # pyright: ignore[reportArgumentType]
-                    current_list_item = None
-                else:
-                    result[current_section][current_assistant][current_subsection] = {}  # pyright: ignore[reportArgumentType]
-                    list_context = None
-                    current_list_item = None
-                continue
-
-            # Simple list item: "- value" (string list)
-            if (
-                indent == 6
-                and list_context is not None
-                and stripped.startswith("- ")
-                and ":" not in stripped[2:]
-            ):
-                list_context.append(stripped[2:])
-                continue
-
-            # Dict list item: "- key: value" starts a new dict entry
-            if (
-                indent == 6
-                and list_context is not None
-                and stripped.startswith("- ")
-                and ":" in stripped[2:]
-            ):
-                new_item: dict[str, Any] = {}
-                k, _, v = stripped[2:].partition(":")
-                k = k.strip()
-                v = v.strip().strip('"').strip("'")
-                if v == "true":
-                    v = True
-                elif v == "false":
-                    v = False
-                new_item[k] = v
-                list_context.append(new_item)
-                current_list_item = new_item
-                continue
-
-            # Continuation key under a list item dict (indent 8)
-            if indent == 8 and current_list_item is not None and ":" in stripped:
-                key, _, val = stripped.partition(":")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if val == "true":
-                    val = True
-                elif val == "false":
-                    val = False
-                elif val.isdigit():
-                    val = int(val)
-                current_list_item[key] = val
-                continue
-
-            # Key-value under a subsection dict
-            if (
-                indent == 6
-                and current_section
-                and current_assistant
-                and current_subsection
-            ):
-                if ":" in stripped and list_context is None:
-                    key, _, val = stripped.partition(":")
-                    key = key.strip()
-                    val = val.strip().strip('"').strip("'")
-                    if val == "true":
-                        val = True
-                    elif val == "false":
-                        val = False
-                    elif val.isdigit():
-                        val = int(val)
-                    subsection_data = result[current_section][current_assistant][
-                        current_subsection
-                    ]  # pyright: ignore[reportArgumentType]
-                    if isinstance(subsection_data, dict):
-                        subsection_data[key] = val
-
-    return result
+    """Load YAML via canonical ops_config_io loader."""
+    return load_yaml(path)
 
 
 def load_registry(config_path: str | None = None) -> dict[str, AssistantConfig]:
@@ -197,14 +29,10 @@ def load_registry(config_path: str | None = None) -> dict[str, AssistantConfig]:
       3. ~/.hermes/ops-kit/assistants.yaml   (user's runtime config)
       4. <plugin>/config/assistants.yaml      (bundled fallback)
     """
-    plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    runtime_config = os.path.join(HERMES_HOME, "ops-kit", "assistants.yaml")
-
     path = (
         config_path
         or os.environ.get("HERMES_ASSISTANTS_CONFIG")
-        or (runtime_config if os.path.exists(runtime_config) else None)
-        or os.path.join(plugin_dir, "config", "assistants.yaml")
+        or deployed_or_bundled("assistants.yaml")
     )
 
     if not os.path.exists(path):

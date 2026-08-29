@@ -394,6 +394,27 @@ def main():
         "--force", action="store_true", help="Force fresh scan (skip cache)"
     )
 
+    # Routes / Profile manager
+    routes_p = sub.add_parser("routes", help="LLM route and profile manager")
+    routes_p.add_argument("routes_args", nargs=argparse.REMAINDER, default=[])
+    sub.add_parser("route-manager", help="Alias for routes").add_argument(
+        "routes_args", nargs=argparse.REMAINDER, default=[]
+    )
+
+    # Skill factory
+    skill_p = sub.add_parser("skill", help="Generate and validate skills")
+    skill_p.add_argument("skill_args", nargs=argparse.REMAINDER, default=[])
+    sub.add_parser("skill-factory", help="Alias for skill").add_argument(
+        "skill_args", nargs=argparse.REMAINDER, default=[]
+    )
+    sub.add_parser("skills", help="Alias for skill").add_argument(
+        "skill_args", nargs=argparse.REMAINDER, default=[]
+    )
+
+    # Export center
+    export_p = sub.add_parser("export", help="Export reports and audit logs")
+    export_p.add_argument("export_args", nargs=argparse.REMAINDER, default=[])
+
     # Delegated subcommands accept passthrough flags (usage/rotate/mcp evolve
     # independently of this dispatcher); native commands stay strict.
     args, unknown = parser.parse_known_args()
@@ -401,6 +422,7 @@ def main():
         "doctor", "status", "usage", "rotate", "assistants", "assistant",
         "audit", "mcp", "budget", "maintenance", "image", "headroom",
         "install", "route-test", "preflight", "plugin",
+        "routes", "route-manager", "skill", "skill-factory", "skills", "export",
     ):
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
@@ -432,12 +454,17 @@ def main():
         "route-test",
         "preflight",
         "plugin",
+        "routes",
+        "route-manager",
+        "skill",
+        "skill-factory",
+        "skills",
+        "export",
     ):
         # Delegate to commands.py plugin handler
         from .commands import handle_ops_kit_command  # pyright: ignore[reportMissingImports]
 
         cmd_args = [args.command]
-        cmd_args.extend(unknown)
         # Map command to its action arg name (not always f"{cmd}_action")
         action_map = {
             "assistants": "assistant_action",
@@ -451,9 +478,17 @@ def main():
         }
         attr = action_map.get(args.command, "")
         if attr and hasattr(args, attr):
-            cmd_args.append(getattr(args, attr, ""))
+            action_val = getattr(args, attr, "")
+            if action_val:
+                cmd_args.append(action_val)
         if args.command in ("assistants", "assistant"):
             cmd_args.extend(getattr(args, "assistant_args", []))
+        if args.command in ("routes", "route-manager"):
+            cmd_args.extend(getattr(args, "routes_args", []))
+        if args.command in ("skill", "skill-factory", "skills"):
+            cmd_args.extend(getattr(args, "skill_args", []))
+        if args.command == "export":
+            cmd_args.extend(getattr(args, "export_args", []))
         if args.command == "budget":
             cmd_args.extend(getattr(args, "budget_args", []))
         if args.command == "maintenance":
@@ -486,6 +521,7 @@ def main():
                 cmd_args.append("--json")
             if getattr(args, "force", False):
                 cmd_args.append("--force")
+        cmd_args.extend(unknown)
         sys.exit(handle_ops_kit_command(cmd_args))
 
 

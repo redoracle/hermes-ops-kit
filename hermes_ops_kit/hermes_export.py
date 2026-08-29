@@ -261,6 +261,7 @@ def main() -> None:
     report = sub.add_parser("report")
     report.add_argument("report_type", choices=["usage", "security"])
     report.add_argument("--format", choices=["md", "json", "html"], default="md")
+    report.add_argument("--json", action="store_true", help="Shortcut for --format json")
     report.add_argument("--assistant", default="generic")
 
     # contact-briefing
@@ -268,16 +269,22 @@ def main() -> None:
     briefing.add_argument("entity_type", choices=["person", "company"])
     briefing.add_argument("entity_name")
     briefing.add_argument("--format", choices=["md", "json"], default="md")
+    briefing.add_argument("--json", action="store_true", help="Shortcut for --format json")
 
     # audit
     audit = sub.add_parser("audit")
     audit.add_argument("--since", default="7d")
     audit.add_argument("--format", choices=["md", "json"], default="json")
+    audit.add_argument("--json", action="store_true", help="Shortcut for --format json")
 
     # list
     sub.add_parser("list")
 
     args = parser.parse_args()
+
+    # Normalize --json flag
+    if getattr(args, "json", False):
+        args.format = "json"
 
     if args.command == "report":
         if args.report_type == "usage":

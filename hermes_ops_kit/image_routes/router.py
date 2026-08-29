@@ -13,24 +13,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
-BUNDLED_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-IMAGE_ROUTES_CONFIG = os.path.join(BUNDLED_DIR, "config", "image_routes.yaml")
-
-from ..ops_config_io import OPS_KIT_DIR  # noqa: E402
-
-DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
-
-
+from ..ops_config_io import deployed_or_bundled, load_yaml
+ 
+ 
 def _load_config() -> dict:
     """Load image_routes.yaml from deployed path, falling back to bundled."""
-    from ..ops_config_io import load_yaml
-
-    for path in (DEPLOYED_CONFIG, IMAGE_ROUTES_CONFIG):
-        if os.path.exists(path):
-            cfg = load_yaml(path)
-            if cfg:
-                return cfg
-    return {}
+    path = deployed_or_bundled("image_routes.yaml")
+    return load_yaml(path)
 
 
 def _expand_path(path: str) -> str:

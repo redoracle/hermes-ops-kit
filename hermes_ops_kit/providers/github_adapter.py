@@ -278,8 +278,11 @@ def main():
     parser.add_argument("--body", default=None)
     parser.add_argument("--base", default="main")
     parser.add_argument("--head", default=None)
-    parser.add_argument("--ref", default=None)
-    parser.add_argument("--require-approval", type=bool, default=True)
+    parser.add_argument(
+        "--require-approval",
+        type=lambda v: str(v).lower() in ("true", "1", "yes"),
+        default=True,
+    )
     args = parser.parse_args()
 
     # Check gh availability

@@ -370,6 +370,13 @@ def _prune_backups(keep: int = 20) -> None:
 
 def _output(result: dict, as_json: bool = False) -> None:
     if as_json:
+        if "version" not in result:
+            from .ui.json_output import VERSION
+
+            result["version"] = VERSION
+            result["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            result.setdefault("warnings", [])
+            result.setdefault("errors", [])
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         _print_human(result)
@@ -865,16 +872,14 @@ def _ping_assistant(config_path: str, assistant_id: str, timeout: int = 15) -> d
 
 
 def resolve_config_path(args: argparse.Namespace) -> str:
-    if args.config:
+    if getattr(args, "config", None):
         return args.config
     env_path = os.environ.get("HERMES_ASSISTANTS_CONFIG")
     if env_path:
         return env_path
-    if os.path.exists(DEFAULT_CONFIG):
-        return DEFAULT_CONFIG
-    if os.path.exists(BUNDLED_CONFIG):
-        return BUNDLED_CONFIG
-    return DEFAULT_CONFIG
+    from .ops_config_io import deployed_or_bundled
+
+    return deployed_or_bundled("assistants.yaml")
 
 
 def _add_global_flags(p: argparse.ArgumentParser) -> None:

@@ -48,6 +48,17 @@ def _print_json(obj: dict) -> None:
     print(json.dumps(obj, indent=2))
 
 
+def _finish_and_exit(result: dict) -> None:
+    _print_json(result)
+    is_ok = result.get("ok", True)
+    if isinstance(is_ok, bool) and not is_ok:
+        sys.exit(1)
+    if result.get("status") in ("error", "failed", "unhealthy"):
+        sys.exit(1)
+    sys.exit(0)
+
+
+
 def _compute_status(backend: VaultwardenSecretBackend) -> dict:
     """Return a fingerprint/age report for all known provider secrets."""
     from .security.vaultwarden_backend import _classify_ref
@@ -1292,7 +1303,7 @@ def main() -> None:
         # ── Subcommand dispatch (new structured interface) ──
         if args.subcommand == "rotate":
             if args.provider == "all" and args.parallel:
-                _print_json(cmd_rotate_all_parallel(backend, dry_run=args.dry_run))
+                _finish_and_exit(cmd_rotate_all_parallel(backend, dry_run=args.dry_run))
             elif args.provider:
                 result = cmd_rotate(
                     backend,
@@ -1300,8 +1311,8 @@ def main() -> None:
                     manual_stdin=args.manual_new_key_stdin,
                     dry_run=args.dry_run,
                 )
-                _print_json(result)
-            sys.exit(0)
+                _finish_and_exit(result)
+            _finish_and_exit({"ok": False, "error": "No provider specified for rotate"})
 
         elif args.subcommand == "seed-admin":
             result = cmd_seed_admin(
@@ -1312,8 +1323,7 @@ def main() -> None:
                 project_number=args.project_number,
                 dry_run=args.dry_run,
             )
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "emergency":
             if not args.confirm_emergency:
@@ -1329,8 +1339,7 @@ def main() -> None:
                 args.provider,
                 revoke_only=args.revoke_only,
             )
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "resume":
             from .providers.rotation_state_machine import RotationState  # pyright: ignore[reportMissingImports]
@@ -1346,8 +1355,7 @@ def main() -> None:
 
             runner = RotationRunner(rotator, backend, state)
             result = runner.execute()
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "validate":
             candidate_key = sys.stdin.read().strip()
@@ -1356,7 +1364,7 @@ def main() -> None:
                 sys.exit(1)
             rotator = _get_rotator(args.provider, backend)
             vr = rotator.validate_new_key(candidate_key)
-            _print_json(
+            _finish_and_exit(
                 {
                     "ok": vr.valid,
                     "provider": args.provider,
@@ -1368,7 +1376,6 @@ def main() -> None:
                     },
                 }
             )
-            sys.exit(0)
 
         elif args.subcommand == "render-env":
             result = cmd_render_env(
@@ -1377,8 +1384,7 @@ def main() -> None:
             if getattr(args, "verify", False) and not args.dry_run and result.get("ok"):
                 verify = _verify_rendered_env(result.get("output", ""))
                 result["verify"] = verify
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "seed-from-env":
             result = cmd_seed_from_env(
@@ -1386,20 +1392,17 @@ def main() -> None:
                 dry_run=args.dry_run,
                 skip_existing=getattr(args, "skip_existing", True),
             )
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "backup-vault":
             result = cmd_backup_vault(
                 backend, output_path=getattr(args, "output", None)
             )
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "restore-vault":
             result = cmd_restore_vault(backend, args.input, dry_run=args.dry_run)
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "diff":
             result = cmd_diff_vault(
@@ -1407,13 +1410,11 @@ def main() -> None:
                 env_path=getattr(args, "env", None),
                 generated_path=getattr(args, "generated", None),
             )
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         elif args.subcommand == "migrate":
             result = cmd_migrate(backend)
-            _print_json(result)
-            sys.exit(0)
+            _finish_and_exit(result)
 
         # ── Backend commands (flat flags, backward-compatible) ──
         if args.healthcheck:
