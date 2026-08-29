@@ -29,7 +29,7 @@ import sys
 from ..ui.console import Console
 
 BUNDLED_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-from ..ops_config_io import OPS_KIT_DIR, HERMES_HOME  # noqa: E402
+from ..ops_config_io import OPS_KIT_DIR  # noqa: E402
 
 DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
 BUNDLED_CONFIG = os.path.join(BUNDLED_DIR, "config", "image_routes.yaml")
@@ -366,7 +366,7 @@ def handle_image_command(args: list[str]) -> int:
     setrt.add_argument("model", nargs="?", default=None, help="New model")
 
     # export
-    exp = sub.add_parser("export", help="Export image route config as JSON")
+    sub.add_parser("export", help="Export image route config as JSON")
     # NOTE: --json removed — export is always JSON output.
 
     parsed = parser.parse_args(args)

@@ -32,7 +32,7 @@ def get_generated_env_path() -> str:
 
 def load_hermes_env() -> dict[str, str]:
     """Load .env + .env.generated into os.environ; validate bootstrap vars."""
-    from .loader import load_env_dict, parse_env_file
+    from .loader import parse_env_file
 
     env = parse_env_file(get_hermes_env_path())
     gen = parse_env_file(get_generated_env_path())

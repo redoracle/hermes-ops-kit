@@ -105,7 +105,9 @@ def _get_adapter(provider: str, route_config: dict) -> Any:
         raise ValueError(f"Unknown image provider: {provider}")
 
 
-def _fallback_route(config: dict, current_route_key: str) -> tuple[str, dict] | None:
+def _fallback_route(
+    config: dict, current_route_key: str, exclude: set[str] | None = None
+) -> tuple[str, dict] | None:
     """Find the next best fallback route by priority.
 
     Args:
@@ -122,9 +124,13 @@ def _fallback_route(config: dict, current_route_key: str) -> tuple[str, dict] | 
     routes = config.get("routes", {})
     current_priority = routes.get(current_route_key, {}).get("priority", 999)
 
-    # Find next route with higher priority number (lower priority)
+    # Find next route with higher priority number (lower priority),
+    # never returning a route the caller already tried — otherwise two
+    # mutually-closest routes ping-pong forever (observed hang).
+    exclude = set(exclude or ())
+    exclude.add(current_route_key)
     candidates = sorted(
-        [(k, v) for k, v in routes.items() if k != current_route_key],
+        [(k, v) for k, v in routes.items() if k not in exclude],
         key=lambda x: x[1].get("priority", 999),
     )
 
@@ -256,10 +262,9 @@ def generate(
                 }
             )
 
-            # Try fallback (skip already-visited routes to prevent cycles)
-            fallback = _fallback_route(config, key)
-            while fallback and fallback[0] in visited_keys:
-                fallback = _fallback_route(config, fallback[0])
+            # Try fallback — visited routes are excluded, so this
+            # terminates and never cycles.
+            fallback = _fallback_route(config, key, exclude=visited_keys)
             if fallback:
                 key, route_cfg = fallback
                 provider = route_cfg.get("provider", "")
@@ -313,10 +318,8 @@ def generate(
             }
         )
 
-        # Try fallback (skip already-visited routes to prevent cycles)
-        fallback = _fallback_route(config, key)
-        while fallback and fallback[0] in visited_keys:
-            fallback = _fallback_route(config, fallback[0])
+        # Try fallback — visited routes are excluded, so this terminates.
+        fallback = _fallback_route(config, key, exclude=visited_keys)
         if fallback:
             key, route_cfg = fallback
             provider = route_cfg.get("provider", "")
