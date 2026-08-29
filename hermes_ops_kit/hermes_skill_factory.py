@@ -271,12 +271,23 @@ def _generate_skill(meta: dict, skill_name: str) -> str:
 
 
 def _write_skill(skill_name: str, content: str) -> str:
-    """Write SKILL.md to skills/<name>/SKILL.md."""
+    """Write SKILL.md to skills/<name>/SKILL.md atomically."""
+    import tempfile
+
     skill_dir = os.path.join(SKILLS_DIR, skill_name)
     os.makedirs(skill_dir, exist_ok=True)
     path = os.path.join(skill_dir, "SKILL.md")
-    with open(path, "w") as f:
-        f.write(content + "\n")
+    fd, tmp_path = tempfile.mkstemp(dir=skill_dir, prefix=".tmp_skill_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     return path
 
 

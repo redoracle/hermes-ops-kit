@@ -30,14 +30,21 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..ops_config_io import OPS_KIT_DIR
+from .. import ops_config_io
+from ..ops_config_io import ops_kit_dir
 from .cli import run_install_doctor
 from .installer_adapter import run_install
 from .repair import LOCK_NAME, _repair_locked, _snapshot
 from .state import HealthReport, HealthStatus, InstallationMode
 from ..security.lockfile import LockTimeoutError, provider_lock
 
-UPDATE_LOG = os.path.join(OPS_KIT_DIR, "update_log.jsonl")
+
+def update_log_path() -> str:
+    """Dynamic path to ~/.hermes/ops-kit/update_log.jsonl."""
+    return os.path.join(ops_kit_dir(), "update_log.jsonl")
+
+
+UPDATE_LOG = os.path.join(ops_config_io.HERMES_HOME, "ops-kit", "update_log.jsonl")
 
 
 @dataclass
@@ -97,9 +104,9 @@ def _head(source: str) -> str:
 def _record(entry: dict) -> None:
     """Append an outcome to the update ledger. No secrets ever logged."""
     try:
-        os.makedirs(OPS_KIT_DIR, exist_ok=True)
+        os.makedirs(ops_kit_dir(), exist_ok=True)
         entry.setdefault("ts", time.strftime("%Y-%m-%dT%H:%M:%S"))
-        with open(UPDATE_LOG, "a") as fh:
+        with open(update_log_path(), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry) + "\n")
     except OSError:
         pass  # ledger is best-effort; never blocks the transaction

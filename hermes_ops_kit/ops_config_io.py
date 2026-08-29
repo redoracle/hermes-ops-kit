@@ -32,6 +32,15 @@ def hermes_config() -> str:
     return os.path.join(HERMES_HOME, "config.yaml")
 
 
+def ops_kit_dir() -> str:
+    """Dynamic path to ~/.hermes/ops-kit.
+
+    Derives from HERMES_HOME at call time so tests and embedders that
+    monkeypatch ``ops_config_io.HERMES_HOME`` redirect ops-kit directories.
+    """
+    return os.path.join(HERMES_HOME, "ops-kit")
+
+
 def expand_home(path: str) -> str:
     """expanduser() that maps a leading ~/.hermes to the effective HERMES_HOME.
 

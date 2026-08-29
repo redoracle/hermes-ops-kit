@@ -36,15 +36,33 @@ EXPORT_DIR = os.path.join(ops_config_io.HERMES_HOME, "cache/documents")
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def export_dir() -> str:
+    """Dynamic path to ~/.hermes/cache/documents."""
+    return os.path.join(ops_config_io.HERMES_HOME, "cache", "documents")
+
+
 def _ensure_dir() -> str:
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-    return EXPORT_DIR
+    d = export_dir()
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def _write_file(filename: str, content: str) -> str:
-    path = os.path.join(_ensure_dir(), filename)
-    with open(path, "w") as f:
-        f.write(content)
+    import tempfile
+
+    target_dir = _ensure_dir()
+    path = os.path.join(target_dir, filename)
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix=".tmp_export_")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     return path
 
 

@@ -20,6 +20,11 @@ BUNDLED_CONFIG = os.path.join(
 )
 DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "headroom.yaml")
 
+
+def deployed_config() -> str:
+    """Dynamic path to ~/.hermes/ops-kit/headroom.yaml."""
+    return os.path.join(ops_config_io.ops_kit_dir(), "headroom.yaml")
+
 # Flags that would turn Headroom into a coding proxy — never allowed.
 FORBIDDEN_FLAGS = ("--code-aware", "--code-graph", "--learn")
 
@@ -46,17 +51,19 @@ DEFAULTS: dict = {
 
 def seed_deployed() -> None:
     """Copy the bundled headroom.yaml to ~/.hermes/ops-kit on first use."""
-    if os.path.exists(DEPLOYED_CONFIG) or not os.path.exists(BUNDLED_CONFIG):
+    target = deployed_config()
+    if os.path.exists(target) or not os.path.exists(BUNDLED_CONFIG):
         return
     ops_config_io.deployed_or_bundled("headroom.yaml", seed=True)
-    os.chmod(DEPLOYED_CONFIG, 0o600)
+    if os.path.exists(target):
+        os.chmod(target, 0o600)
 
 
 def load_settings() -> dict:
     """Return effective settings: DEFAULTS ← bundled ← deployed."""
     seed_deployed()
     merged = dict(DEFAULTS)
-    for path in (BUNDLED_CONFIG, DEPLOYED_CONFIG):
+    for path in (BUNDLED_CONFIG, deployed_config()):
         data = load_yaml(path).get("headroom") or {}
         if isinstance(data, dict):
             merged.update(data)
@@ -77,11 +84,12 @@ def load_settings() -> dict:
 def set_desired_enabled(enabled: bool) -> None:
     """Persist the desired state to the deployed headroom.yaml."""
     seed_deployed()
-    data = load_yaml(DEPLOYED_CONFIG)
+    target = deployed_config()
+    data = load_yaml(target)
     if not isinstance(data.get("headroom"), dict):
         data["headroom"] = {}
     data["headroom"]["enabled"] = bool(enabled)
-    save_yaml(DEPLOYED_CONFIG, data)
+    save_yaml(target, data)
 
 
 def proxy_root(settings: dict) -> str:
