@@ -35,11 +35,24 @@ def _plugin_yaml_version() -> str:
     raise AssertionError("plugin.yaml has no version field")
 
 
+def _compat_version() -> str:
+    import re as _re
+
+    from hermes_ops_kit import ops_config_io
+
+    text = open(
+        str(Path(ops_config_io.__file__).parent / "config" / "compat.yaml")
+    ).read()
+    m = _re.search(r'^ops_kit_version:\s*"?([0-9][^"\s]*)', text, _re.M)
+    return m.group(1) if m else "missing"
+
+
 def test_version_four_way_invariant():
     versions = {
         "pyproject.toml": _pyproject_version(),
         "plugin.yaml": _plugin_yaml_version(),
         "hermes_ops_kit.__version__": hermes_ops_kit.__version__,
         "plugin_scanner.__version__": scanner_version,
+        "config/compat.yaml ops_kit_version": _compat_version(),
     }
     assert len(set(versions.values())) == 1, f"version drift: {versions}"

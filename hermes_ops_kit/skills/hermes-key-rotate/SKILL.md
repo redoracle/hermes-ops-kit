@@ -60,11 +60,11 @@ hermes-key-rotate --provider deepseek --dry-run
 ```
 
 ```bash
-hermes-key-rotate --provider openai --apply
+hermes-key-rotate --provider openai --manual-new-key-stdin   # real rotation (interactive)
 ```
 
 ```bash
-hermes-key-rotate --rollback
+hermes-key-rotate --status    # fingerprints + age report (post-rotation check)
 ```
 
 ## Related

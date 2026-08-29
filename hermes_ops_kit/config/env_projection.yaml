@@ -59,4 +59,3 @@ env_projection:
   ASSISTANT_API_BASE: hermes/assistants/assistant-id/api_base
   ASSISTANT_API_KEY: hermes/assistants/assistant-id/api_key
   ASSISTANT_MODEL: hermes/assistants/assistant-id/model
-  ASSISTANT_TIMEOUT_SECONDS: hermes/assistants/assistant-id/timeout_seconds

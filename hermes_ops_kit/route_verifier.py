@@ -287,7 +287,7 @@ def verify_all_routes(
     ok = len(credential_gaps) == 0
     total_routes = len(AUX_SHORT_KEYS)
 
-    return {
+    report = {
         "ok": ok,
         "config_mtime": config_mtime.isoformat() if config_mtime else None,
         "evidence_window": {
@@ -313,6 +313,7 @@ def verify_all_routes(
             "failed": len(credential_gaps),
         },
     }
+    return report
 
 
 __all__ = [

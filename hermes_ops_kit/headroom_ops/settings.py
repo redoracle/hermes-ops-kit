@@ -68,7 +68,7 @@ def load_settings() -> dict:
         merged[key] = section
     merged["run_dir"] = ops_config_io.expand_home(str(merged["run_dir"]))
     merged["state_file"] = ops_config_io.expand_home(str(merged["state_file"]))
-    merged["memory_project_root"] = os.path.expanduser(
+    merged["memory_project_root"] = ops_config_io.expand_home(
         str(merged["memory_project_root"])
     )
     return merged

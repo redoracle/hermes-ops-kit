@@ -9,7 +9,7 @@ carries a parallel copy of the truth.
 | `~/.hermes/.env` | Secrets (bootstrap + hand-managed) | Loaded by `env.loader.load_dotenv` for **every** CLI subcommand (bridge.main) |
 | `~/.hermes/.env.generated` | Secrets rendered from Vaultwarden | Wins over `.env` for shared keys — both on read (`load_dotenv`) and on write (`_merge_generated_into_env` updates in place, atomically) |
 | `~/.hermes/ops-kit/routes.yaml` | Kit-owned deployed route labels | Falls back to packaged `hermes_ops_kit/config/routes.yaml`; route *profiles* live in `BUILTIN_PROFILES` (`hermes_route_manager.py`) — the `profiles:` block in routes.yaml is not read by `apply-profile` |
-| `~/.hermes/ops-kit/image_routes.yaml` | Kit-owned deployed image routes | Falls back to packaged copy; `image set-*` writes here (canonical `save_yaml` — always YAML) |
+| `~/.hermes/ops-kit/image_routes.yaml` | Kit-owned deployed image routes | Falls back to packaged copy; `image set-*` writes here (canonical `save_yaml` — always YAML); `policies.output_dir` is honored at generation time (expand_home-normalized) |
 | `~/.hermes/ops-kit/assistants.yaml` | Deployed assistants registry | **Wins** over packaged `config/assistants.yaml` (route-test reads deployed first) |
 | `~/.hermes/ops-kit/{budget,headroom,plugin_policy,obsidian_maintenance}.yaml` | Kit-owned operational state | Each falls back to its packaged default |
 | `hermes_ops_kit/config/*` | Packaged defaults only | Never the authority when a deployed file exists |
@@ -24,7 +24,7 @@ never hardcoded — route resolution and credential checks read
 - **`.env` / `.env.generated`** — sole parser: `env/loader.py` (`load_dotenv()`,
   `load_env_dict()`, `parse_env_file()`, `load_env_setdefault()`). Generated
   wins over `.env`; inline `#` comments require preceding whitespace
-  (python-dotenv semantics). JSON envelopes report the kit version. `env/env_loader.py` is a compat shim only.
+  (python-dotenv semantics). JSON envelopes report the kit version, and every `--json` mode uses the standard `ok_envelope` shape (ok/command/version/timestamp/result/errors) — test-enforced. `env/env_loader.py` is a compat shim only.
   `usage_metrics_v2.load_env_file` delegates to `load_env_setdefault()`
   (never clobbers real env vars).
 - **`HERMES_HOME`** — sole path authority: `ops_config_io.HERMES_HOME` /
@@ -70,5 +70,6 @@ never hardcoded — route resolution and credential checks read
 | `HERMES_HOME` | `ops_config_io.HERMES_HOME` | `~/.hermes` | every path in the kit |
 | `HERMES_ASSISTANTS_CONFIG` | explicit assistants.yaml path override | `$HERMES_HOME/ops-kit/assistants.yaml` | `assistants/registry.py`, `hermes_assistant_manager.py` |
 | `HERMES_PLUGIN_POLICY_PATH` | explicit plugin_policy.json override | `$HERMES_HOME/ops-kit/plugin_policy.json` | `security/plugin_scanner/policy.py` |
+| `ASSISTANT_TIMEOUT_SECONDS` | default for `assistant ping --timeout` | `15` | `hermes_assistant_manager.py` |
 | `HERMES_TEST_MODE` | test fixtures in usage output | unset | `usage_metrics_v2.py` |
 | `SKIP_RATELIMIT_PROBE` | skip live ratelimit probing | unset | `usage_metrics_v2.py` |

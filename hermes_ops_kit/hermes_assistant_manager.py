@@ -994,7 +994,11 @@ def main() -> None:
     ping_p = sub.add_parser("ping")
     _add_global_flags(ping_p)
     ping_p.add_argument("assistant_id")
-    ping_p.add_argument("--timeout", type=int, default=15)
+    ping_p.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("ASSISTANT_TIMEOUT_SECONDS", "15")),
+    )  # env knob is the documented default; CLI flag overrides
 
     # discover
     disc_p = sub.add_parser("discover")

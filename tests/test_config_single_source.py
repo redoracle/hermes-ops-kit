@@ -150,6 +150,7 @@ def test_no_hardcoded_hermes_home_paths():
         "ops_config_io.py",
         'os_config_io.expand_home',
         "~/.hermes/ops-kit/workflows/flux-text2image.json",  # default passed to expand_home
+        "~/.hermes/cache/images",  # _DEFAULT_CACHE_DIR passed to expand_home
         'memory_project_root": "~/.hermes"',  # default passed to expand_home
         '"run_dir": "~/.hermes/',
         '"state_file": "~/.hermes/',

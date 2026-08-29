@@ -135,6 +135,7 @@ def test_assistant_never_in_provider_keys():
         r = run_cli(["usage_metrics_v2.py", "--json"], env=env)
     data = try_json(r.stdout)
     assert data is not None
+    data = data.get("result", data)  # standard ok_envelope contract
     provider_keys = {k for k in data if not k.startswith("_")}
     assert "test-assistant" not in provider_keys, (
         f"Assistant leaked into provider keys: {provider_keys}"

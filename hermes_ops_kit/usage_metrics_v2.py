@@ -1071,9 +1071,25 @@ def check_hermes_status() -> dict:
         except Exception:
             pass
 
+    # Probe the installed hermes-agent version (was a stale hardcoded
+    # "0.15.1" that contradicted compat.yaml and the real install).
+    agent_version = "unknown"
+    try:
+        agent_manifest = os.path.join(
+            ops_config_io.expand_home("~/.hermes"), "hermes-agent", "pyproject.toml"
+        )
+        if os.path.exists(agent_manifest):
+            with open(agent_manifest) as f:
+                for line in f:
+                    if line.startswith("version"):
+                        agent_version = line.split("=")[1].strip().strip('"\'')
+                        break
+    except Exception:
+        pass
+
     return {
         "agent": "hermes-agent",
-        "version": "0.15.1",
+        "version": agent_version,
         "gateway_running": gw,
         "bridge_skill_loaded": any(
             os.path.isfile(os.path.join(root, "SKILL.md"))
@@ -2605,7 +2621,9 @@ def main():
     )
 
     if args.json:
-        print(json.dumps(results, indent=2, default=str))
+        from .ui.json_output import ok_envelope
+
+        print(json.dumps(ok_envelope("usage", results), indent=2, default=str))
     elif args.compact:
         _out(fmt_compact(results))
     elif args.models:

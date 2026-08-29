@@ -14,12 +14,28 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from ...env import loader as _env_loader
-from ...ops_config_io import HERMES_HOME
 
 
-IMAGE_CACHE_DIR = os.path.join(HERMES_HOME, "cache", "images")
+_DEFAULT_CACHE_DIR = "~/.hermes/cache/images"
 _ENV_LOADED = False
 _ENV_LOCK = threading.Lock()
+
+
+def _cache_dir() -> str:
+    """Effective image output dir (policies.output_dir wins, expand_home-normalized).
+
+    Derived at call time so the HERMES_HOME override and the documented
+    output_dir config knob are both honored (IMAGE_CACHE_DIR was an
+    import-frozen constant that ignored both).
+    """
+    from ...ops_config_io import expand_home, load_yaml, deployed_or_bundled
+
+    cfg = load_yaml(deployed_or_bundled("image_routes.yaml"))
+    out = ""
+    pol = cfg.get("policies", {}) if isinstance(cfg, dict) else {}
+    if isinstance(pol, dict):
+        out = str(pol.get("output_dir", "")).strip()
+    return expand_home(out or _DEFAULT_CACHE_DIR)
 
 
 def load_dotenv() -> None:
@@ -51,8 +67,9 @@ ASPECT_RATIO_MAP = {
 
 def ensure_cache_dir() -> str:
     """Create the image cache directory if it doesn't exist."""
-    os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
-    return IMAGE_CACHE_DIR
+    d = _cache_dir()
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def make_output_path(provider: str, ext: str = "png") -> str:
@@ -64,7 +81,7 @@ def make_output_path(provider: str, ext: str = "png") -> str:
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     uid = str(uuid.uuid4())[:8]
-    return os.path.join(IMAGE_CACHE_DIR, f"{provider}_{ts}_{uid}.{ext}")
+    return os.path.join(_cache_dir(), f"{provider}_{ts}_{uid}.{ext}")
 
 
 def build_envelope(

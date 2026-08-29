@@ -441,6 +441,28 @@ def _check_bypass_section(
                 False,
                 "provider='auto' → resolves to primary at runtime",
             )
+        elif provider.startswith("custom:"):
+            # Custom providers carry their own key_env in config.yaml —
+            # same resolution as the CREDENTIALS section, so the two
+            # sections can never contradict each other.
+            key_env = next(
+                (
+                    str(cp.get("key_env", "")).strip()
+                    for cp in hc.get("custom_providers", []) or []
+                    if isinstance(cp, dict)
+                    and f"custom:{cp.get('name', '')}" == provider
+                ),
+                "",
+            )
+            ok = bool(key_env and env_vars.get(key_env, "").strip())
+            _check(
+                f"aux {sk}",
+                ok,
+                f"{provider}:{model or 'default'} ({key_env} set)"
+                if ok
+                else f"provider={provider} but no credential "
+                f"({key_env or 'no key_env in config'} not set)",
+            )
         elif not _credential_for_provider(provider, env_vars)[0]:
             _check(
                 f"aux {sk}",
@@ -500,7 +522,13 @@ def _handle_route_test(args: list[str]) -> int:
 
         report = verify_fallback_chain(hc)
         if json_mode:
-            print(json.dumps(report, indent=2, default=str))
+            from .ui.json_output import ok_envelope
+
+            print(
+                json.dumps(
+                    ok_envelope("route-test", report), indent=2, default=str
+                )
+            )
             return 0 if report["ok"] else 1
 
         print("Fallback Chain Verification")
@@ -555,7 +583,9 @@ def _handle_route_test(args: list[str]) -> int:
         print(f"Route verification failed: {e}")
         return 1
     if json_mode:
-        print(json.dumps(report, indent=2, default=str))
+        from .ui.json_output import ok_envelope
+
+        print(json.dumps(ok_envelope("route-test", report), indent=2, default=str))
         return 0 if report["ok"] else 1
 
     print(
