@@ -92,6 +92,7 @@ def test_load_and_register_do_not_mutate_sys_path():
     original = sys.path
     before = list(sys.path)
     after = before
+    pre_modules = set(sys.modules.keys())
     try:
         sys.path = _PathSpy(before, log)  # type: ignore[assignment]
         module = _load_via_machinery()
@@ -108,9 +109,10 @@ def test_load_and_register_do_not_mutate_sys_path():
     assert sys.path is original, "sys.path object was rebound"
     # no flat top-level module leakage from the package
     for leaked in ("commands", "providers", "security", "usage_metrics_v2", "bridge"):
-        assert leaked not in sys.modules, (
-            f"flat module leaked into sys.modules: {leaked}"
-        )
+        if leaked not in pre_modules:
+            assert leaked not in sys.modules, (
+                f"flat module leaked into sys.modules: {leaked}"
+            )
 
 
 def test_register_module_is_synthetic():

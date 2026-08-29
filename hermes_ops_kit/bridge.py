@@ -114,29 +114,27 @@ def cmd_health():
     )
 
 
+_SECURITY_CAPABILITIES = {
+    "uses_mcp_vault": True,
+    "returns_raw_secrets": False,
+    "redacts_stdout": True,
+    "redacts_stderr": True,
+}
+
+
 def cmd_capabilities(provider: str | None = None):
     """Return capabilities for all or specific provider."""
     if provider:
         caps = CAPABILITIES.get(provider, {"error": f"Unknown provider: {provider}"})
         caps["provider"] = provider
-        caps["security"] = {
-            "uses_mcp_vault": True,
-            "returns_raw_secrets": False,
-            "redacts_stdout": True,
-            "redacts_stderr": True,
-        }
+        caps["security"] = dict(_SECURITY_CAPABILITIES)
         print(json.dumps(caps, indent=2))
     else:
         result = {}
         for p, caps in CAPABILITIES.items():
             caps["provider"] = p
             caps["installed"] = module_file(PROVIDERS.get(p, "")).is_file()
-            caps["security"] = {
-                "uses_mcp_vault": True,
-                "returns_raw_secrets": False,
-                "redacts_stdout": True,
-                "redacts_stderr": True,
-            }
+            caps["security"] = dict(_SECURITY_CAPABILITIES)
             result[p] = caps
         print(json.dumps(result, indent=2))
 

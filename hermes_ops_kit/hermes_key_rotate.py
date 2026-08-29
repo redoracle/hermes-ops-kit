@@ -692,26 +692,21 @@ def cmd_backup_vault(
             }
         )
 
-    import json as _json
+    payload = {
+        "version": 1,
+        "timestamp": int(time.time()),
+        "ref_count": len(refs),
+        "secrets": entries,
+    }
 
-    payload = _json.dumps(
-        {
-            "version": 1,
-            "timestamp": int(time.time()),
-            "ref_count": len(refs),
-            "secrets": entries,
-        },
-        indent=2,
-    )
-
-    from .env.atomic_write import atomic_write
+    from .env.atomic_write import atomic_write_json
 
     path = output_path or os.path.join(
         ops_config_io.HERMES_HOME, "ops-kit/vault-backup.json"
     )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     # Atomic: a crash mid-write must never truncate the incident-restore file.
-    atomic_write(path, payload)
+    atomic_write_json(path, payload)
     return {"ok": True, "output": path, "ref_count": len(refs)}
 
 

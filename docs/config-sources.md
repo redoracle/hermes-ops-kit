@@ -62,6 +62,8 @@ never hardcoded — route resolution and credential checks read
   env-var name literals are test-banned outside the catalog. Adapters, rotators, usage probes, doctor credential checks
   and budget classes all derive from it (test-enforced subset invariant:
   `tests/test_provider_registry_sync.py::test_providers_subset_of_catalog`).
+  *Capabilities Seam Note:* `bridge.CAPABILITIES` describes command dispatch semantics and metadata per provider, while `provider_catalog.py` is the data authority for model names, base URLs, credentials, and aliases. `bridge.CAPABILITIES` derives its model lists directly from `provider_catalog.PROVIDER_MODELS` (pinned by `tests/test_provider_registry_sync.py`).
+
 
 ### Override env vars (documented, one default each)
 

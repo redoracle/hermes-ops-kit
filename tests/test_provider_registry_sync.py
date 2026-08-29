@@ -237,3 +237,14 @@ def test_provider_aliases_total_and_conservative() -> None:
     for alias, canonical in PROVIDER_ALIASES.items():
         assert canonical in PROVIDER_ENV_KEYS, f"{alias} -> unknown {canonical}"
         # (copilot is intentionally also a dispatch key with its own entry)
+
+
+def test_route_runtime_harness_default_models_in_catalog() -> None:
+    """Default fallback models in route_runtime_harness must exist in catalog."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_MODELS
+
+    # route_runtime_harness:162 utility default (gemini-2.5-flash)
+    assert "gemini-2.5-flash" in PROVIDER_MODELS["gemini"]
+    # route_runtime_harness:190, 611 primary default (gpt-5.4-mini)
+    assert "gpt-5.4-mini" in PROVIDER_MODELS["openai"]
+
