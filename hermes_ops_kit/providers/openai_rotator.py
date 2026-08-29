@@ -33,6 +33,8 @@ OPENAI_API_KEY_REF = "hermes/openai/api_key"
 OPENAI_ADMIN_KEY_REF = "hermes/openai/admin_key"
 OPENAI_PROJECT_ID_REF = "hermes/openai/project_id"
 
+from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
 
 class OpenAIRotator(BaseRotator):
     """Rotate OpenAI API keys using project service accounts."""
@@ -369,7 +371,7 @@ class OpenAIRotator(BaseRotator):
             new_fp=new_fp,
             old_revoked=old_revoked,
             manual_action=not old_revoked,
-            env_keys_updated=["OPENAI_API_KEY"],
+            env_keys_updated=list(PROVIDER_ENV_KEYS["openai"]),
         )
 
         return {

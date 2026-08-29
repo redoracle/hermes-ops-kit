@@ -32,6 +32,8 @@ from ..security.secret_backend import (  # pyright: ignore[reportMissingImports]
 NVIDIA_API_REF = "hermes/nvidia/api_key"
 NVIDIA_BASE_URL_REF = "hermes/nvidia/base_url"
 
+from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
 # Default NIM base URL (serverless NVIDIA API endpoint)
 NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 # A known-available model for validation/smoke probes
@@ -337,7 +339,7 @@ class NvidiaRotator(BaseRotator):
             new_fp=new_fp,
             old_revoked=False,
             manual_action=True,
-            env_keys_updated=["NVIDIA_API_KEY"],
+            env_keys_updated=list(PROVIDER_ENV_KEYS["nvidia"]),
         )
 
         return {

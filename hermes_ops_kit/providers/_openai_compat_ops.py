@@ -34,6 +34,7 @@ import uuid
 from datetime import datetime
 
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
+from ..provider_catalog import first_available_key, key_envs_for
 
 
 # ─── Adapter ──────────────────────────────────────────────────────────
@@ -102,8 +103,9 @@ class OpenAICompatAdapter:
         import openai  # pyright: ignore[reportMissingImports]
 
         timeout = int(os.environ.get(cls.timeout_env, "60"))
+        key_var = first_available_key(cls.provider) or cls.api_key_env
         return openai.OpenAI(
-            api_key=os.environ.get(cls.api_key_env),
+            api_key=os.environ.get(key_var),
             base_url=os.environ.get(cls.base_url_env, cls.base_url_default),
             timeout=timeout,
         )
@@ -261,14 +263,16 @@ def run_cli(adapter_cls: type[OpenAICompatAdapter]) -> None:
     )
     args = parser.parse_args()
 
-    api_key = os.environ.get(adapter_cls.api_key_env)
+    key_var = first_available_key(adapter_cls.provider) or adapter_cls.api_key_env
+    api_key = os.environ.get(key_var)
     if not api_key and args.operation != "models":
+        keys_str = ", ".join(key_envs_for(adapter_cls.provider)) or key_var
         print(
             json.dumps(
                 {
                     "ok": False,
-                    "error": f"{adapter_cls.api_key_env} not set in environment",
-                    "hint": f"Set {adapter_cls.api_key_env} in ~/.hermes/.env or via vault injection",
+                    "error": f"No {adapter_cls.provider} credential set (expected any of: {keys_str})",
+                    "hint": f"Set {key_var} in ~/.hermes/.env or via vault injection",
                 }
             )
         )

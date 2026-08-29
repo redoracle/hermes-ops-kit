@@ -42,6 +42,8 @@ ANTHROPIC_API_KEY_ID_REF = "hermes/anthropic/api_key_id"
 
 SUPPORTED_MODES = ["validate-only", "manual-new-key", "deactivate-old", "admin-hybrid"]
 
+from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
 
 class AnthropicRotator(BaseRotator):
     """Rotate Anthropic API keys using Admin API (hybrid mode)."""
@@ -421,7 +423,7 @@ class AnthropicRotator(BaseRotator):
             new_fp=new_fp,
             old_revoked=old_archived,
             manual_action=not old_archived,
-            env_keys_updated=["ANTHROPIC_API_KEY"],
+            env_keys_updated=list(PROVIDER_ENV_KEYS["anthropic"]),
         )
 
         return {
