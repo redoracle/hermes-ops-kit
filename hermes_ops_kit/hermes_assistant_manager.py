@@ -42,7 +42,25 @@ from typing import Any
 
 # ─── Constants ────────────────────────────────────────────────────────
 
+from . import ops_config_io  # noqa: E402
 from .ops_config_io import OPS_KIT_DIR as CONFIG_DIR  # noqa: E402
+
+
+def _config_dir() -> str:
+    return ops_config_io.ops_kit_dir()
+
+
+def _backup_dir() -> str:
+    return os.path.join(ops_config_io.ops_kit_dir(), "backups")
+
+
+def _default_config() -> str:
+    return os.path.join(ops_config_io.ops_kit_dir(), "assistants.yaml")
+
+
+def _lock_path() -> str:
+    return os.path.join(ops_config_io.ops_kit_dir(), "assistants.yaml.lock")
+
 
 BACKUP_DIR = os.path.join(CONFIG_DIR, "backups")
 DEFAULT_CONFIG = os.path.join(CONFIG_DIR, "assistants.yaml")
@@ -319,11 +337,12 @@ def _validate(data: dict[str, Any]) -> list[ValError]:
 
 def _acquire_lock(timeout: int = 10) -> bool:
     """Acquire advisory lock on assistants.yaml. Returns True if acquired."""
-    os.makedirs(CONFIG_DIR, exist_ok=True)
+    os.makedirs(_config_dir(), exist_ok=True)
     deadline = time.time() + timeout
+    lpath = _lock_path()
     while time.time() < deadline:
         try:
-            fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR | os.O_TRUNC, 0o600)
+            fd = os.open(lpath, os.O_CREAT | os.O_RDWR | os.O_TRUNC, 0o600)
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return True
         except (BlockingIOError, OSError):
@@ -334,8 +353,9 @@ def _acquire_lock(timeout: int = 10) -> bool:
 def _release_lock() -> None:
     """Release advisory lock."""
     try:
-        if os.path.exists(LOCK_PATH):
-            os.remove(LOCK_PATH)
+        lpath = _lock_path()
+        if os.path.exists(lpath):
+            os.remove(lpath)
     except OSError:
         pass
 
@@ -345,9 +365,10 @@ def _release_lock() -> None:
 
 def _backup(config_path: str) -> str:
     """Create timestamped backup. Returns backup path."""
-    os.makedirs(BACKUP_DIR, exist_ok=True)
+    bdir = _backup_dir()
+    os.makedirs(bdir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = os.path.join(BACKUP_DIR, f"assistants.yaml.{ts}.bak")
+    backup_path = os.path.join(bdir, f"assistants.yaml.{ts}.bak")
     shutil.copy2(config_path, backup_path)
     _prune_backups()
     return backup_path
@@ -355,14 +376,15 @@ def _backup(config_path: str) -> str:
 
 def _prune_backups(keep: int = 20) -> None:
     """Keep only the most recent N backups."""
-    if not os.path.exists(BACKUP_DIR):
+    bdir = _backup_dir()
+    if not os.path.exists(bdir):
         return
     backups = sorted(
-        [f for f in os.listdir(BACKUP_DIR) if f.endswith(".bak")],
+        [f for f in os.listdir(bdir) if f.endswith(".bak")],
         reverse=True,
     )
     for old in backups[keep:]:
-        os.remove(os.path.join(BACKUP_DIR, old))
+        os.remove(os.path.join(bdir, old))
 
 
 # ─── Output Helpers ────────────────────────────────────────────────────
@@ -1236,7 +1258,7 @@ def main() -> None:
         elif args.command == "restore":
             backup_path = args.backup_file
             if not os.path.isabs(backup_path):
-                backup_path = os.path.join(BACKUP_DIR, backup_path)
+                backup_path = os.path.join(_backup_dir(), backup_path)
             if not os.path.exists(backup_path):
                 print(f"ERROR: Backup not found: {backup_path}", file=sys.stderr)
                 sys.exit(EXIT_BACKUP)
