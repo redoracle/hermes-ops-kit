@@ -24,7 +24,7 @@ import os
 import sys
 import time
 import uuid
-from ..provider_catalog import first_available_key  # noqa: E402
+from ..provider_catalog import first_available_key, key_envs_for  # noqa: E402
 from datetime import datetime
 
 # Add parent directory for shared Hermes security module
@@ -218,8 +218,8 @@ def main():
             json.dumps(
                 {
                     "ok": False,
-                    "error": "OPENAI_API_KEY not set in environment",
-                    "hint": "Set OPENAI_API_KEY in ~/.hermes/.env or via vault injection",
+                    "error": f"No openai credential set (any of: {', '.join(key_envs_for('openai'))})",
+                    "hint": "Set a listed key in ~/.hermes/.env or via vault injection",
                 }
             )
         )

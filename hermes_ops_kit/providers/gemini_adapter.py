@@ -28,7 +28,7 @@ import time
 # Add parent directory for shared Hermes security module
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
-from ..provider_catalog import first_available_key  # noqa: E402
+from ..provider_catalog import first_available_key, key_envs_for  # noqa: E402
 
 ALLOWED_MODELS = [
     "gemini-2.5-pro",
@@ -61,7 +61,7 @@ def op_generate(
 
     api_key = os.environ.get(first_available_key("gemini") or "")
     if not api_key:
-        return {"ok": False, "error": "GEMINI_API_KEY not set"}
+        return {"ok": False, "error": f"No gemini credential set (any of: {', '.join(key_envs_for('gemini'))})"}
 
     client = genai.Client(api_key=api_key)
 
@@ -116,7 +116,7 @@ def op_grounded(
 
     api_key = os.environ.get(first_available_key("gemini") or "")
     if not api_key:
-        return {"ok": False, "error": "GEMINI_API_KEY not set"}
+        return {"ok": False, "error": f"No gemini credential set (any of: {', '.join(key_envs_for('gemini'))})"}
 
     client = genai.Client(api_key=api_key)
 

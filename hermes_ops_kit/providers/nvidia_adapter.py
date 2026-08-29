@@ -36,7 +36,7 @@ import time
 # Add parent directory for shared Hermes security module
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
-from ..provider_catalog import first_available_key  # noqa: E402
+from ..provider_catalog import first_available_key, key_envs_for  # noqa: E402
 from datetime import datetime
 
 # ─── NVIDIA NIM API config ────────────────────────────────────────
@@ -297,8 +297,8 @@ def main():
             json.dumps(
                 {
                     "ok": False,
-                    "error": "NVIDIA_API_KEY not set in environment",
-                    "hint": "Set NVIDIA_API_KEY in ~/.hermes/.env or via vault injection",
+                    "error": f"No nvidia credential set (any of: {', '.join(key_envs_for('nvidia'))})",
+                    "hint": "Set a listed key in ~/.hermes/.env or via vault injection",
                 }
             )
         )
