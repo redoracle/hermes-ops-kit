@@ -16,7 +16,7 @@ import os
 import urllib.request
 
 
-from ...provider_catalog import first_available_key, has_credential  # noqa: E402
+from ...provider_catalog import first_available_key, has_credential, key_envs_for  # noqa: E402
 
 from ...image_routes.adapters.base import (
     BaseImageAdapter,
@@ -76,7 +76,7 @@ class OpenAIImageAdapter(BaseImageAdapter):
                 False,
                 provider=self.provider_name,
                 model=model or self.default_model,
-                error="OPENAI_API_KEY not set in environment",
+                error=f"No {self.provider_name} credential set (any of: {', '.join(key_envs_for('openai'))})",
                 error_type="MissingAPIKey",
             )
 

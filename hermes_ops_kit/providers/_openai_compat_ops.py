@@ -266,12 +266,11 @@ def run_cli(adapter_cls: type[OpenAICompatAdapter]) -> None:
     key_var = first_available_key(adapter_cls.provider) or adapter_cls.api_key_env
     api_key = os.environ.get(key_var)
     if not api_key and args.operation != "models":
-        keys_str = ", ".join(key_envs_for(adapter_cls.provider)) or key_var
         print(
             json.dumps(
                 {
                     "ok": False,
-                    "error": f"No {adapter_cls.provider} credential set (expected any of: {keys_str})",
+                    "error": f"{key_var} not set in environment",
                     "hint": f"Set {key_var} in ~/.hermes/.env or via vault injection",
                 }
             )

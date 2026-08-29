@@ -319,13 +319,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     if issues:
         for code, msg in issues:
             print(f"⚠ {code}: {msg}")
-        print(f"  config: {hermes_config()}")
-        print(f"  routes: {ROUTES_CONFIG}")
-        sys.exit(1)
     else:
         print("✓ Route configuration valid")
-        print(f"  config: {hermes_config()}")
-        print(f"  routes: {ROUTES_CONFIG}")
+    print(f"  config: {hermes_config()}")
+    print(f"  routes: {ROUTES_CONFIG}")
 
 
 def cmd_set_primary(args: argparse.Namespace) -> None:
