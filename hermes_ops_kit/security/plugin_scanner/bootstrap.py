@@ -46,20 +46,6 @@ SCANNER_CONFIG_PATH = OPS_KIT_DIR / "plugin_scanner.yaml"
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_SCANNER_CONFIG = Path(__file__).resolve().parent / "plugin_scanner.yaml"
 PLUGIN_MANIFEST = ROOT_DIR / "plugin.yaml"
-
-
-def _ops_kit_dir() -> Path:
-    return Path(ops_config_io.ops_kit_dir())
-
-
-def _report_dir() -> Path:
-    return _ops_kit_dir() / "reports"
-
-
-def _scanner_config_path() -> Path:
-    return _ops_kit_dir() / "plugin_scanner.yaml"
-
-
 DISCLAIMER = (
     "Security scanning reduces risk but does not guarantee that a plugin is safe. "
     "It performs static analysis and optional external-tool checks before execution, "
@@ -80,16 +66,15 @@ def _ops_kit_version() -> str:
 
 def _ensure_default_scanner_config(*, dry_run: bool = False) -> dict[str, Any]:
     """Create ~/.hermes/ops-kit/plugin_scanner.yaml if missing."""
-    config_path = _scanner_config_path()
-    exists = config_path.exists()
+    exists = SCANNER_CONFIG_PATH.exists()
     created = not exists and not dry_run
     if created:
-        _ops_kit_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
-        shutil.copy2(DEFAULT_SCANNER_CONFIG, config_path)
-        os.chmod(config_path, 0o600)
+        OPS_KIT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.copy2(DEFAULT_SCANNER_CONFIG, SCANNER_CONFIG_PATH)
+        os.chmod(SCANNER_CONFIG_PATH, 0o600)
     return {
         "created": created,
-        "path": str(config_path),
+        "path": str(SCANNER_CONFIG_PATH),
         "exists": exists or created,
         "would_create": not exists and dry_run,
     }
@@ -142,17 +127,16 @@ def _summarize_scan_results(results: list[Any]) -> dict[str, Any]:
 
 
 def _report_paths(report_stem: str) -> dict[str, str]:
-    rdir = _report_dir()
     return {
-        "directory": str(rdir),
-        "json": str(rdir / f"{report_stem}.json"),
-        "text": str(rdir / f"{report_stem}.txt"),
+        "directory": str(REPORT_DIR),
+        "json": str(REPORT_DIR / f"{report_stem}.json"),
+        "text": str(REPORT_DIR / f"{report_stem}.txt"),
     }
 
 
 def _write_reports(report_stem: str, payload: dict[str, Any]) -> dict[str, str]:
     paths = _report_paths(report_stem)
-    _report_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     payload["report_paths"] = paths
 
     lines = [
