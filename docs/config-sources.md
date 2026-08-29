@@ -23,7 +23,8 @@ never hardcoded — route resolution and credential checks read
 
 - **`.env` / `.env.generated`** — sole parser: `env/loader.py` (`load_dotenv()`,
   `load_env_dict()`, `parse_env_file()`, `load_env_setdefault()`). Generated
-  wins over `.env`. `env/env_loader.py` is a compat shim only.
+  wins over `.env`; inline `#` comments require preceding whitespace
+  (python-dotenv semantics). JSON envelopes report the kit version. `env/env_loader.py` is a compat shim only.
   `usage_metrics_v2.load_env_file` delegates to `load_env_setdefault()`
   (never clobbers real env vars).
 - **`HERMES_HOME`** — sole path authority: `ops_config_io.HERMES_HOME` /
@@ -31,7 +32,12 @@ never hardcoded — route resolution and credential checks read
   paths or reads `HERMES_HOME` from the environment directly
   (test-enforced: `tests/test_config_single_source.py`, including `scripts/*.sh`).
 - **YAML reads** — via `ops_config_io.load_yaml` (ruamel → PyYAML → JSON,
-  `{}` on missing/empty/unparseable/non-mapping roots). Fail-closed callers
+  `{}` on missing/empty/unparseable/non-mapping roots; `deployed_or_bundled`
+  derives its dir from `HERMES_HOME` at call time; all atomic writers use
+  unique `mkstemp` temps with `finally` cleanup). `policy/engine.py` and
+  `plugin_scanner/bootstrap._ops_kit_version` also use `load_yaml` (packaged
+  files, same fail-open semantics); `security/credential_read_guard.py`
+  probes the raw `HERMES_HOME` env deliberately (profile-mode dual root). Fail-closed callers
   use `ops_config_io.load_yaml_strict` (raises `ConfigError`); the
   security-critical loaders in `plugin_scanner/enforce.py` and
   `mcp_auditor/auditor.py` keep their own raising implementations
@@ -48,8 +54,12 @@ never hardcoded — route resolution and credential checks read
   for every ops-kit config (headroom, budget, obsidian_maintenance, routes,
   image_routes, assistants; plugin_scanner bootstrap keeps its own seeding
   that reports creation).
-- **Provider truth** — `provider_catalog.py`: models, env keys, base URLs,
-  copilot catalog. Adapters, rotators, usage probes, doctor credential checks
+- **Provider truth** — `provider_catalog.py`: models, env keys (incl.
+  `fal`/`cloudflare` image backends), base URLs, copilot catalog, alias
+  normalization (`PROVIDER_ALIASES`), and the credential resolvers
+  `key_envs_for` / `first_available_key` / `has_credential` — every consumer
+  (adapters, rotators, usage probes, image router) resolves through these;
+  env-var name literals are test-banned outside the catalog. Adapters, rotators, usage probes, doctor credential checks
   and budget classes all derive from it (test-enforced subset invariant:
   `tests/test_provider_registry_sync.py::test_providers_subset_of_catalog`).
 

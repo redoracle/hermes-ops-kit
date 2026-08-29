@@ -15,6 +15,8 @@ import os
 
 # Allow importing from parent package
 
+from ...provider_catalog import first_available_key, has_credential  # noqa: E402
+
 from ...image_routes.adapters.base import (
     BaseImageAdapter,
     load_dotenv,
@@ -35,7 +37,7 @@ class GeminiImageAdapter(BaseImageAdapter):
         as a generation error rather than a misleading "READY" status.
         """
         load_dotenv()
-        return bool(os.environ.get("GEMINI_API_KEY"))
+        return has_credential("gemini")
 
     def generate(
         self,
@@ -50,7 +52,7 @@ class GeminiImageAdapter(BaseImageAdapter):
         from google.genai import types  # pyright: ignore[reportMissingImports]
 
         load_dotenv()
-        api_key = os.environ.get("GEMINI_API_KEY")
+        api_key = os.environ.get(first_available_key("gemini") or "")
         if not api_key:
             return build_envelope(
                 False,
@@ -66,7 +68,10 @@ class GeminiImageAdapter(BaseImageAdapter):
         # key. Since ops-kit standardises on GEMINI_API_KEY, suppress
         # GOOGLE_API_KEY while the client is alive so there is exactly
         # one key source and no warning.
-        google_key = os.environ.pop("GOOGLE_API_KEY", None)
+        from ...provider_catalog import PROVIDER_ENV_KEYS
+
+        alias_keys = PROVIDER_ENV_KEYS["gemini"][1:]  # non-primary aliases
+        saved = {k: os.environ.pop(k, None) for k in alias_keys}
         try:
             model_id = model or self.default_model
             ratio = ASPECT_RATIO_MAP.get(aspect_ratio, "16:9")
@@ -74,8 +79,9 @@ class GeminiImageAdapter(BaseImageAdapter):
             client = genai.Client(api_key=api_key)
 
         finally:
-            if google_key is not None:
-                os.environ["GOOGLE_API_KEY"] = google_key
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
 
         start = self._start_timer()
         image_paths = []

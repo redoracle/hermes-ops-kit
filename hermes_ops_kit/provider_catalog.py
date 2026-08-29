@@ -56,6 +56,9 @@ PROVIDER_ENV_KEYS: dict[str, tuple[str, ...]] = {
     "zai": ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
     "github": ("GITHUB_TOKEN", "GH_TOKEN"),
     "copilot": ("GITHUB_TOKEN", "GH_TOKEN"),
+    # image-generation backends (not LLM text providers)
+    "fal": ("FAL_KEY",),
+    "cloudflare": ("CLOUDFLARE_API_TOKEN",),
 }
 
 
@@ -78,6 +81,49 @@ def provider_base_url(provider: str) -> str:
 
     default, env_var = PROVIDER_BASE_URLS[provider]
     return os.environ.get(env_var, default)
+
+
+# Provider name normalization: external/config names → canonical key.
+# Single copy — usage_metrics_v2._PROVIDER_NORMALIZE and commands.py doctor
+# normalization derive from this (identity mappings omitted).
+PROVIDER_ALIASES: dict[str, str] = {
+    "copilot": "github",
+    "openai-api": "openai",
+    "anthropic-api": "anthropic",
+}
+
+
+def normalize_provider(provider: str) -> str:
+    """Canonical provider key for an external/config name."""
+    return PROVIDER_ALIASES.get(provider, provider)
+
+
+def key_envs_for(provider: str) -> tuple[str, ...]:
+    """All credential env vars for a provider, in precedence order."""
+    return PROVIDER_ENV_KEYS.get(normalize_provider(provider.lower()), ())
+
+
+def first_available_key(
+    provider: str, env_vars: dict[str, str] | None = None
+) -> str | None:
+    """First set credential env var for *provider*, or None.
+
+    Callers that only checked the FIRST env var misreported alias-only
+    environments (GOOGLE_API_KEY-only, GH_TOKEN-only, ZAI_API_KEY-only)
+    as credential-less — this checks every declared alias.
+    """
+    import os
+
+    env = os.environ if env_vars is None else env_vars
+    for key in key_envs_for(provider):
+        if str(env.get(key, "")).strip():
+            return key
+    return None
+
+
+def has_credential(provider: str, env_vars: dict[str, str] | None = None) -> bool:
+    """True when *provider* has any declared credential env var set."""
+    return first_available_key(provider, env_vars) is not None
 
 
 # GitHub Copilot model catalog (GH_COPILOT_STUDIO curation — not queryable

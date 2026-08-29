@@ -30,7 +30,7 @@ from typing import Any
 
 from ..headroom_ops import daemon  # noqa: E402
 from ..headroom_ops.settings import load_settings  # noqa: E402
-from ..ops_config_io import HERMES_CONFIG, backup_file, load_yaml, save_yaml  # noqa: E402
+from ..ops_config_io import backup_file, hermes_config, load_yaml, save_yaml  # noqa: E402
 
 PROVIDER_NAME = "headroom"
 
@@ -164,10 +164,10 @@ def reconcile(dry_run: bool = False, desired_override: bool | None = None) -> di
             settings["enabled"] = desired_override
         result["desired"] = "enabled" if settings.get("enabled") else "disabled"
 
-        hermes_cfg = load_yaml(HERMES_CONFIG)
+        hermes_cfg = load_yaml(hermes_config())
         if not hermes_cfg:
             result["ok"] = False
-            result["errors"].append(f"cannot read {HERMES_CONFIG}")
+            result["errors"].append(f"cannot read {hermes_config()}")
             return result
 
         collisions = collision_findings(hermes_cfg, settings)
@@ -235,8 +235,8 @@ def _restore_direct(
         slot = (hermes_cfg.get("auxiliary") or {}).get(aux_key)
         if isinstance(slot, dict):
             slot["base_url"] = prev.get("base_url", "")
-    result["backup"] = backup_file(HERMES_CONFIG, suffix=".headroom")
-    save_yaml(HERMES_CONFIG, hermes_cfg)
+    result["backup"] = backup_file(hermes_config(), suffix=".headroom")
+    save_yaml(hermes_config(), hermes_cfg)
     _clear_snapshot(settings)
     result["action"] = "restored_direct"
     result["proxied_after"] = False
@@ -348,8 +348,8 @@ def _reconcile_enable(
         slot["base_url"] = str(settings["base_url"]).rstrip("/")
 
     _write_snapshot(settings, snapshot)
-    result["backup"] = backup_file(HERMES_CONFIG, suffix=".headroom")
-    save_yaml(HERMES_CONFIG, hermes_cfg)
+    result["backup"] = backup_file(hermes_config(), suffix=".headroom")
+    save_yaml(hermes_config(), hermes_cfg)
     result["action"] = "enabled"
     result["proxied_after"] = True
 

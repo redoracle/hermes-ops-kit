@@ -166,3 +166,74 @@ def test_providers_subset_of_catalog() -> None:
 
     unknown = [p for p in um.PROVIDERS if p not in PROVIDER_ENV_KEYS]
     assert not unknown, f"PROVIDERS not backed by provider_catalog: {unknown}"
+
+
+def test_no_provider_env_key_literals_outside_catalog() -> None:
+    """Provider credential env-var names live only in provider_catalog.
+
+    Consumers must resolve via PROVIDER_ENV_KEYS / first_available_key /
+    has_credential. Mirrors the base-url invariant test.
+    """
+    import subprocess
+    import os as _os
+
+    root = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+        "hermes_ops_kit",
+    )
+    catalog_values = {
+        v for tup in __import__("hermes_ops_kit.provider_catalog", fromlist=["x"]).PROVIDER_ENV_KEYS.values() for v in tup
+    }
+    result = subprocess.run(
+        ["grep", "-rn", "-e", "_API_KEY", "-e", "GITHUB_TOKEN", "-e", "GH_TOKEN",
+         "-e", "FAL_KEY", "-e", "CLOUDFLARE_API_TOKEN", root, "--include=*.py"],
+        capture_output=True,
+        text=True,
+    )
+    offenders = []
+    for line in result.stdout.strip().splitlines():
+        if "provider_catalog.py" in line:
+            continue
+        if "security/" in line or "/tests/" in line:
+            continue  # secret-backend patterns, deliberate
+        # rotator env-write records and the gh-auth special case are
+        # write/behavior semantics, not credential lookup
+        if "env_keys_updated" in line or "github_rotator.py" in line:
+            continue
+        if "render_env.py" in line:
+            continue  # env->vault-ref projection map (different axis)
+        if 'env_var == "GITHUB_TOKEN"' in line:
+            continue
+        # only flag lines that reference a catalog env-var name as a literal
+        if any(f'"{v}"' in line or f"'{v}'" in line for v in catalog_values):
+            offenders.append(line)
+    assert not offenders, f"env-key literals outside catalog:\n{chr(10).join(offenders)}"
+
+
+def test_rotator_env_keys_derive_from_catalog() -> None:
+    """Thin-rotator env_key attributes must equal the catalog's primary var."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_ENV_KEYS
+    import hermes_ops_kit.providers.deepseek_rotator as ds
+    import hermes_ops_kit.providers.fireworks_rotator as fw
+    import hermes_ops_kit.providers.deepinfra_rotator as di
+
+    assert ds.DeepSeekRotator.env_key == PROVIDER_ENV_KEYS["deepseek"][0]
+    assert fw.FireworksRotator.env_key == PROVIDER_ENV_KEYS["fireworks"][0]
+    assert di.DeepInfraRotator.env_key == PROVIDER_ENV_KEYS["deepinfra"][0]
+
+
+def test_image_providers_in_catalog() -> None:
+    """Image backends fal/cloudflare are catalog entries (key resolution SSOT)."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_ENV_KEYS
+
+    assert PROVIDER_ENV_KEYS.get("fal") == ("FAL_KEY",)
+    assert "CLOUDFLARE_API_TOKEN" in PROVIDER_ENV_KEYS.get("cloudflare", ())
+
+
+def test_provider_aliases_total_and_conservative() -> None:
+    """PROVIDER_ALIASES maps only onto real catalog providers."""
+    from hermes_ops_kit.provider_catalog import PROVIDER_ALIASES, PROVIDER_ENV_KEYS
+
+    for alias, canonical in PROVIDER_ALIASES.items():
+        assert canonical in PROVIDER_ENV_KEYS, f"{alias} -> unknown {canonical}"
+        # (copilot is intentionally also a dispatch key with its own entry)

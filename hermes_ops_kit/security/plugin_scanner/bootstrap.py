@@ -56,16 +56,11 @@ DISCLAIMER = (
 
 
 def _ops_kit_version() -> str:
-    try:
-        import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
+    from ...ops_config_io import load_yaml
 
-        with open(PLUGIN_MANIFEST) as f:
-            data = _yaml.safe_load(f) or {}
-        version = data.get("version")
-        if isinstance(version, str) and version:
-            return version
-    except Exception:
-        pass
+    version = load_yaml(PLUGIN_MANIFEST).get("version")
+    if isinstance(version, str) and version:
+        return version
     return "unknown"
 
 

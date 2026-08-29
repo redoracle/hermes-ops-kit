@@ -356,13 +356,9 @@ def healthcheck() -> dict:
             status = "offline"
         else:
             # Check if an API key is configured at all
-            env_var = {
-                "gemini": "GEMINI_API_KEY",
-                "openai": "OPENAI_API_KEY",
-                "fal": "FAL_KEY",
-                "cloudflare": "CLOUDFLARE_API_TOKEN",
-            }.get(provider, "")
-            has_key = bool(env_var and os.environ.get(env_var))
+            from ..provider_catalog import first_available_key
+
+            has_key = bool(first_available_key(provider))
             status = "no-quota" if has_key else "no-key"
 
         results[key] = {

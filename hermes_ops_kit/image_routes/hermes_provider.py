@@ -99,6 +99,13 @@ _MODELS: Dict[str, Dict[str, Any]] = {
 DEFAULT_MODEL = "auto"
 
 
+def _catalog_key(provider: str) -> str:
+    """Primary credential env var for a provider (catalog-derived)."""
+    from ..provider_catalog import PROVIDER_ENV_KEYS
+
+    return PROVIDER_ENV_KEYS.get(provider, ("",))[0]
+
+
 def _is_background_edit_request(prompt: str, kwargs: Dict[str, Any]) -> bool:
     """Infer subject-preserving background edit intent."""
     edit_mode = kwargs.get("edit_mode")
@@ -163,17 +170,17 @@ class OpsKitRouterProvider(ImageGenProvider):  # pyright: ignore[reportGeneralTy
             "tag": "Multi-backend router: local ComfyUI → Gemini Image → OpenAI → FAL",
             "env_vars": [
                 {
-                    "key": "GEMINI_API_KEY",
+                    "key": _catalog_key("gemini"),
                     "prompt": "Gemini API key (for fast cloud generation)",
                     "url": "https://aistudio.google.com/apikey",
                 },
                 {
-                    "key": "OPENAI_API_KEY",
+                    "key": _catalog_key("openai"),
                     "prompt": "OpenAI API key (for high quality generation)",
                     "url": "https://platform.openai.com/api-keys",
                 },
                 {
-                    "key": "FAL_KEY",
+                    "key": _catalog_key("fal"),
                     "prompt": "FAL.ai API key (for cloud fallback)",
                     "url": "https://fal.ai/dashboard/keys",
                 },

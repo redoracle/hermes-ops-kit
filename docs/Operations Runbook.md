@@ -43,8 +43,8 @@ hermes-ops-kit image doctor
 ### Incident: Key Compromised
 
 ```bash
-# 1. Immediate rotation with emergency flag
-echo "sk-new-key" | hermes-key-rotate rotate --provider <provider> --manual-new-key-stdin --emergency
+# 1. Immediate rotation (emergency — separate subcommand)
+echo "sk-new-key" | hermes-key-rotate emergency --provider <provider> --yes-i-understand-downtime-risk
 
 # 2. Verify new key works
 hermes-key-rotate --status --provider <provider>

@@ -17,6 +17,7 @@ import os
 import urllib.error
 import urllib.request
 
+from ...provider_catalog import first_available_key  # noqa: E402
 from ...image_routes.adapters.base import (
     BaseImageAdapter,
     load_dotenv,
@@ -36,7 +37,7 @@ class CloudflareImageAdapter(BaseImageAdapter):
         """Check CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are set."""
         load_dotenv()
         return bool(
-            os.environ.get("CLOUDFLARE_API_TOKEN")
+            os.environ.get(first_available_key("cloudflare") or "")
             and os.environ.get("CLOUDFLARE_ACCOUNT_ID")
         )
 
@@ -60,7 +61,7 @@ class CloudflareImageAdapter(BaseImageAdapter):
                 error_type="UnsupportedFeature",
             )
         load_dotenv()
-        api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+        api_token = os.environ.get(first_available_key("cloudflare") or "")
         account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
         if not api_token or not account_id:
             return build_envelope(

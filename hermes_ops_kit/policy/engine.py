@@ -19,21 +19,12 @@ def _load_rules() -> dict[str, Any]:
     global _RULES
     if _RULES is not None:
         return _RULES
-    paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.yaml"),
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            try:
-                import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
+    from ..ops_config_io import load_yaml
 
-                with open(p) as f:
-                    loaded = _yaml.safe_load(f) or {}
-                _RULES = loaded if isinstance(loaded, dict) else {}
-                return _RULES
-            except Exception:
-                pass
-    _RULES = {}
+    rules_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.yaml")
+    # Canonical loader: {} on missing/unparseable/non-mapping — identical
+    # fail-open semantics to the previous private parser.
+    _RULES = load_yaml(rules_path)
     return _RULES
 
 

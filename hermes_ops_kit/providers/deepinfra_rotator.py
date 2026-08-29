@@ -22,4 +22,6 @@ class DeepInfraRotator(OpenAICompatRotator):
     _catalog_default, base_url_env = PROVIDER_BASE_URLS["deepinfra"]
     base_url_default = _catalog_default
     chat_model = "deepseek-ai/DeepSeek-V4-Flash"
-    env_key = "DEEPINFRA_API_KEY"
+    from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+    env_key = PROVIDER_ENV_KEYS["deepinfra"][0]

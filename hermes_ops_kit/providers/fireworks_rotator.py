@@ -22,4 +22,6 @@ class FireworksRotator(OpenAICompatRotator):
     _catalog_default, base_url_env = PROVIDER_BASE_URLS["fireworks"]
     base_url_default = _catalog_default
     chat_model = "accounts/fireworks/models/glm-5p2"
-    env_key = "FIREWORKS_API_KEY"
+    from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+    env_key = PROVIDER_ENV_KEYS["fireworks"][0]

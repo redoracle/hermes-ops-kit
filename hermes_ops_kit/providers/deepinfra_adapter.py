@@ -31,7 +31,9 @@ class DeepInfraAdapter(OpenAICompatAdapter):
     # derive from provider_catalog (single source of truth)
     _catalog_default, base_url_env = PROVIDER_BASE_URLS["deepinfra"]
     base_url_default = _catalog_default
-    api_key_env = "DEEPINFRA_API_KEY"
+    from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+    api_key_env = PROVIDER_ENV_KEYS["deepinfra"][0]
     timeout_env = "DEEPINFRA_TIMEOUT"
     allowed_models = [
         "deepseek-ai/DeepSeek-V4-Flash",  # default; fast general chat

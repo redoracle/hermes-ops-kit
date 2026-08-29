@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import time
+from ..provider_catalog import first_available_key  # noqa: E402
 
 # Add parent directory for shared Hermes security module
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
@@ -73,7 +74,7 @@ def op_api_chat(
     """Anthropic Messages API call."""
     import anthropic  # pyright: ignore[reportMissingImports]
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = anthropic.Anthropic(api_key=os.environ.get(first_available_key("anthropic") or ""))
 
     api_model = MODEL_MAP.get(model, model)
 
@@ -111,7 +112,7 @@ def op_api_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) 
     """Structured extraction with tool use forcing JSON output."""
     import anthropic  # pyright: ignore[reportMissingImports]
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = anthropic.Anthropic(api_key=os.environ.get(first_available_key("anthropic") or ""))
 
     api_model = MODEL_MAP.get(model, model)
 

@@ -33,6 +33,9 @@ GEMINI_API_KEY_REF = "hermes/google/gemini_api_key"
 GOOGLE_PROJECT_ID_REF = "hermes/google/project_id"
 
 
+from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+
 class GoogleRotator(BaseRotator):
     """Rotate Google Gemini API keys via the API Keys API."""
 
@@ -380,7 +383,7 @@ class GoogleRotator(BaseRotator):
             new_fp=new_fp,
             old_revoked=bool(old_key_id),
             manual_action=not bool(old_key_id),
-            env_keys_updated=["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            env_keys_updated=list(PROVIDER_ENV_KEYS["gemini"]),
         )
 
         return {

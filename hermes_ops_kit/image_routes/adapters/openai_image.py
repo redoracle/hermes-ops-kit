@@ -16,6 +16,8 @@ import os
 import urllib.request
 
 
+from ...provider_catalog import first_available_key, has_credential  # noqa: E402
+
 from ...image_routes.adapters.base import (
     BaseImageAdapter,
     load_dotenv,
@@ -47,7 +49,7 @@ class OpenAIImageAdapter(BaseImageAdapter):
     def is_available(self) -> bool:
         """Check that OPENAI_API_KEY is set and the SDK is importable."""
         load_dotenv()
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not has_credential("openai"):
             return False
         try:
             import openai  # noqa: F401  # pyright: ignore[reportMissingImports]
@@ -68,7 +70,7 @@ class OpenAIImageAdapter(BaseImageAdapter):
         import openai  # pyright: ignore[reportMissingImports]
 
         load_dotenv()
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get(first_available_key("openai") or "")
         if not api_key:
             return build_envelope(
                 False,

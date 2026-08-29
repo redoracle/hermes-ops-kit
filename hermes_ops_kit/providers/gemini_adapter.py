@@ -28,6 +28,7 @@ import time
 # Add parent directory for shared Hermes security module
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
+from ..provider_catalog import first_available_key  # noqa: E402
 
 ALLOWED_MODELS = [
     "gemini-2.5-pro",
@@ -58,7 +59,7 @@ def op_generate(
     """Gemini API generate content."""
     from google import genai  # pyright: ignore[reportAttributeAccessIssue]
 
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get(first_available_key("gemini") or "")
     if not api_key:
         return {"ok": False, "error": "GEMINI_API_KEY not set"}
 
@@ -113,7 +114,7 @@ def op_grounded(
     """Gemini API with Google Search grounding."""
     from google import genai  # pyright: ignore[reportAttributeAccessIssue]
 
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get(first_available_key("gemini") or "")
     if not api_key:
         return {"ok": False, "error": "GEMINI_API_KEY not set"}
 

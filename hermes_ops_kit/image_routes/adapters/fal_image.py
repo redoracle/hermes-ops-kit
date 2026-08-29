@@ -13,6 +13,7 @@ import os
 import urllib.request
 
 
+from ...provider_catalog import first_available_key, has_credential  # noqa: E402
 from ...image_routes.adapters.base import (
     BaseImageAdapter,
     load_dotenv,
@@ -30,7 +31,7 @@ class FALImageAdapter(BaseImageAdapter):
     def is_available(self) -> bool:
         """Check FAL_KEY is set and FAL API is reachable."""
         load_dotenv()
-        return bool(os.environ.get("FAL_KEY"))
+        return has_credential("fal")
 
     def generate(
         self,
@@ -51,7 +52,7 @@ class FALImageAdapter(BaseImageAdapter):
                 error_type="UnsupportedFeature",
             )
         load_dotenv()
-        api_key = os.environ.get("FAL_KEY")
+        api_key = os.environ.get(first_available_key("fal") or "")
         if not api_key:
             return build_envelope(
                 False,

@@ -31,7 +31,9 @@ class FireworksAdapter(OpenAICompatAdapter):
     # derive from provider_catalog (single source of truth)
     _catalog_default, base_url_env = PROVIDER_BASE_URLS["fireworks"]
     base_url_default = _catalog_default
-    api_key_env = "FIREWORKS_API_KEY"
+    from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+    api_key_env = PROVIDER_ENV_KEYS["fireworks"][0]
     timeout_env = "FIREWORKS_TIMEOUT"
     allowed_models = [
         "accounts/fireworks/models/glm-5p2",  # default; fast general chat

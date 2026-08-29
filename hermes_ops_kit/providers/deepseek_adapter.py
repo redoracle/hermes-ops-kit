@@ -35,7 +35,9 @@ class DeepSeekAdapter(OpenAICompatAdapter):
     # derive from provider_catalog (single source of truth)
     _catalog_default, base_url_env = PROVIDER_BASE_URLS["deepseek"]
     base_url_default = _catalog_default
-    api_key_env = "DEEPSEEK_API_KEY"
+    from ..provider_catalog import PROVIDER_ENV_KEYS  # noqa: E402
+
+    api_key_env = PROVIDER_ENV_KEYS["deepseek"][0]
     timeout_env = "DEEPSEEK_TIMEOUT"
     allowed_models = [
         "deepseek-v4-flash",  # fast/cheap general chat; temperature + JSON output

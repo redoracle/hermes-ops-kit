@@ -704,13 +704,14 @@ def cmd_backup_vault(
         indent=2,
     )
 
-    path = output_path or os.path.join(ops_config_io.HERMES_HOME, "ops-kit/vault-backup.json")
+    from .env.atomic_write import atomic_write
+
+    path = output_path or os.path.join(
+        ops_config_io.HERMES_HOME, "ops-kit/vault-backup.json"
+    )
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write(payload)
-        f.flush()
-        os.fsync(f.fileno())
-    os.chmod(path, 0o600)
+    # Atomic: a crash mid-write must never truncate the incident-restore file.
+    atomic_write(path, payload)
     return {"ok": True, "output": path, "ref_count": len(refs)}
 
 

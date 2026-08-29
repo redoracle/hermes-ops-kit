@@ -24,6 +24,7 @@ import os
 import sys
 import time
 import uuid
+from ..provider_catalog import first_available_key  # noqa: E402
 from datetime import datetime
 
 # Add parent directory for shared Hermes security module
@@ -71,7 +72,7 @@ def op_chat(
     """OpenAI Chat Completions API call."""
     import openai  # pyright: ignore[reportMissingImports]
 
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = openai.OpenAI(api_key=os.environ.get(first_available_key("openai") or ""))
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -109,7 +110,7 @@ def op_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) -> d
     """Structured extraction with JSON response_format."""
     import openai  # pyright: ignore[reportMissingImports]
 
-    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = openai.OpenAI(api_key=os.environ.get(first_available_key("openai") or ""))
 
     start = time.time()
     response = client.chat.completions.create(
@@ -211,7 +212,7 @@ def main():
     args = parser.parse_args()
 
     # Validate API key presence
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = os.environ.get(first_available_key("openai") or "")
     if not api_key and args.operation != "models":
         print(
             json.dumps(

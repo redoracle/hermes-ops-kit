@@ -127,7 +127,7 @@ See: [[Architecture]] (Data Flow: Env Rendering Safety section), [[Threat Model]
 | **manual-new-key** | `--manual-new-key-stdin` | User pipes key via stdin. Key never echoed.                                            | All                       |
 | **admin-hybrid**   | (default)                | Uses admin API to auto-create key, validate, store. Requires admin key in Vaultwarden. | OpenAI, Anthropic, Google |
 | **bootstrap**      | `seed-from-env`          | Migrates keys from `~/.hermes/.env` into Vaultwarden. Initial setup only.              | All                       |
-| **emergency**      | `--emergency`            | Immediate revoke + replace. Skips backup retention.                                    | All                       |
+| **emergency**      | `--yes-i-understand-downtime-risk` | Immediate revoke + replace. Skips backup retention.                                    | All                       |
 
 ### Manual vs Auto-Rotation Matrix
 
@@ -219,7 +219,7 @@ hermes-key-rotate rotate --provider openai --dry-run
 
 ```bash
 # Immediate revoke + replace on key compromise
-echo "sk-emergency-key" | hermes-key-rotate rotate --provider openai --manual-new-key-stdin --emergency
+echo "sk-emergency-key" | hermes-key-rotate emergency --provider openai --yes-i-understand-downtime-risk
 ```
 
 ### Validate

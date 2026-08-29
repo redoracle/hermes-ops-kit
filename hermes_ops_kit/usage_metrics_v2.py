@@ -39,7 +39,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List
 from hermes_ops_kit import ops_config_io  # noqa: E402
-from hermes_ops_kit.provider_catalog import provider_base_url  # noqa: E402
+from hermes_ops_kit.provider_catalog import (  # noqa: E402
+    provider_base_url,
+    first_available_key,
+    has_credential,
+    PROVIDER_ALIASES,
+)
 from hermes_ops_kit.security.redaction import redact  # noqa: E402
 
 # ─── Provider registry (single source of truth) ──────────────────
@@ -259,7 +264,7 @@ def _fetch_openai_models(key: str):
 
 
 def check_openai(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get("OPENAI_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("openai") or "", "")
     if not key:
         return {
             "provider": "openai",
@@ -329,7 +334,7 @@ def check_openai(api_key: str | None = None) -> dict:
 
 
 def check_anthropic(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("anthropic") or "", "")
     if not key:
         return {
             "provider": "anthropic",
@@ -471,7 +476,7 @@ def check_github() -> dict:
         )
         authed = auth.returncode == 0 or rl.returncode == 0
         # Check if GITHUB_TOKEN env var is set (enables 5000 req/hr vs 60 unauthenticated)
-        has_token = bool(os.environ.get("GITHUB_TOKEN"))
+        has_token = has_credential("github")
         core = resources.get("core", {})
         # Copilot model catalog (from GH_COPILOT_STUDIO, June 2026 — not queryable via API)
         from .provider_catalog import COPILOT_MODELS
@@ -513,7 +518,7 @@ def check_github() -> dict:
 
 
 def check_gemini(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get("GEMINI_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("gemini") or "", "")
     if not key:
         return {
             "provider": "gemini",
@@ -604,7 +609,7 @@ def _fetch_deepseek_balance(key: str) -> dict:
 
 
 def check_deepseek(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("deepseek") or "", "")
     if not key:
         return {
             "provider": "deepseek",
@@ -669,7 +674,7 @@ def check_nvidia(api_key: str | None = None) -> dict:
     Rate limit headers (x-ratelimit-*) are captured from the /v1/models
     response when available.
     """
-    key = api_key or os.environ.get("NVIDIA_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("nvidia") or "", "")
     if not key:
         return {
             "provider": "nvidia",
@@ -796,7 +801,7 @@ def check_fireworks(api_key: str | None = None) -> dict:
     Fireworks exposes no dedicated billing endpoint; pricing is read from
     /models metadata and models.dev by Hermes core, so has_cost_api=False here.
     """
-    key = api_key or os.environ.get("FIREWORKS_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("fireworks") or "", "")
     if not key:
         return {
             "provider": "fireworks",
@@ -851,7 +856,7 @@ def check_deepinfra(api_key: str | None = None) -> dict:
     DeepInfra exposes no separate billing endpoint; pricing is embedded in the
     catalog metadata.pricing, so has_cost_api=False here.
     """
-    key = api_key or os.environ.get("DEEPINFRA_API_KEY", "")
+    key = api_key or os.environ.get(first_available_key("deepinfra") or "", "")
     if not key:
         return {
             "provider": "deepinfra",
@@ -1395,16 +1400,11 @@ def build_image_routes(results: dict) -> list:
 
 
 # Provider name normalization: hermes config → bridge internal name
+# Derived from provider_catalog.PROVIDER_ALIASES + identity mappings for
+# known keys (so .get() lookups never fall through for canonical names).
 _PROVIDER_NORMALIZE = {
-    "copilot": "github",
-    "github": "github",
-    "gemini": "gemini",
-    "openai": "openai",
-    "openai-api": "openai",
-    "anthropic": "anthropic",
-    "anthropic-api": "anthropic",
-    "deepseek": "deepseek",
-    "nvidia": "nvidia",
+    **PROVIDER_ALIASES,
+    **{k: k for k in ("github", "gemini", "openai", "anthropic", "deepseek", "nvidia")},
 }
 
 from .config.route_map import aux_display_triples  # noqa: E402
