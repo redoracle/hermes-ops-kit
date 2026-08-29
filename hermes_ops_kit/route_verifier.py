@@ -133,9 +133,9 @@ def extract_route_evidence(
         List of evidence dicts with keys: ts, task, provider, model, mode, raw
     """
     if log_path is None:
-        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs/agent.log")
+        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs", "agent.log")
     if since is None:
-        since = _config_mtime(os.path.join(ops_config_io.HERMES_HOME, "config.yaml"))
+        since = _config_mtime(ops_config_io.hermes_config())
 
     if not os.path.exists(log_path):
         return []
@@ -172,7 +172,7 @@ def check_credential_gaps(
     Each gap dict has: route, provider, model, issue
     """
     if config_path is None:
-        config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+        config_path = ops_config_io.hermes_config()
 
     from .config.route_map import AUX_SHORT_KEYS, aux_config_key
 
@@ -182,9 +182,8 @@ def check_credential_gaps(
     def _credential_for_provider(provider: str) -> tuple[bool, str]:
         """Check if a provider has credentials in the env."""
         provider_lower = provider.lower()
-        from .provider_catalog import PROVIDER_ENV_KEYS
+        from .provider_catalog import first_available_key
 
-        env_map = PROVIDER_ENV_KEYS
         # Custom providers (custom:<name>) carry their own key_env in the
         # Hermes config — resolve it instead of relying on the static map.
         if provider_lower.startswith("custom:"):
@@ -195,9 +194,9 @@ def check_credential_gaps(
                         return True, f"{key_env} set"
                     break
             return False, f"no credential for {provider}"
-        for env_var in env_map.get(provider_lower, ()):
-            if env_vars.get(env_var, "").strip():
-                return True, f"{env_var} set"
+        key = first_available_key(provider_lower, env_vars)
+        if key:
+            return True, f"{key} set"
         return False, f"no credential for {provider}"
 
     aux_cfg = cfg.get("auxiliary", {}) or {}
@@ -258,9 +257,9 @@ def verify_all_routes(
       - summary: {total_checks, passed, failed}
     """
     if hermes_config_path is None:
-        hermes_config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+        hermes_config_path = ops_config_io.hermes_config()
     if log_path is None:
-        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs/agent.log")
+        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs", "agent.log")
 
     config_mtime = _config_mtime(hermes_config_path)
     cfg = _load_yaml(hermes_config_path)
