@@ -88,7 +88,10 @@ jobs:
           fi
           VERSION=$(cat .release-prepared)
           echo "Syncing version files for ${VERSION}"
-          for FILE in pyproject.toml plugin.yaml hermes_ops_kit/__init__.py hermes_ops_kit/security/plugin_scanner/__init__.py; do
+          # 5-way invariant (tests/test_versions.py): compat.yaml ops_kit_version
+          # must be bumped with the other four or the version test fails post-release.
+          sed -i.bak "s/^ops_kit_version: \".*\"/ops_kit_version: \"${VERSION}\"/" hermes_ops_kit/config/compat.yaml && rm -f hermes_ops_kit/config/compat.yaml.bak
+          for FILE in pyproject.toml plugin.yaml hermes_ops_kit/__init__.py hermes_ops_kit/security/plugin_scanner/__init__.py hermes_ops_kit/config/compat.yaml; do
             [ -f "$FILE" ] || { echo "WARN: $FILE missing — skipping"; continue; }
             SHA=$(gh api "repos/${{ github.repository }}/contents/$FILE" --jq '.sha')
             ENCODED=$(base64 -w 0 "$FILE")
