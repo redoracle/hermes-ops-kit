@@ -57,7 +57,10 @@ def _parse_line(line: str) -> tuple[str, str] | None:
         for i, c in enumerate(line):
             if c in ('"', "'"):
                 break
-            if c == "#":
+            # '#' begins a comment only when preceded by whitespace —
+            # otherwise it is part of the value (python-dotenv semantics,
+            # so load_dotenv() and load_env_dict() never disagree).
+            if c == "#" and (i == 0 or line[i - 1] in (" ", "\t")):
                 line = line[:i].strip()
                 break
     if "=" not in line:

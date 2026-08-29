@@ -2,7 +2,7 @@
 
 Every --json mode across all tools must use this envelope:
 
-    {"ok": true, "command": "list", "version": "0.1.0",
+    {"ok": true, "command": "list", "version": "<kit version>",
      "timestamp": "2026-06-03T12:00:00Z", "result": {},
      "warnings": [], "errors": []}
 
@@ -15,7 +15,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-VERSION = "0.1.0"
+try:  # kit version — keep the envelope version in lockstep with releases
+    from hermes_ops_kit import __version__ as VERSION  # noqa: E402
+except Exception:  # pragma: no cover
+    VERSION = "0.0.0"
 
 
 def ok_envelope(

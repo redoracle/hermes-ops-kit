@@ -600,6 +600,8 @@ def _handle_mcp(args: list[str]) -> int:
         print(fmt_audit(result))
     elif sub == "list":
         result = run_audit()
+        if not result.get("servers"):
+            print("No MCP servers configured in config.yaml (mcp_servers:)")
         for s in result["servers"]:
             print(
                 f"  ● {s['server_id']} ({s['transport']}) tools={len(s['tools'])} risk={s['risk']}"
@@ -664,7 +666,15 @@ def _mcp_approve(
     approve_tool_fn,
 ) -> int:
     """Handle `hermes-ops-kit mcp approve ...`."""
-    if not args or "--all" in args:
+    if not args:
+        # Bare `mcp approve` must NOT silently approve everything —
+        # approving all servers requires the explicit --all flag.
+        print("mcp approve requires an explicit target:")
+        print("  hermes-ops-kit mcp approve --server <id>")
+        print("  hermes-ops-kit mcp approve --tool <full_id>")
+        print("  hermes-ops-kit mcp approve --all   # explicit global approval")
+        return 1
+    if "--all" in args:
         # Approve all known MCP servers atomically
         server_ids = []
         try:
