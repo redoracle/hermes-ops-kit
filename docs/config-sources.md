@@ -28,13 +28,15 @@ never hardcoded — route resolution and credential checks read
   `usage_metrics_v2.load_env_file` delegates to `load_env_setdefault()`
   (never clobbers real env vars).
 - **`HERMES_HOME`** — sole path authority: `ops_config_io.HERMES_HOME` /
-  `expand_home()` / `hermes_config()`. No module constructs `~/.hermes`
+  `expand_home()` / `hermes_config()` / `ops_kit_dir()`. No module constructs `~/.hermes`
   paths or reads `HERMES_HOME` from the environment directly
   (test-enforced: `tests/test_config_single_source.py`, including `scripts/*.sh`).
-- **YAML reads** — via `ops_config_io.load_yaml` (ruamel → PyYAML → JSON,
+  Subsystems (assistants manager, headroom reconciler, install reconciler, skill factory,
+  export center, and security bootstrap) derive runtime paths dynamically at call-time.
+- **YAML reads & Atomic writes** — via `ops_config_io.load_yaml` (ruamel → PyYAML → JSON,
   `{}` on missing/empty/unparseable/non-mapping roots; `deployed_or_bundled`
   derives its dir from `HERMES_HOME` at call time; all atomic writers use
-  unique `mkstemp` temps with `finally` cleanup). `policy/engine.py` and
+  unique `mkstemp` temps with `os.fsync`, `fchmod` (0o600 for secrets/backups), and atomic `os.replace` with `finally` cleanup). `policy/engine.py` and
   `plugin_scanner/bootstrap._ops_kit_version` also use `load_yaml` (packaged
   files, same fail-open semantics); `security/credential_read_guard.py`
   probes the raw `HERMES_HOME` env deliberately (profile-mode dual root). Fail-closed callers
