@@ -12,7 +12,7 @@ import argparse
 import os
 from hermes_ops_kit import ops_config_io  # noqa: E402
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 
 def _ensure_image_gen_config() -> None:
