@@ -11,8 +11,8 @@
   <a href="https://pypi.org"><img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
-  <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.3.0-orange" alt="v0.3.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-283%20passed-brightgreen" alt="283 tests"></a>
+  <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.11.0-orange" alt="v0.11.0"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-381%20passed-brightgreen" alt="381 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -164,7 +164,7 @@ findings unless the operator explicitly sets `HERMES_OPS_KIT_TRUST_REPO=true`.
 curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh | bash
 
 # Pinned version
-HERMES_OPS_KIT_VERSION=v0.3.0 bash -c "$(curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh)"
+HERMES_OPS_KIT_VERSION=v0.11.0 bash -c "$(curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh)"
 
 # Git clone + plugin registration
 git clone https://github.com/redoracle/hermes-ops-kit.git ~/.hermes/plugins/hermes-ops-kit
@@ -596,7 +596,7 @@ See [`skills/bw/SKILL.md`](skills/bw/SKILL.md) and
   `backup_secret()`/`restore_secret()` rollback on failure
 - **Per-provider locking** — `fcntl.flock` prevents concurrent rotations of
   the same provider
-- **Atomic env writes** — temp → chmod 600 → fsync → atomic rename
+- **Atomic env writes** — temp → chmod 600 → fsync → os.replace (atomic rename)
   (`env/atomic_write.py`)
 - **Safe `bw` wrapper** — list args only, stdin auth, forbidden commands
   blocked, TLS verified (`security/bitwarden_cli_client.py`)
@@ -756,7 +756,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
 │
-├── tests/                                  ← 283 pytest tests + 8 simulator scenarios
+├── tests/                                  ← 381 pytest tests + 8 simulator scenarios
 │   ├── test_security.py                    ← 38 tests
 │   ├── test_snapshots.py                   ← 14 tests
 │   ├── test_simulator.py                   ← 8 scenarios (run separately)
@@ -800,7 +800,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -v               # 283 tests (security, snapshots, scanner, CLI)
+python3 -m pytest tests/ -v               # 381 tests (security, snapshots, scanner, CLI)
 python3 tests/test_simulator.py --all      # 8 failure scenarios (no real APIs)
 bash scripts/test-scanner.sh              # 10-test scanner integration suite
 bash scripts/preflight-scan.sh             # Pre-release secret audit

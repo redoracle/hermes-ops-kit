@@ -90,6 +90,17 @@ def _get_adapter(provider: str, route_config: dict) -> Any:
         from ..image_routes.adapters.cloudflare_image import CloudflareImageAdapter
 
         return CloudflareImageAdapter()
+    elif provider.startswith("custom:"):
+        from ..image_routes.adapters.custom_image import CustomImageAdapter
+
+        # Extract the actual provider name (e.g. "freellm" from "custom:freellm")
+        actual_name = provider.split(":", 1)[1] if ":" in provider else provider
+        return CustomImageAdapter(
+            provider_name=actual_name,
+            base_url=route_config.get("base_url", ""),
+            key_env=route_config.get("key_env", "CUSTOM_API_KEY"),
+            default_model=route_config.get("model", actual_name),
+        )
     else:
         raise ValueError(f"Unknown image provider: {provider}")
 

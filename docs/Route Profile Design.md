@@ -64,6 +64,7 @@ profiles:
 default_route: local
 routes:
   local: { provider: local-comfyui, model: flux-local, priority: 10 }
+  free-fast: { provider: custom:freellm, model: "@cf/black-forest-labs/flux-1-schnell", base_url: "http://172.14.0.10:3001/v1", key_env: FREELLM_API_KEY, priority: 15 }
   fast: { provider: gemini, model: gemini-2.5-flash-image, priority: 20 }
   quality: { provider: openai, model: gpt-image-2, priority: 30 }
   fallback: { provider: fal, model: fal-ai/flux-2-pro, priority: 40 }
@@ -83,7 +84,7 @@ granular status labels (not a binary online/offline):
 | ---------- | ------ | --------------------------------------------------------------------------- |
 | `READY`    | Green  | Backend responded to an API probe successfully                              |
 | `OFFLINE`  | Red    | Service not running (e.g. local ComfyUI unreachable)                        |
-| `NO KEY`   | Orange | Required env var (`GEMINI_API_KEY`, `FAL_KEY`, etc.) not configured         |
+| `NO KEY`   | Orange | Required env var (`GEMINI_API_KEY`, `FAL_KEY`, `FREELLM_API_KEY`, etc.) not configured |
 | `NO QUOTA` | Yellow | API key exists but the provider rejected the request (quota, auth, billing) |
 
 Gemini performs a real `models.list()` probe (free, does not consume
@@ -91,13 +92,9 @@ generation quota) to distinguish NO KEY from NO QUOTA. Other backends
 check env var presence first, then service connectivity.
 
 ## Image Route Fallback
+When a backend's `generate()` call fails at runtime (rate limit, quota, timeout, auth error), the router automatically falls back to the next route in priority order. Only hard configuration errors (`MissingAPIKey`, `ConfigError`, `UnknownProvider`) skip fallback. Cycle detection via visited-route tracking prevents infinite loops. The output includes a `Skipped:` line listing every route that was tried before success.
 
-When a backend's `generate()` call fails at runtime (rate limit, quota,
-timeout, auth error), the router automatically falls back to the next
-route in priority order. Only hard configuration errors (`MissingAPIKey`,
-`ConfigError`, `UnknownProvider`) skip fallback. Cycle detection via
-visited-route tracking prevents infinite loops. The output includes a
-`Skipped:` line listing every route that was tried before success.
+**Custom providers** (`custom:<name>`) are dispatched via `CustomImageAdapter` — they use the OpenAI SDK with a configurable `base_url` and `key_env`, making any OpenAI-compatible image API (FreeLLM, local proxies, etc.) usable without a dedicated adapter.
 
 ## apply-profile Flow
 

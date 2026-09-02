@@ -34,6 +34,7 @@ image_routes/              # Image generation routing (NOT LLM text — separate
     openai_image.py        #     OpenAI gpt-image-2 / DALL-E 3 via openai SDK
     fal_image.py           #     FAL.ai Flux/Stable Diffusion via REST API
     local_comfyui.py       #     Local ComfyUI via REST API (private generation)
+    custom_image.py        #     OpenAI-compatible custom endpoints (FreeLLM, proxies)
 
 security/                  # Secret backend, redaction, fingerprints, locking, classification
   redaction.py             #   Single shared redact() — 16 patterns
