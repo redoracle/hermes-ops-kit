@@ -62,7 +62,7 @@ echo "  PASS"
 # ── 5. Real filesystem paths ──────────────────────────────────────────
 echo "5. Real filesystem paths …"
 HITS=$(grep -rPn --include="*.py" --include="*.yaml" --include="*.yml" --include="*.md" \
-  '/home/ubuntu|AI_STUDIO/' . 2>/dev/null | grep -vE "$EXCLUDE_DIRS" || true)
+  '[/]home[/]ubuntu|AI_STUDIO/' . 2>/dev/null | grep -vE "$EXCLUDE_DIRS" || true)
 if [ -n "$HITS" ]; then
   echo "  FAIL: found real filesystem paths"
   echo "$HITS"

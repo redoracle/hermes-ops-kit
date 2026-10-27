@@ -145,9 +145,10 @@ def test_repair_replaces_recognized_legacy_path_shim(tmp_path, monkeypatch):
     shadow_dir = tmp_path / "shadow"
     shadow_dir.mkdir()
     shadow = shadow_dir / "hermes-route-manager"
+    legacy_module = tmp_path / ".hermes/plugins/hermes-ops-kit/hermes_route_manager.py"
     shadow.write_text(
         '#!/usr/bin/env bash\nexec /usr/bin/python3 '
-        '"/home/test/.hermes/plugins/hermes-ops-kit/hermes_route_manager.py" "$@"\n'
+        f'"{legacy_module}" "$@"\n'
     )
     shadow.chmod(0o700)
     monkeypatch.setenv("PATH", f"{shadow_dir}{os.pathsep}{os.environ['PATH']}")
