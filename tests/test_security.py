@@ -55,6 +55,13 @@ def test_redacts_github_token():
     )
 
 
+def test_redacts_github_app_installation_token_full_length():
+    # New stateless ghs_ tokens are ~520 chars; no tail may survive redaction.
+    for tok in ("ghs_" + "aB3_-" * 8, "ghs_" + "aB3_-" * 104, "ghp_" + "a1" * 200):
+        out = redact(f"token={tok} end")
+        assert out == "token=<GITHUB_TOKEN_REDACTED> end"
+
+
 def test_redacts_nvidia_key():
     assert "<NVIDIA_KEY_REDACTED>" in redact(
         "nvapi-abc123xyz789def456ghi012jkl345mno678pqr901stu234vwx567"

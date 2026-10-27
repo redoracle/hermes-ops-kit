@@ -26,9 +26,13 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     (r"sk-ant-[A-Za-z0-9-_]{20,}", "<ANTHROPIC_KEY_REDACTED>"),
     (r"sk-[A-Za-z0-9-_]{20,}", "<OPENAI_KEY_REDACTED>"),
     (r"AIza[0-9A-Za-z_-]{35}", "<GEMINI_KEY_REDACTED>"),
-    (r"ghp_[A-Za-z0-9]{36}", "<GITHUB_TOKEN_REDACTED>"),
-    (r"gho_[A-Za-z0-9]{36}", "<GITHUB_TOKEN_REDACTED>"),
-    (r"ghu_[A-Za-z0-9]{36}", "<GITHUB_TOKEN_REDACTED>"),
+    # Open-ended lengths: GitHub App installation tokens (ghs_) move to a longer
+    # stateless format (~520 chars), so fixed-length patterns would leak the tail.
+    (r"ghp_[A-Za-z0-9]{36,}", "<GITHUB_TOKEN_REDACTED>"),
+    (r"gho_[A-Za-z0-9]{36,}", "<GITHUB_TOKEN_REDACTED>"),
+    (r"ghu_[A-Za-z0-9]{36,}", "<GITHUB_TOKEN_REDACTED>"),
+    (r"ghs_[A-Za-z0-9_-]{36,}", "<GITHUB_TOKEN_REDACTED>"),
+    (r"ghr_[A-Za-z0-9_-]{36,}", "<GITHUB_TOKEN_REDACTED>"),
     (r"github_pat_[A-Za-z0-9_]{40,}", "<GITHUB_TOKEN_REDACTED>"),
     # ── LLM / Image Provider Keys (mirror Hermes core agent/redact.py) ──
     # Fireworks AI — prefixes added to core redactor in v0.19.0 (Quicksilver).

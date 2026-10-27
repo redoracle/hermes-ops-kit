@@ -83,7 +83,7 @@ secrets:
     - name: gemini_key
       regex: "AIza[0-9A-Za-z_-]{30,}"
     - name: github_token
-      regex: "ghp_[A-Za-z0-9]{30,}"
+      regex: "gh[pousr]_[A-Za-z0-9_-]{30,}"
     - name: bearer_token
       regex: "Bearer\\s+[A-Za-z0-9_\\-\\.]{10,}"
     - name: private_key

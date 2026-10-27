@@ -48,6 +48,6 @@ def _looks_like_secret(value: str) -> bool:
     if len(value) == 64 and all(c in "0123456789abcdef" for c in value.lower()):
         return True
     # Common key prefixes
-    if value.startswith(("sk-", "sk-ant-", "AIza", "ghp_", "gho_")):
+    if value.startswith(("sk-", "sk-ant-", "AIza", "ghp_", "gho_", "ghs_")):
         return True
     return False
