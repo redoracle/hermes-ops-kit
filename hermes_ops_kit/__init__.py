@@ -12,7 +12,7 @@ import argparse
 import os
 from . import ops_config_io  # noqa: E402
 
-__version__ = "0.11.0"
+__version__ = "0.11.1"
 
 
 def _ensure_image_gen_config() -> None:
