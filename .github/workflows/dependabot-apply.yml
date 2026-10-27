@@ -31,6 +31,9 @@ jobs:
 
       - name: Apply changes as redoracle
         id: apply
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
 
@@ -38,17 +41,25 @@ jobs:
           git config user.email "michael.dogali@gmail.com"
 
           # Fetch the Dependabot PR branch
-          git fetch origin "${{ github.head_ref }}"
+          git fetch origin "${HEAD_REF}"
+
+          # GITHUB_TOKEN cannot push workflow-file changes (needs `workflows`
+          # permission), so leave those PRs open for manual handling.
+          if git diff --name-only "origin/main...origin/${HEAD_REF}" | grep -q '^\.github/workflows/'; then
+            echo "::warning::PR changes .github/workflows — leaving PR open for manual apply"
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # Squash-merge stages the combined changes without committing
-          if ! git merge --squash "origin/${{ github.head_ref }}"; then
+          if ! git merge --squash "origin/${HEAD_REF}"; then
             echo "::warning::Merge conflict — leaving PR open for manual resolution"
             echo "conflict=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Commit with redoracle as both author and committer
-          PR_TITLE="${{ github.event.pull_request.title }}"
           git commit -m "${PR_TITLE}" \
             --author="redoracle <michael.dogali@gmail.com>"
 
@@ -65,8 +76,17 @@ jobs:
             --comment "✅ Changes applied directly to main as a redoracle commit (no bot contributor). PR closed without merge." \
             --delete-branch
 
+      - name: Comment on workflow change
+        if: steps.apply.outputs.workflows == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "ℹ️ This PR changes \`.github/workflows/\`, which the default token cannot push. Apply it manually: merge this PR or cherry-pick the change."
+
       - name: Comment on conflict
-        if: steps.apply.outputs.conflict == 'true'
+        if: steps.apply.outputs.conflict == 'true' && steps.apply.outputs.workflows != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
