@@ -36,7 +36,7 @@ py-modules = ["bridge"]
 
 def _make_venv(tmp_path: Path) -> Path:
     venv_dir = tmp_path / "venv"
-    venv.create(venv_dir, with_pip=True)
+    venv.create(venv_dir, with_pip=True, symlinks=True)
     return venv_dir / "bin" / "python"
 
 

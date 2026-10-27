@@ -39,7 +39,7 @@ def _setup(tmp_path: Path, script_name: str = "hermes-drift") -> tuple[Path, Pat
     """Venv + old-layout editable install, then source repackaged
     without reinstall — the incident state."""
     venv_dir = tmp_path / "venv"
-    venv.create(venv_dir, with_pip=True)
+    venv.create(venv_dir, with_pip=True, symlinks=True)
     python = venv_dir / "bin" / "python"
     source = tmp_path / "src"
     source.mkdir()

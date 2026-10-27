@@ -80,7 +80,7 @@ def _commit(path: Path, msg: str) -> None:
 def test_updater_transaction_syncs_repairs_validates(tmp_path):
     """Old layout installed; git moves to new layout; update must sync,
     reconcile, and declare success only with a HEALTHY runtime."""
-    venv.create(tmp_path / "venv", with_pip=True)
+    venv.create(tmp_path / "venv", with_pip=True, symlinks=True)
     python = tmp_path / "venv" / "bin" / "python"
     src = tmp_path / "src"
     src.mkdir()
@@ -149,7 +149,7 @@ def test_updater_transaction_syncs_repairs_validates(tmp_path):
 
 @pytest.mark.integration
 def test_updater_stops_on_dirty_tree(tmp_path):
-    venv.create(tmp_path / "venv", with_pip=True)
+    venv.create(tmp_path / "venv", with_pip=True, symlinks=True)
     python = tmp_path / "venv" / "bin" / "python"
     src = tmp_path / "src"
     src.mkdir()
