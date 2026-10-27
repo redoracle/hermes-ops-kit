@@ -10,80 +10,29 @@ from pathlib import Path
 
 import argparse
 import os
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from . import ops_config_io  # noqa: E402
 
 __version__ = "0.11.0"
 
 
 def _ensure_image_gen_config() -> None:
-    """Auto-configure image_gen.provider/model in ~/.hermes/config.yaml.
-
-    Called once per plugin load, only writes when the keys are missing
-    (idempotent on re-run).  Uses a safe line-edit so existing YAML
-    formatting is preserved.
-    """
-    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+    """Fill missing image defaults without replacing operator choices."""
+    config_path = ops_config_io.hermes_config()
     if not os.path.isfile(config_path):
         return
-
+    import logging
     try:
-        with open(config_path, "r") as f:
-            lines = f.readlines()
-    except Exception:
-        return
-
-    image_gen_idx: int | None = None
-    block_end_idx: int | None = None
-    has_provider = False
-    has_model = False
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped == "image_gen:":
-            image_gen_idx = i
-            continue
-        if image_gen_idx is not None:
-            indent = len(line) - len(line.lstrip())
-            if indent == 0 and stripped:
-                # Next top-level key — block ended at line i
-                block_end_idx = i
-                break
-            if "provider:" in stripped:
-                has_provider = True
-            if "model:" in stripped:
-                has_model = True
-
-    # Both present — nothing to do
-    if image_gen_idx is not None and has_provider and has_model:
-        return
-
-    # Build the two lines to inject
-    inject_lines = []
-    if not has_provider:
-        inject_lines.append("  provider: ops-kit-router\n")
-    if not has_model:
-        inject_lines.append("  model: auto\n")
-
-    if image_gen_idx is not None:
-        # Insert inside the existing image_gen: block
-        insert_at = block_end_idx if block_end_idx is not None else len(lines)
-        for j, il in enumerate(inject_lines):
-            lines.insert(insert_at + j, il)
-    else:
-        # No image_gen: block — append at end
-        if lines and not lines[-1].endswith("\n"):
-            lines.append("\n")
-        lines.append("image_gen:\n")
-        lines.extend(inject_lines)
-
-    try:
-        tmp = config_path + ".tmp"
-        with open(tmp, "w") as f:
-            f.writelines(lines)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, config_path)
-    except Exception:
-        pass  # config write failed — user can set manually
+        config = ops_config_io.load_yaml_strict(config_path)
+        section = config.setdefault("image_gen", {})
+        if not isinstance(section, dict):
+            raise ops_config_io.ConfigError("image_gen must be a mapping")
+        if "provider" in section and "model" in section:
+            return
+        section.setdefault("provider", "ops-kit-router")
+        section.setdefault("model", "auto")
+        ops_config_io.save_yaml(config_path, config)
+    except (ops_config_io.ConfigError, OSError) as exc:
+        logging.getLogger(__name__).warning("Image defaults were not written: %s", exc)
 
 
 def register(ctx):
@@ -172,10 +121,10 @@ def register(ctx):
 
     # ── Hooks ──
     try:
-        from .hooks import on_post_tool_call, on_session_start
+        from .hooks import transform_tool_result, on_session_start
 
         ctx.register_hook("on_session_start", on_session_start)
-        ctx.register_hook("post_tool_call", on_post_tool_call)
+        ctx.register_hook("transform_tool_result", transform_tool_result)
     except Exception:
         pass
 

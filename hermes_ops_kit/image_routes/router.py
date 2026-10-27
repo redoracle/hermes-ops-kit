@@ -27,7 +27,7 @@ def _expand_path(path: str) -> str:
     return os.path.expanduser(os.path.expandvars(path))
 
 
-def resolve_route(route_name: str | None = None) -> tuple[str, dict]:
+def resolve_route(route_name: str | None = None, *, config: dict | None = None) -> tuple[str, dict]:
     """Resolve the image generation route.
 
     Args:
@@ -37,13 +37,15 @@ def resolve_route(route_name: str | None = None) -> tuple[str, dict]:
     Returns:
         (route_key, route_config) tuple.
     """
-    config = _load_config()
+    config = _load_config() if config is None else config
     routes = config.get("routes", {})
 
     if not routes:
         raise ValueError("No image routes configured in image_routes.yaml")
 
-    if route_name and route_name in routes:
+    if route_name:
+        if route_name not in routes:
+            raise ValueError(f"Unknown image route: {route_name}")
         return route_name, routes[route_name]
 
     # Use default (shipped config uses "local" as preferred default)
@@ -56,9 +58,9 @@ def resolve_route(route_name: str | None = None) -> tuple[str, dict]:
     return first, routes[first]
 
 
-def route_for_provider(provider: str) -> str | None:
+def route_for_provider(provider: str, *, config: dict | None = None) -> str | None:
     """Return the first configured route name for a provider."""
-    config = _load_config()
+    config = _load_config() if config is None else config
     for name, route in (config.get("routes", {}) or {}).items():
         if route.get("provider") == provider:
             return name
@@ -90,6 +92,17 @@ def _get_adapter(provider: str, route_config: dict) -> Any:
         from ..image_routes.adapters.cloudflare_image import CloudflareImageAdapter
 
         return CloudflareImageAdapter()
+    elif provider.startswith("custom:"):
+        from ..image_routes.adapters.custom_image import CustomImageAdapter
+
+        # Extract the actual provider name (e.g. "freellm" from "custom:freellm")
+        actual_name = provider.split(":", 1)[1] if ":" in provider else provider
+        return CustomImageAdapter(
+            provider_name=actual_name,
+            base_url=route_config.get("base_url", ""),
+            key_env=route_config.get("key_env", "CUSTOM_API_KEY"),
+            default_model=route_config.get("model", actual_name),
+        )
     else:
         raise ValueError(f"Unknown image provider: {provider}")
 
@@ -140,6 +153,7 @@ def generate(
     aspect_ratio: str = "landscape",
     num_images: int = 1,
     image_path: str | None = None,
+    provider_name: str | None = None,
     **kwargs,
 ) -> dict:
     """Generate an image via the configured route.
@@ -160,12 +174,30 @@ def generate(
     Returns:
         Standardized image result dict.
     """
+    if image_path:
+        from .adapters.base import build_envelope
+        from ..security.credential_read_guard import raise_if_read_blocked
+        try:
+            if not isinstance(image_path, str) or "://" in image_path or image_path.startswith("data:"):
+                raise ValueError("Only local reference image paths are supported")
+            image_path = os.path.expanduser(image_path)
+            raise_if_read_blocked(image_path)
+            if not os.path.isfile(image_path):
+                raise ValueError("Reference image does not exist")
+        except ValueError as exc:
+            return build_envelope(False, provider="ops-kit-router", model="", error=str(exc), error_type="ConfigError")
     config = _load_config()
     policies = config.get("policies", {})
 
     # Resolve initial route
     try:
-        key, route_cfg = resolve_route(route_name)
+        if provider_name and not route_name:
+            route_name = route_for_provider(provider_name, config=config)
+            if route_name is None:
+                raise ValueError(f"No image route configured for provider: {provider_name}")
+        key, route_cfg = resolve_route(route_name, config=config)
+        if provider_name and route_cfg.get("provider") != provider_name:
+            raise ValueError("Requested image route and provider disagree")
     except ValueError as e:
         return {
             "ok": False,
@@ -208,7 +240,7 @@ def generate(
         )
 
     # Try local first if preferred and a different route is requested
-    if prefer_local and provider != "local-comfyui":
+    if prefer_local and provider != "local-comfyui" and not image_path:
         local_route = config.get("routes", {}).get("local", {})
         if local_route:
             local_adapter = _get_adapter("local-comfyui", local_route)
@@ -225,6 +257,12 @@ def generate(
     visited_keys: set[str] = set()
     while True:
         visited_keys.add(key)
+
+        if image_path and provider != "gemini":
+            from .adapters.base import build_envelope
+            return build_envelope(False, provider=provider, model=model,
+                                  error="Selected route does not support image editing",
+                                  error_type="UnsupportedFeature")
 
         try:
             adapter = _get_adapter(provider, route_cfg)

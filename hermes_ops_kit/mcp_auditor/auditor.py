@@ -18,7 +18,7 @@ from typing import Any
 
 
 from ..mcp_auditor.classifier import detect_capabilities, classify_risk, scan_metadata  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 
 def _load_hermes_mcp_config() -> dict[str, Any]:

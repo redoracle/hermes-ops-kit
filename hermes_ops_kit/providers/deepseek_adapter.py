@@ -24,7 +24,7 @@ if __name__ == "__main__" and __spec__ is None:  # pragma: no cover
 
 
 from ..providers._openai_compat_ops import OpenAICompatAdapter, run_cli  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit.provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
+from ..provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
 
 
 class DeepSeekAdapter(OpenAICompatAdapter):

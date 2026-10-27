@@ -16,7 +16,7 @@ import subprocess
 
 from ._subprocess import module_command  # pyright: ignore[reportMissingImports]
 import time
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 
 def run_post_rotation_checks(

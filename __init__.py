@@ -12,9 +12,7 @@ only re-exports ``register`` so the loader finds it.  Entry-point
 # is imported parentless (e.g. pytest's prepend-mode walk of the tests/
 # package chain), there is no parent package — fail soft and leave register
 # undefined rather than breaking the import. That mode never calls register().
-try:
+if __package__:
     from .hermes_ops_kit import register  # noqa: F401
-except ImportError:  # pragma: no cover - parentless import (pytest package walk)
-    pass
 
 __all__ = ["register"]

@@ -41,7 +41,7 @@ from datetime import datetime
 
 # ─── NVIDIA NIM API config ────────────────────────────────────────
 
-from hermes_ops_kit.provider_catalog import provider_base_url as _cf_base_url  # noqa: E402
+from ..provider_catalog import provider_base_url as _cf_base_url  # noqa: E402
 
 # ─── Allowed Models ──────────────────────────────────────────────
 # Models available through the NVIDIA NIM serverless API.

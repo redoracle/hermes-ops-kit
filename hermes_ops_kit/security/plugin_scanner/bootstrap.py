@@ -32,7 +32,7 @@ from ...security.plugin_scanner.cache import SCANNER_VERSION as scanner_version 
 from ...security.plugin_scanner.enforce import _restore_hermes_config  # pyright: ignore[reportMissingImports]
 from ...security.plugin_scanner.policy import approve_plugin  # pyright: ignore[reportMissingImports]
 from ...security.plugin_scanner.scanner import scan_all  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from ... import ops_config_io  # noqa: E402
 
 # The scanner's own plugin ID — auto-approved during bootstrap since
 # the operator has already verified the installation source.

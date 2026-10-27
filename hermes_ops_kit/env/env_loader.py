@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from hermes_ops_kit import ops_config_io
+from .. import ops_config_io
 from .loader import REQUIRED_BOOTSTRAP_VARS, validate_bootstrap  # noqa: F401
 
 

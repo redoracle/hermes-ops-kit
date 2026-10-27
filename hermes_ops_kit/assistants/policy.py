@@ -10,6 +10,9 @@ Spec section 17 — Default Assistant policy: read-only, no secrets, no shell.
 from __future__ import annotations
 
 import re
+import json
+
+from ..security.secret_scanner import scan_for_secrets
 
 from ..assistants.base import AssistantConfig, AssistantTask  # pyright: ignore[reportMissingImports]
 
@@ -47,20 +50,41 @@ class PolicyViolation(Exception):
     """A task was blocked by the assistant policy engine."""
 
 
+def serialize_task(task: AssistantTask, config: AssistantConfig) -> str:
+    """One canonical envelope for policy evaluation and transmission."""
+    constraints = {
+        "no_secret_access": True, "no_env_dump": True,
+        "no_file_write": not config.allow_file_mutation,
+        "no_shell_execution": not config.allow_shell_execution,
+        "no_network_scan": True,
+    }
+    constraints.update(task.constraints or {})
+    return json.dumps({
+        "task_id": task.task_id, "assistant": config.id,
+        "capability": task.capability, "priority": "normal", "task": task.task,
+        "context": task.context or {"caller": config.orchestrator_name.lower()},
+        "constraints": constraints,
+    }, indent=2)
+
+
 def check_task(
     task: AssistantTask,
     config: AssistantConfig,
+    *, envelope: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Run all policy checks against a task.
 
     Returns (allowed, violations).
     """
     violations: list[str] = []
+    envelope = envelope if envelope is not None else serialize_task(task, config)
+    _, detected = scan_for_secrets(envelope)
+    violations.extend(detected)
 
     # 1. Check for secret patterns in task text
     task_text = task.task.lower()
     for pattern, label in FORBIDDEN_PATTERNS:
-        if re.search(pattern, task.task, re.IGNORECASE):
+        if re.search(pattern, envelope, re.IGNORECASE):
             violations.append(f"forbidden content: {label}")
 
     # 2. Check for forbidden intents
@@ -80,9 +104,9 @@ def check_task(
         violations.append(f"capability '{task.capability}' is blocked")
 
     # 5. Size checks
-    if len(task.task.encode()) > config.max_prompt_bytes:
+    if len(envelope.encode()) > config.max_prompt_bytes:
         violations.append(
-            f"task size {len(task.task.encode())} > max {config.max_prompt_bytes} bytes"
+            f"envelope size {len(envelope.encode())} > max {config.max_prompt_bytes} bytes"
         )
 
     # 6. Check constraints against security policy
@@ -104,9 +128,9 @@ def check_task(
     return len(violations) == 0, violations
 
 
-def assert_allowed(task: AssistantTask, config: AssistantConfig) -> None:
+def assert_allowed(task: AssistantTask, config: AssistantConfig, *, envelope: str | None = None) -> None:
     """Raise PolicyViolation if the task is not allowed."""
-    allowed, violations = check_task(task, config)
+    allowed, violations = check_task(task, config, envelope=envelope)
     if not allowed:
         raise PolicyViolation(
             f"Task {task.task_id} blocked by assistant policy: {'; '.join(violations)}"

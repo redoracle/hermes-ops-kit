@@ -219,7 +219,7 @@ class GoogleRotator(BaseRotator):
             )
             if resp.status_code in (200, 201):
                 data = resp.json()
-                return data.get("keyString"), data.get("uid")
+                return data.get("keyString"), data.get("name")
         except Exception:
             pass
         return None
@@ -231,7 +231,7 @@ class GoogleRotator(BaseRotator):
         _create_api_key().  Deleted keys can be restored for 30 days
         as a break-glass fallback.
         """
-        if not key_id:
+        if not key_id or not key_id.startswith("projects/") or "/locations/global/keys/" not in key_id:
             return False
 
         try:
@@ -258,7 +258,8 @@ class GoogleRotator(BaseRotator):
                 headers={"Authorization": f"Bearer {access_token}"},
                 timeout=15,
             )
-            return resp.status_code == 200
+            operation = resp.json() if resp.status_code == 200 else {}
+            return operation.get("done") is True and not operation.get("error")
         except Exception:
             return False
 
@@ -270,9 +271,9 @@ class GoogleRotator(BaseRotator):
         Delegates to _delete_old_key when a key_id is available in metadata.
         """
         old_meta = self.backend.get_metadata(secret_ref)
-        if not old_meta or not old_meta.item_id:
+        if not old_meta or not old_meta.provider_credential_id:
             return False
-        return self._delete_old_key(old_meta.item_id)
+        return self._delete_old_key(old_meta.provider_credential_id)
 
     def cleanup_orphaned_key(self, key_value: str) -> bool:
         """Delete a just-created key that failed validation.
@@ -293,14 +294,9 @@ class GoogleRotator(BaseRotator):
         """Execute Gemini rotation flow."""
         from ..audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
 
-        old_secret = self.backend.get_secret(GEMINI_API_KEY_REF)
-        old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else (None, None)
-
-        # ── Backup current secret for rollback ──
-        backup = self.backend.backup_secret(GEMINI_API_KEY_REF)
 
         # Attempt full-auto
-        old_key_id = None
+        new_key_id = None
         auto_created = False
         if not candidate_key:
             self.backend.get_secret(
@@ -310,7 +306,7 @@ class GoogleRotator(BaseRotator):
             if project_number and project_number.value:
                 result = self._create_api_key(project_number.value)
                 if result:
-                    candidate_key, old_key_id = result
+                    candidate_key, new_key_id = result
                     auto_created = True
 
         # Fallback: manual
@@ -326,9 +322,9 @@ class GoogleRotator(BaseRotator):
                 # Key is valid but account has no credits — store anyway with warning
                 pass
             else:
-                if auto_created and old_key_id:
+                if auto_created and new_key_id:
                     self._delete_old_key(
-                        old_key_id
+                        new_key_id
                     )  # clean up orphaned auto-created key
                 return {
                     "ok": False,
@@ -343,63 +339,76 @@ class GoogleRotator(BaseRotator):
         new_fp, new_l4 = secret_fingerprint(candidate_key)
 
         # ── Store ──
-        try:
-            self.backend.set_secret(
-                GEMINI_API_KEY_REF,
-                candidate_key,
-                metadata={
-                    "rotation_mode": "full-auto" if old_key_id else "manual",
-                    "last_rotated_at": str(int(time.time())),
-                },
-            )
-        except SecretWriteFailed as e:
-            if auto_created and old_key_id:
-                self._delete_old_key(old_key_id)  # clean up orphaned auto-created key
-            return {"ok": False, "error": f"Store failed: {e}"}
+        from ..security.lockfile import credential_commit_lock
+        with credential_commit_lock():
+            old_secret = self.backend.get_secret(GEMINI_API_KEY_REF)
+            old_metadata = self.backend.get_metadata(GEMINI_API_KEY_REF)
+            old_credential_id = getattr(old_metadata, "provider_credential_id", None)
+            old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else (None, None)
 
-        # ── Smoke test (before rendering env, so bad key never reaches .env.generated) ──
-        passed, detail = self.smoke_test()
-        if not passed:
-            if backup:
-                self.backend.restore_secret(GEMINI_API_KEY_REF, backup)
-            return {"ok": False, "error": f"Smoke test failed: {detail}"}
+            # ── Backup current secret for rollback ──
+            backup = self.backend.backup_secret(GEMINI_API_KEY_REF)
+            try:
+                self.backend.set_secret(
+                    GEMINI_API_KEY_REF,
+                    candidate_key,
+                    metadata={
+                        "rotation_mode": "full-auto" if new_key_id else "manual",
+                        "last_rotated_at": str(int(time.time())),
+                        "provider_credential_id": new_key_id or "",
+                    },
+                )
+            except SecretWriteFailed as e:
+                if auto_created and new_key_id:
+                    self._delete_old_key(new_key_id)  # clean up orphaned auto-created key
+                return {"ok": False, "error": f"Store failed: {e}"}
 
-        # ── Render env (only after smoke test passes) ──
-        from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+            # ── Smoke test (before rendering env, so bad key never reaches .env.generated) ──
+            passed, detail = self.smoke_test_safely()
+            if not passed:
+                self.rollback_secret(GEMINI_API_KEY_REF, backup)
+                return {"ok": False, "error": f"Smoke test failed: {detail}"}
 
-        try:
-            env_path = render_env(self.backend)
-        except Exception as e:
-            if backup:
-                self.backend.restore_secret(GEMINI_API_KEY_REF, backup)
+            # ── Render env (only after smoke test passes) ──
+            from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+
+            try:
+                env_path = render_env(self.backend)
+            except Exception as e:
+                self.rollback_secret(GEMINI_API_KEY_REF, backup)
                 render_env(self.backend)  # re-render with rolled-back key
-            return {"ok": False, "error": f"Env render failed: {e}"}
+                return {"ok": False, "error": f"Env render failed: {e}"}
 
-        # ── Audit ──
-        audit_rotation_attempt(
-            provider="google",
-            status="success",
-            old_fp=old_fp,
-            new_fp=new_fp,
-            old_revoked=bool(old_key_id),
-            manual_action=not bool(old_key_id),
-            env_keys_updated=list(PROVIDER_ENV_KEYS["gemini"]),
-        )
+            old_revoked = False
+            if old_credential_id and old_secret and candidate_key != old_secret.value:
+                old_revoked = self._delete_old_key(old_credential_id)
 
-        return {
-            "ok": True,
-            "provider": "google",
-            "operation": "rotation",
-            "old_fingerprint": old_fp,
-            "new_fingerprint": new_fp,
-            "new_last4": new_l4,
-            "env_rendered": env_path,
-            "warnings": [
-                "Account has billing/credit issues — key stored but API calls may fail until resolved"
-            ]
-            if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
-            else [],
-        }
+            # ── Audit ──
+            audit_rotation_attempt(
+                provider="google",
+                status="success",
+                old_fp=old_fp,
+                new_fp=new_fp,
+                old_revoked=old_revoked,
+                manual_action=not old_revoked,
+                env_keys_updated=list(PROVIDER_ENV_KEYS["gemini"]),
+            )
+
+            return {
+                "ok": True,
+                "provider": "google",
+                "operation": "rotation",
+                "old_fingerprint": old_fp,
+                "new_fingerprint": new_fp,
+                "new_last4": new_l4,
+                "env_rendered": env_path,
+                "old_revoked": old_revoked,
+                "warnings": [
+                    "Account has billing/credit issues — key stored but API calls may fail until resolved"
+                ]
+                if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
+                else [],
+            }
 
     def _read_key_stdin(self) -> str:
         if sys.stdin.isatty():

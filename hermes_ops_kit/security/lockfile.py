@@ -13,15 +13,37 @@ from __future__ import annotations
 import fcntl
 import os
 import time
+import threading
 from contextlib import contextmanager
 from typing import Iterator
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 LOCK_DIR = os.path.join(ops_config_io.HERMES_HOME, "locks")
+_commit_owner = threading.local()
 
 
 class LockTimeoutError(RuntimeError):
     """Raised when a provider lock cannot be acquired within the timeout."""
+
+
+@contextmanager
+def credential_commit_lock(timeout: float = 300.0) -> Iterator[object]:
+    """Serialize active-vault transactions and complete env snapshots.
+
+    Provider locks precede this lock. Rendering within a transaction intentionally
+    reuses this thread's ownership; another thread/process must acquire the lock.
+    """
+    if getattr(_commit_owner, "pid", None) == os.getpid():
+        yield _commit_owner.snapshot
+        return
+    with provider_lock("_credential-commit", timeout=timeout):
+        _commit_owner.pid = os.getpid()
+        _commit_owner.snapshot = object()
+        try:
+            yield _commit_owner.snapshot
+        finally:
+            _commit_owner.pid = None
+            _commit_owner.snapshot = None
 
 
 @contextmanager

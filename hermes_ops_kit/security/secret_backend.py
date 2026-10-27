@@ -166,6 +166,7 @@ class SecretMetadata:
     renderable_to_env: bool = True
     rotation_supported: str = "manual"  # "auto", "hybrid", or "manual"
     revocation_supported: bool = False
+    provider_credential_id: str | None = None
 
 
 class SecretBackend(Protocol):

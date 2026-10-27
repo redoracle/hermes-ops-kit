@@ -3,12 +3,17 @@ title: Key Management Lifecycle
 tags:
   [hermes, ops-kit, security, key-management, vaultwarden, bitwarden, rotation]
 created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-10-27
 ---
 
 # Key Management Lifecycle
 
 Complete lifecycle of secrets managed by Hermes Ops Kit through Bitwarden/Vaultwarden — from initial seeding to rotation to revocation.
+
+For a locked or unauthenticated CLI session, use the
+[local session-refresh procedure](quickstart.md#2-configure-bitwardenvaultwarden-cli).
+Refresh the saved `BW_SESSION` before retrying vault operations; session recovery
+does not require creating, rotating or revoking provider keys.
 
 ## Secret Classification
 
@@ -142,51 +147,26 @@ See: [[Architecture]] (Data Flow: Env Rendering Safety section), [[Threat Model]
 
 ---
 
-## 14-Phase Rotation State Machine
+## Rotation lifecycle and recovery limits
 
-```
-STARTED
-  → LOCK_ACQUIRED              (per-provider fcntl.flock)
-  → PREFLIGHT_OK                (backend health, connectivity)
-  → OLD_KEY_FINGERPRINTED      (sha256:xxx, last4:Ab7Q — no raw key)
-  → CANDIDATE_CREATED_OR_RECEIVED (auto-create or stdin)
-  → CANDIDATE_VALIDATED         (validate_with_retry: 3x backoff)
-  → SECRET_STAGED               (stored in Vaultwarden, read-after-write verified)
-  → SMOKE_TEST_PASSED           (live API call with staged key)
-  → ENV_RENDERED_ATOMICALLY     (temp → chmod 600 → fsync → rename)
-  → DEPLOYMENT_RELOADED         (Hermes Agent picks up new .env.generated)
-  → POST_DEPLOY_HEALTH_OK       (usage_metrics_v2 probe)
-  → OLD_KEY_REVOKED_OR_DEFERRED (auto for OpenAI/Anthropic/Google, manual for others)
-  → AUDIT_WRITTEN               (JSONL fingerprint-only event)
-  → COMPLETED                   (checkpoint deleted)
-```
+Supported rotations validate a candidate before entering a shared credential commit
+lock. The commit window covers active-vault mutation, smoke testing with the newly
+written value, environment publication, and rollback on failure. Per-provider locks
+are acquired before this shared lock. Explicit environment rendering uses the same
+shared lock, so it cannot publish another provider's untested candidate.
 
-### Failure States
+Vault metadata preserves classification, render denial, and optional provider
+credential identity through backup/restore. Vault item IDs are never provider key
+IDs. Legacy records without a provider key ID require manual revocation; successful
+key storage does not prove that the previous credential was revoked.
 
-| Phase        | Failure State            | Recovery                                               |
-| ------------ | ------------------------ | ------------------------------------------------------ |
-| Preflight    | `FAILED_PREFLIGHT`       | Fix connectivity/auth, retry                           |
-| Key creation | `FAILED_CREATE`          | Check admin key permissions                            |
-| Validation   | `FAILED_VALIDATE`        | Key is invalid — get a new one                         |
-| Store        | `FAILED_STORE`           | Check Vaultwarden connectivity                         |
-| Smoke test   | `FAILED_SMOKE_TEST`      | **Auto-rollback**: `restore_secret()` restores old key |
-| Env render   | `FAILED_ENV_RENDER`      | Check denylist, permissions                            |
-| Reload       | `FAILED_RELOAD`          | Restart Hermes Agent                                   |
-| Health check | `FAILED_HEALTH_CHECK`    | Provider API may be down                               |
-| Revoke       | `FAILED_REVOKE`          | `MANUAL_ACTION_REQUIRED` — instructions printed        |
-| Audit        | `FAILED_AUDIT`           | Non-fatal — rotation succeeded, audit trail incomplete |
-| Any          | `ROLLED_BACK`            | Old key restored, new key invalidated                  |
-| Any          | `MANUAL_ACTION_REQUIRED` | Console instructions printed, checkpoint saved         |
+### Crash recovery
 
-### Crash Recovery
-
-Each phase transition writes a fingerprint-only checkpoint to `~/.hermes/rotation_checkpoints/<provider>.json`. If rotation is interrupted (power loss, crash):
-
-```bash
-hermes-key-rotate resume --provider <provider>
-```
-
-Resumes from the last completed phase. Checkpoints contain no raw key material — only `sha256:xxx` fingerprints and `last4` chars.
+Automatic checkpoint recovery is unsupported. `hermes-key-rotate resume --provider
+<provider>` returns `UnsupportedOperation` without mutating credentials. After a
+crash, inspect vault, generated environment, and provider state before retrying.
+Legacy checkpoint files are retained; no phase record proves that a credential or
+deployment operation completed. Rotation does not restart Hermes automatically.
 
 ---
 
@@ -297,5 +277,5 @@ hermes-key-rotate rollback --provider openai
 - [[Architecture Decisions]] — ADR-002 (Vaultwarden as secret store), ADR-003 (3-layer denylist), ADR-004 (two-phase rotation)
 - `security/vaultwarden_backend.py` — full VaultwardenSecretBackend implementation
 - `security/secret_backend.py` — SecretBackend protocol + error hierarchy
-- `providers/rotation_state_machine.py` — 14-phase RotationPhase + RotationRunner
+- `providers/rotation_state_machine.py` — legacy phase vocabulary; recovery explicitly unsupported
 - `config/env_projection.yaml` — ENV_VAR → secret ref mapping + deny_render list

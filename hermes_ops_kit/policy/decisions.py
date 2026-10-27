@@ -1,7 +1,9 @@
 """Hermes Ops Kit — Policy Decision Helpers.
 
-Convenience functions that combine policy checks with risk-level
-assessment and audit logging. Used by commands and tools.
+The can_* / is_secret_backend_safe helpers are legacy declarative interfaces,
+retained for import compatibility; they do not enforce runtime authorization.
+Delegation uses assistants.policy. preflight_decision remains the live preflight
+entry point. Do not introduce a second runtime policy gate through these helpers.
 """
 
 from __future__ import annotations

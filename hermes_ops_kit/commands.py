@@ -11,7 +11,7 @@ import os
 import sys
 
 from ._subprocess import run_module  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from . import ops_config_io  # noqa: E402
 
 
 def handle_ops_kit_command(args: list[str]) -> int:
@@ -822,12 +822,12 @@ def _handle_budget(args: list[str]) -> int:
             "blocked": "🚫",
         }.get(s["budget_status"], "?")
         print(f"BUDGET · {s['budget_status'].upper()}\n")
-        print(
-            f"  daily    ${s['daily_spend_usd']:.2f} / ${s['daily_budget_usd']:.2f}   {s['daily_percent']}%  {status_icon}"
-        )
-        print(
-            f"  monthly  ${s['monthly_spend_usd']:.2f} / ${s['monthly_budget_usd']:.2f}   {s['monthly_percent']}%"
-        )
+        for period in ("daily", "monthly"):
+            spend = s[f"{period}_spend_usd"]
+            observed = f"${spend:.2f}" if spend is not None else "unavailable"
+            percent = s[f"{period}_percent"]
+            percent_text = f"{percent}%" if percent is not None else "unknown"
+            print(f"  {period:<7} {observed} / ${s[f'{period}_budget_usd']:.2f}   {percent_text}  {status_icon}")
         print(f"  mode     {s['enforcement_mode']}")
         if s["actions"]:
             print(f"  actions  {', '.join(s['actions'])}")

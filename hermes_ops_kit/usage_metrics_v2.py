@@ -38,14 +38,14 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List
-from hermes_ops_kit import ops_config_io  # noqa: E402
-from hermes_ops_kit.provider_catalog import (  # noqa: E402
+from . import ops_config_io  # noqa: E402
+from .provider_catalog import (  # noqa: E402
     provider_base_url,
     first_available_key,
     has_credential,
     PROVIDER_ALIASES,
 )
-from hermes_ops_kit.security.redaction import redact  # noqa: E402
+from .security.redaction import redact  # noqa: E402
 
 # ─── Provider registry (single source of truth) ──────────────────
 # Every "which providers exist" decision derives from here so a new provider

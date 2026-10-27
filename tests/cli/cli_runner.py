@@ -91,8 +91,8 @@ def normalize_output(text: str) -> str:
     text = re.sub(r"\b\d{3,5}ms\b", "<LATENCY_MS>", text)
     text = re.sub(r"/var/folders/[^\s]+", "<TMP>", text)
     text = re.sub(r"/tmp/[^\s]+", "<TMP>", text)
-    text = re.sub(r"/Users/[^/\s]+/GIT/INFRA", "<PROJECT>", text)
-    text = re.sub(r"/Users/[^/\s]+", "<HOME>", text)
+    text = re.sub(r"[/]Users[/][^/\s]+/GIT/INFRA", "<PROJECT>", text)
+    text = re.sub(r"[/]Users[/][^/\s]+", "<HOME>", text)
     return text
 
 

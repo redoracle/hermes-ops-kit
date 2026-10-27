@@ -20,7 +20,7 @@ from ...security.plugin_scanner.findings import (  # pyright: ignore[reportMissi
     RiskLevel,
     Severity,
 )
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from ... import ops_config_io  # noqa: E402
 
 
 # ── Constants ────────────────────────────────────────────────────────

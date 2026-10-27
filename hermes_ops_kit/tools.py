@@ -58,16 +58,14 @@ def ai_bridge_invoke(args: dict, **kwargs) -> str:
 def ai_image_generate(args: dict, **kwargs) -> str:
     """Generate images through the Hermes Ops Kit image router."""
     try:
-        from .image_routes.router import generate, route_for_provider  # pyright: ignore[reportMissingImports]
+        from .image_routes.router import generate  # pyright: ignore[reportMissingImports]
 
         route_name = args.get("route")
         provider = args.get("provider")
-        if not route_name and provider:
-            route_name = route_for_provider(provider)
-
         result = generate(
             prompt=args["prompt"],
             route_name=route_name,
+            provider_name=provider,
             aspect_ratio=args.get("aspect_ratio", "landscape"),
             num_images=args.get("num_images", 1),
             image_path=args.get("image_path"),
@@ -75,7 +73,7 @@ def ai_image_generate(args: dict, **kwargs) -> str:
             edit_mode=args.get("edit_mode", "generate"),
             preserve_subject=args.get("preserve_subject", False),
         )
-        return json.dumps(result, ensure_ascii=False)
+        return redact(json.dumps(result, ensure_ascii=False))
     except Exception as exc:
         return json.dumps(
             {
@@ -99,7 +97,7 @@ def ai_assistant_delegate(args: dict, **kwargs) -> str:
             context=args.get("context"),
             constraints=args.get("constraints"),
         )
-        return json.dumps(result, ensure_ascii=False)
+        return redact(json.dumps(result, ensure_ascii=False))
     except Exception as exc:
         return json.dumps(
             {

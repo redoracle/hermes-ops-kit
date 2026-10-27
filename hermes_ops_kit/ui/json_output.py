@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 try:  # kit version — keep the envelope version in lockstep with releases
-    from hermes_ops_kit import __version__ as VERSION  # noqa: E402
+    from .. import __version__ as VERSION  # noqa: E402
 except Exception:  # pragma: no cover
     VERSION = "0.0.0"
 

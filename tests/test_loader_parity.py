@@ -10,6 +10,7 @@ append/extend overrides).
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -18,6 +19,47 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_DIR = REPO_ROOT  # directory-plugin root: plugin.yaml + __init__.py
 
 _SYNTH = "hermes_plugins.hermes_ops_kit"
+
+
+def test_directory_load_without_top_level_distribution(tmp_path):
+    """A fresh core directory loader must not depend on an editable install."""
+    script = r'''
+import importlib.abc, importlib.util, sys, types
+from pathlib import Path
+class NoInstalledOpsKit(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "hermes_ops_kit" or fullname.startswith("hermes_ops_kit."):
+            raise ModuleNotFoundError("no installed top-level ops-kit", name=fullname)
+sys.meta_path.insert(0, NoInstalledOpsKit())
+before = list(sys.path)
+ns = types.ModuleType("hermes_plugins")
+ns.__path__ = []
+sys.modules["hermes_plugins"] = ns
+root = Path(sys.argv[1])
+name = "hermes_plugins.hermes_ops_kit"
+spec = importlib.util.spec_from_file_location(name, root / "__init__.py",
+    submodule_search_locations=[str(root)])
+module = importlib.util.module_from_spec(spec)
+sys.modules[name] = module
+spec.loader.exec_module(module)
+assert callable(getattr(module, "register", None)), "directory plugin lost register()"
+class Context:
+    def __init__(self): self.tools = []
+    def __getattr__(self, name):
+        def record(*args, **kwargs):
+            if name == "register_tool": self.tools.append(kwargs["name"])
+        return record
+ctx = Context()
+module.register(ctx)
+assert len(ctx.tools) == 7, ctx.tools
+assert list(sys.path) == before
+assert "hermes_ops_kit" not in sys.modules
+'''
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", script, str(PLUGIN_DIR)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class _PathSpy(list):

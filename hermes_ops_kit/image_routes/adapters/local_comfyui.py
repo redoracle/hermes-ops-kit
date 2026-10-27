@@ -21,7 +21,7 @@ from ...image_routes.adapters.base import (
     make_output_path,
     build_envelope,
 )
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from ... import ops_config_io  # noqa: E402
 
 
 def _aspect_dims(aspect_ratio: str) -> tuple[int, int]:

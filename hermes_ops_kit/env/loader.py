@@ -10,7 +10,7 @@ import os
 import threading
 
 from dotenv import load_dotenv as _dotenv_load
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 _ENV_LOADED = False
 _ENV_LOCK = threading.Lock()

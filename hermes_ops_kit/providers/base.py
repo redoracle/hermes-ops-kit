@@ -104,6 +104,21 @@ class BaseRotator(ABC):
             return secret_fingerprint(secret.value)
         return ("unknown", "")
 
+    def rollback_secret(self, secret_ref: str, previous) -> None:
+        """Restore the prior value, or remove a failed first-time candidate."""
+        if previous is None:
+            self.backend.delete_secret(secret_ref)
+        else:
+            self.backend.restore_secret(secret_ref, previous)
+
+    def smoke_test_safely(self) -> tuple[bool, str]:
+        """Unexpected smoke failures must still enter the rollback path."""
+        from ..security.redaction import redact
+        try:
+            return self.smoke_test()
+        except Exception as exc:
+            return False, redact(str(exc))
+
     def revoke_key(self, secret_ref: str, admin_credential: str | None = None) -> bool:
         """Revoke/delete an old key after successful rotation.
 

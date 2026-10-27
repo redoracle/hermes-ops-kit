@@ -35,7 +35,7 @@ from ...security.plugin_scanner.policy import (  # pyright: ignore[reportMissing
     get_rule_overrides,
     get_plugin_status,
 )
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from ... import ops_config_io  # noqa: E402
 
 
 def handle_plugin(args: list[str]) -> int:

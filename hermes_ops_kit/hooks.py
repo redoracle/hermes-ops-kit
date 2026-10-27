@@ -6,11 +6,12 @@ Post-tool-call: redact any secrets that may have leaked in tool output.
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 
 from .security.redaction import redact  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from . import ops_config_io  # noqa: E402
 
 
 def _permission_warnings() -> list[str]:
@@ -96,9 +97,19 @@ def on_session_start(**kwargs: object) -> None:
     plugin_security_scan(**kwargs)
 
 
-def on_post_tool_call(tool_name: str, result: str, **kwargs: object) -> str:
-    """Redact any secrets that may have leaked in tool output.
+def transform_tool_result(tool_name: str, result: object, **kwargs: object) -> str | None:
+    """Current Hermes consumes replacements from this transformation hook."""
+    if isinstance(result, str):
+        redacted = redact(result)
+        return redacted if redacted != result else None
+    try:
+        serialized = json.dumps(result, ensure_ascii=False)
+        redacted = redact(serialized)
+        return redacted if redacted != serialized else None
+    except (TypeError, ValueError):
+        return None
 
-    Called after every tool invocation. Returns the redacted result.
-    """
-    return redact(result)
+
+def on_post_tool_call(tool_name: str, result: object, **kwargs: object) -> str | None:
+    """Compatibility callable; observer-hook return values are not enforcement."""
+    return transform_tool_result(tool_name, result, **kwargs)
