@@ -55,7 +55,7 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
 }
 
 from .config.route_map import aux_harness_triples  # noqa: E402
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from . import ops_config_io  # noqa: E402
 
 # AUX route map — canonical source: config/route_map.py
 AUX_MAP = aux_harness_triples()

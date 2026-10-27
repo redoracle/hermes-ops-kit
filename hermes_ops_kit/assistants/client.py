@@ -13,6 +13,7 @@ import os
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 
 from ..assistants.base import AssistantConfig, AssistantResult, AssistantTask  # pyright: ignore[reportMissingImports]
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
@@ -20,6 +21,11 @@ from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 
 class AssistantClientError(Exception):
     """Error communicating with a remote assistant."""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AssistantClientError("Assistant endpoint redirects are not permitted")
 
 
 class AssistantClient:
@@ -35,6 +41,28 @@ class AssistantClient:
         self.api_key = os.environ.get(config.api_key_env, "")
         self.model = os.environ.get(config.model_env, config.default_model)
         self.timeout = config.max_timeout_seconds
+
+    def _validate_transport(self, url: str) -> None:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise AssistantClientError("Assistant endpoint must be an HTTP(S) URL without embedded credentials")
+        if self.config.require_tls and parsed.scheme != "https":
+            raise AssistantClientError("Assistant policy requires HTTPS")
+        if self.config.require_token and not self.api_key:
+            raise AssistantClientError("Assistant policy requires an API token")
+
+    def _open(self, req, *, timeout):
+        self._validate_transport(req.full_url)
+        return urllib.request.build_opener(_NoRedirect()).open(req, timeout=timeout)
+
+    def _read_response(self, response):
+        limit = self.config.max_response_bytes
+        if limit < 1:
+            raise AssistantClientError("Assistant response limit must be positive")
+        raw = response.read(limit + 1)
+        if len(raw) > limit:
+            raise AssistantClientError("Assistant response exceeds configured byte limit")
+        return json.loads(raw.decode())
 
     # ── Healthcheck ───────────────────────────────────────────────
 
@@ -69,9 +97,15 @@ class AssistantClient:
             result["status"] = "error"
             result["error"] = f"missing_env: {cfg.base_url_env} not set"
             return result
-        if not self.api_key:
+        if cfg.require_token and not self.api_key:
             result["status"] = "error"
             result["error"] = f"missing_env: {cfg.api_key_env} not set"
+            return result
+
+        try:
+            self._validate_transport(self.base_url)
+        except AssistantClientError as exc:
+            result.update(status="error", error=str(exc))
             return result
 
         # 2. Health endpoint
@@ -84,7 +118,8 @@ class AssistantClient:
             # it all on the optional /health endpoint.
             if timeout is not None:
                 health_timeout = min(2, probe_timeout * 0.4)
-            urllib.request.urlopen(req, timeout=health_timeout)
+            with self._open(req, timeout=health_timeout):
+                pass
         except Exception:
             pass  # Health endpoint is optional
 
@@ -133,10 +168,8 @@ class AssistantClient:
         )
 
         try:
-            resp = urllib.request.urlopen(
-                req, timeout=min(15, timeout or self.timeout)
-            )
-            body = json.loads(resp.read().decode())
+            with self._open(req, timeout=min(15, timeout or self.timeout)) as resp:
+                body = self._read_response(resp)
             duration_ms = int((time.time() - start) * 1000)
             choices = body.get("choices", [])
             text = choices[0].get("message", {}).get("content", "") if choices else ""
@@ -161,11 +194,12 @@ class AssistantClient:
         from ..assistants.policy import assert_allowed  # pyright: ignore[reportMissingImports]
 
         # Policy check
-        assert_allowed(task, self.config)
+        user_prompt = self._build_task_envelope(task)
+        assert_allowed(task, self.config, envelope=user_prompt)
+        self._validate_transport(self.base_url)
 
         start = time.time()
         system_prompt = self._build_system_prompt()
-        user_prompt = self._build_task_envelope(task)
 
         payload = {
             "model": self.model,
@@ -186,8 +220,8 @@ class AssistantClient:
                     "Authorization": f"Bearer {self.api_key}",
                 },
             )
-            resp = urllib.request.urlopen(req, timeout=self.timeout)
-            body = json.loads(resp.read().decode())
+            with self._open(req, timeout=self.timeout) as resp:
+                body = self._read_response(resp)
         except urllib.error.HTTPError as e:
             return AssistantResult(
                 ok=False,
@@ -261,20 +295,5 @@ class AssistantClient:
 
     def _build_task_envelope(self, task: AssistantTask) -> str:
         """Build the structured task envelope as JSON."""
-        cfg = self.config
-        envelope = {
-            "task_id": task.task_id,
-            "assistant": cfg.id,
-            "capability": task.capability,
-            "priority": "normal",
-            "task": task.task,
-            "context": task.context or {"caller": cfg.orchestrator_name.lower()},
-            "constraints": task.constraints
-            or {
-                "no_secret_access": True,
-                "no_env_dump": True,
-                "no_file_write": True,
-                "no_shell_execution": True,
-            },
-        }
-        return json.dumps(envelope, indent=2)
+        from .policy import serialize_task
+        return serialize_task(task, self.config)

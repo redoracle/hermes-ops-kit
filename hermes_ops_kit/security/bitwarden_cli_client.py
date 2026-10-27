@@ -25,7 +25,7 @@ import subprocess
 from typing import Any
 
 from ..security.redaction import redact
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 
 # ─── Forbidden Commands ──────────────────────────────────────────────

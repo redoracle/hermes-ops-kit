@@ -1,17 +1,8 @@
-"""Hermes Ops Kit — Rotation State Machine
+"""Legacy rotation phase/checkpoint vocabulary retained for import compatibility.
 
-Typed state machine for key rotation with checkpointing and crash recovery.
-Wraps the existing per-rotator rotate() flow with phase tracking and
-structured audit events.
-
-States follow the spec section C rotation state machine:
-  STARTED → LOCK_ACQUIRED → PREFLIGHT_OK → OLD_KEY_FINGERPRINTED →
-  CANDIDATE_CREATED_OR_RECEIVED → CANDIDATE_VALIDATED → SECRET_STAGED →
-  SMOKE_TEST_PASSED → ENV_RENDERED_ATOMICALLY → DEPLOYMENT_RELOADED →
-  POST_DEPLOY_HEALTH_OK → OLD_KEY_REVOKED_OR_DEFERRED → AUDIT_WRITTEN →
-  COMPLETED
-
-Failure states are tracked in RotationPhase.FAILED with a sub_reason.
+Normal rotations run in the provider rotators. Automatic checkpoint recovery is
+unsupported; RotationRunner.execute refuses rather than recording fictitious
+credential/deployment effects. Existing checkpoint files are not deleted.
 """
 
 from __future__ import annotations
@@ -23,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -206,11 +197,7 @@ class RotationState:
 
 
 class RotationRunner:
-    """Executes rotation phases via a state machine with checkpointing.
-
-    Wraps a provider rotator and delegates to its existing methods while
-    tracking phase transitions and writing structured audit events.
-    """
+    """Reserved recovery interface; execute refuses unsupported recovery."""
 
     def __init__(self, rotator: Any, backend: Any, state: RotationState) -> None:
         self.rotator = rotator
@@ -218,116 +205,8 @@ class RotationRunner:
         self.state = state
 
     def execute(self, candidate_key: str | None = None) -> dict:
-        """Run the rotation state machine to completion.
-
-        On crash during execution, the checkpoint file preserves progress
-        for resume via `hermes-key-rotate resume --provider <p>`.
-
-        This method tracks phase transitions via the state machine.  The
-        actual rotation work (key creation, storage, rendering, revocation)
-        is performed by the rotator and backend objects passed to the
-        constructor.  Callers should invoke this after the rotator has
-        already acquired a lock, created a candidate key, and rendered the
-        environment; this method integrates validation and smoke-testing
-        into the phase-tracking lifecycle."""
-        from ..audit.audit_log import write_rotation_phase_event  # pyright: ignore[reportMissingImports]
-
-        try:
-            # ── Phase 1-2: Preflight ──
-            self.state.transition(RotationPhase.LOCK_ACQUIRED)
-            self.state.transition(RotationPhase.PREFLIGHT_OK)
-
-            # ── Phase 3-4: Acquire & fingerprint old ──
-            if not hasattr(self.rotator, "API_KEY_REF"):
-                raise AttributeError(
-                    f"{type(self.rotator).__name__} is missing required "
-                    f"attribute 'API_KEY_REF'"
-                )
-            self.state.old_fingerprint = self.rotator.get_current_fingerprint(
-                self.rotator.API_KEY_REF
-            )[0]
-            self.state.transition(RotationPhase.OLD_KEY_FINGERPRINTED)
-
-            # ── Phase 5: Get candidate ──
-            self.state.transition(RotationPhase.CANDIDATE_CREATED_OR_RECEIVED)
-
-            # ── Phase 6: Validate ──
-            if candidate_key:
-                vr = self.rotator.validate_with_retry(candidate_key)
-                if not vr.valid:
-                    self.state.record_error(
-                        f"Candidate key unusable: {vr.reason_class.value}",
-                        RotationPhase.FAILED_VALIDATE,
-                    )
-                    return {
-                        "ok": False,
-                        "phase": self.state.phase.value,
-                        "error": f"Candidate key unusable: {vr.reason_class.value}",
-                        "validation": {
-                            "reason": vr.reason_class.value,
-                            "detail": vr.detail,
-                            "http_status": vr.http_status,
-                        },
-                    }
-            self.state.transition(RotationPhase.CANDIDATE_VALIDATED)
-
-            # ── Phase 7: Store ──
-            self.state.transition(RotationPhase.SECRET_STAGED)
-
-            # ── Phase 8: Smoke test ──
-            passed, detail = self.rotator.smoke_test()
-            if not passed:
-                self.state.record_error(
-                    f"Smoke test failed: {detail}",
-                    RotationPhase.FAILED_SMOKE_TEST,
-                )
-                return {
-                    "ok": False,
-                    "phase": self.state.phase.value,
-                    "error": f"Smoke test failed: {detail}",
-                }
-            self.state.transition(RotationPhase.SMOKE_TEST_PASSED)
-
-            # ── Phase 9: Env rendered ──
-            self.state.transition(RotationPhase.ENV_RENDERED_ATOMICALLY)
-
-            # ── Phase 10-11: Deployment + health ──
-            self.state.transition(RotationPhase.DEPLOYMENT_RELOADED)
-            self.state.transition(RotationPhase.POST_DEPLOY_HEALTH_OK)
-
-            # ── Phase 12: Revoke old ──
-            self.state.transition(RotationPhase.OLD_KEY_REVOKED_OR_DEFERRED)
-
-            # ── Phase 13: Audit ──
-            write_rotation_phase_event(
-                provider=self.state.provider,
-                phase="completed",
-                status="success",
-                old_fingerprint=self.state.old_fingerprint,
-                new_fingerprint=self.state.new_fingerprint,
-                duration_ms=int((time.time() - self.state.started_at) * 1000),
-            )
-            self.state.transition(RotationPhase.AUDIT_WRITTEN)
-
-            # ── Phase 14: Done ──
-            self.state.transition(RotationPhase.COMPLETED)
-            self.state.delete_checkpoint()
-
-            return {
-                "ok": True,
-                "provider": self.state.provider,
-                "phase": "completed",
-                "mode": self.state.mode,
-                "old_fingerprint": self.state.old_fingerprint,
-                "new_fingerprint": self.state.new_fingerprint,
-                "duration_ms": int((time.time() - self.state.started_at) * 1000),
-                "warnings": self.state.warnings if self.state.warnings else None,
-            }
-
-        except Exception as e:
-            self.state.record_error(str(e), RotationPhase.FAILED_PREFLIGHT)
-            return {
-                "ok": False,
-                "phase": self.state.phase.value,
-                "error": str(e),
-            }
+        """Refuse recovery until checkpoints drive real credential operations."""
+        return {
+            "ok": False, "error_type": "UnsupportedOperation",
+            "error": "Rotation recovery is not supported; no credential operations performed",
+        }

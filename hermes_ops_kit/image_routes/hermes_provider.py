@@ -148,6 +148,17 @@ class OpsKitRouterProvider(ImageGenProvider):  # pyright: ignore[reportGeneralTy
         """Check that ops-kit image_routes/router.py is reachable."""
         return os.path.exists(os.path.join(_OPS_KIT_DIR, "image_routes", "router.py"))
 
+    def capabilities(self) -> dict[str, Any]:
+        """Only the Gemini adapter currently consumes a source image."""
+        from .router import resolve_route
+        try:
+            _, route = resolve_route(self._resolve_route_name())
+        except ValueError:
+            return {"modalities": ["text"], "max_reference_images": 0}
+        edits = route.get("provider") == "gemini"
+        return {"modalities": ["text", "image"] if edits else ["text"],
+                "max_reference_images": 1 if edits else 0}
+
     def list_models(self) -> List[Dict[str, Any]]:
         return [
             {
@@ -209,10 +220,20 @@ class OpsKitRouterProvider(ImageGenProvider):  # pyright: ignore[reportGeneralTy
 
         # Extract optional reference image from kwargs (for image-to-image).
         reference_image = (
-            kwargs.get("image")
+            kwargs.get("image_url")
+            or kwargs.get("image")
             or kwargs.get("image_path")
             or kwargs.get("reference_image")
         )
+        references = kwargs.get("reference_image_urls") or []
+        if (reference_image is not None and not isinstance(reference_image, str)) or not isinstance(references, list) or any(not isinstance(ref, str) for ref in references):
+            return error_response(error="Reference images must be a list of paths",
+                                  error_type="invalid_argument", provider=self.name)
+        sources = list(dict.fromkeys([ref for ref in [reference_image, *references] if ref]))
+        if len(sources) > 1 or any(not isinstance(ref, str) for ref in sources):
+            return error_response(error="Only one local reference image is supported",
+                                  error_type="unsupported_feature", provider=self.name)
+        reference_image = sources[0] if sources else None
         if reference_image and isinstance(reference_image, str):
             reference_image = os.path.expanduser(reference_image)
 
@@ -271,7 +292,7 @@ class OpsKitRouterProvider(ImageGenProvider):  # pyright: ignore[reportGeneralTy
                 return route
 
         model = section.get("model")
-        if model and model in _MODELS and model != "auto":
+        if model and model != "auto":
             return model
 
         return None

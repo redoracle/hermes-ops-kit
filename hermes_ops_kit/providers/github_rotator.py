@@ -275,97 +275,29 @@ class GitHubRotator(BaseRotator):
 
         Returns metadata only — never the raw token.
         """
-        from ..audit.audit_log import write_audit_event  # pyright: ignore[reportMissingImports]
+        from ..security.lockfile import credential_commit_lock
+        with credential_commit_lock():
+            from ..audit.audit_log import write_audit_event  # pyright: ignore[reportMissingImports]
 
-        app_id = self.backend.get_secret(GITHUB_APP_ID_REF)
-        private_key = self.backend.get_secret(GITHUB_APP_PRIVATE_KEY_REF)
-        installation_id = self.backend.get_secret(GITHUB_INSTALLATION_ID_REF)
+            app_id = self.backend.get_secret(GITHUB_APP_ID_REF)
+            private_key = self.backend.get_secret(GITHUB_APP_PRIVATE_KEY_REF)
+            installation_id = self.backend.get_secret(GITHUB_INSTALLATION_ID_REF)
 
-        if not (app_id and private_key and installation_id):
-            raise SecretWriteFailed(
-                "Missing GitHub App configuration: need app_id, app_private_key, installation_id in Vaultwarden"
-            )
+            if not (app_id and private_key and installation_id):
+                raise SecretWriteFailed(
+                    "Missing GitHub App configuration: need app_id, app_private_key, installation_id in Vaultwarden"
+                )
 
-        # Generate JWT from app private key → exchange for installation token
-        # This uses PyJWT if available, otherwise falls back to a gh API helper
-        try:
-            jwt = self._generate_app_jwt(app_id.value, private_key.value)
-            token = self._exchange_jwt_for_token(jwt, installation_id.value)
-        except Exception as e:
-            return {"ok": False, "error": f"Token minting failed: {e}"}
+            # Generate JWT from app private key → exchange for installation token
+            # This uses PyJWT if available, otherwise falls back to a gh API helper
+            try:
+                jwt = self._generate_app_jwt(app_id.value, private_key.value)
+                token = self._exchange_jwt_for_token(jwt, installation_id.value)
+            except Exception as e:
+                return {"ok": False, "error": f"Token minting failed: {e}"}
 
-        # Validate the newly minted token
-        vr = self.validate_with_retry(token)
-        if not vr.valid:
-            if vr.reason_class == ValidationReason.QUOTA_OR_BILLING:
-                # Key is valid but account has no credits — store anyway with warning
-                pass
-            else:
-                return {
-                    "ok": False,
-                    "error": f"Minted token unusable: {vr.reason_class.value}",
-                    "validation": {
-                        "reason": vr.reason_class.value,
-                        "detail": vr.detail,
-                        "http_status": vr.http_status,
-                    },
-                }
-
-        # Store in Vaultwarden
-        new_fp, new_l4 = secret_fingerprint(token)
-        try:
-            self.backend.set_secret(
-                GITHUB_TOKEN_REF,
-                token,
-                metadata={
-                    "rotation_mode": "installation-token",
-                    "last_rotated_at": str(int(time.time())),
-                    "expires_in": "3600",  # GitHub App tokens expire in 1 hour
-                },
-            )
-        except SecretWriteFailed as e:
-            return {"ok": False, "error": f"Store failed: {e}"}
-
-        write_audit_event(
-            provider="github",
-            operation="mint_installation_token",
-            status="success",
-            new_fingerprint=new_fp,
-            extra={"installation_id": installation_id.value},
-        )
-
-        return {
-            "ok": True,
-            "provider": "github",
-            "operation": "mint_installation_token",
-            "new_fingerprint": new_fp,
-            "new_last4": new_l4,
-            "expires_in": 3600,
-            "warnings": [
-                "Account has billing/credit issues — key stored but API calls may fail until resolved"
-            ]
-            if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
-            else None,
-        }
-
-    # ── Rotation ────────────────────────────────────────────────────────
-
-    def rotate(self, candidate_key: str | None = None) -> dict:
-        """GitHub rotation = mint a new installation token."""
-        # Copilot check
-        copilot_ok = self._check_copilot_auth()
-        warnings = []
-        if not copilot_ok:
-            warnings.append(
-                "Copilot CLI not authenticated. Run 'gh auth login' separately."
-            )
-
-        # ── Backup current token for rollback ──
-        backup = self.backend.backup_secret(GITHUB_TOKEN_REF)
-
-        if candidate_key:
-            # Manual token: validate and store
-            vr = self.validate_with_retry(candidate_key)
+            # Validate the newly minted token
+            vr = self.validate_with_retry(token)
             if not vr.valid:
                 if vr.reason_class == ValidationReason.QUOTA_OR_BILLING:
                     # Key is valid but account has no credits — store anyway with warning
@@ -373,49 +305,125 @@ class GitHubRotator(BaseRotator):
                 else:
                     return {
                         "ok": False,
-                        "error": f"Token validation failed: {vr.reason_class.value}",
+                        "error": f"Minted token unusable: {vr.reason_class.value}",
                         "validation": {
                             "reason": vr.reason_class.value,
                             "detail": vr.detail,
                             "http_status": vr.http_status,
                         },
                     }
-            new_fp, _ = secret_fingerprint(candidate_key)
+
+            # Store in Vaultwarden
+            new_fp, new_l4 = secret_fingerprint(token)
+            backup = self.backend.backup_secret(GITHUB_TOKEN_REF)
             try:
-                self.backend.set_secret(GITHUB_TOKEN_REF, candidate_key)
+                self.backend.set_secret(
+                    GITHUB_TOKEN_REF,
+                    token,
+                    metadata={
+                        "rotation_mode": "installation-token",
+                        "last_rotated_at": str(int(time.time())),
+                        "expires_in": "3600",  # GitHub App tokens expire in 1 hour
+                    },
+                )
             except SecretWriteFailed as e:
                 return {"ok": False, "error": f"Store failed: {e}"}
 
-            # ── Smoke test the stored token ──
-            passed, detail = self.smoke_test()
+            passed, detail = self.smoke_test_safely()
             if not passed:
-                if backup:
-                    self.backend.restore_secret(GITHUB_TOKEN_REF, backup)
-                return {
-                    "ok": False,
-                    "error": f"Smoke test failed after storing token: {detail}",
-                }
+                self.rollback_secret(GITHUB_TOKEN_REF, backup)
+                return {"ok": False, "error": f"Smoke test failed: {detail}"}
+
+            write_audit_event(
+                provider="github",
+                operation="mint_installation_token",
+                status="success",
+                new_fingerprint=new_fp,
+                extra={"installation_id": installation_id.value},
+            )
 
             return {
                 "ok": True,
+                "provider": "github",
+                "operation": "mint_installation_token",
                 "new_fingerprint": new_fp,
-                "copilot_ok": copilot_ok,
+                "new_last4": new_l4,
+                "expires_in": 3600,
                 "warnings": [
                     "Account has billing/credit issues — key stored but API calls may fail until resolved"
                 ]
-                if not vr.valid and vr.reason_class == ValidationReason.QUOTA_OR_BILLING
-                else [],
+                if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
+                else None,
             }
 
-        # ── Full-auto: mint installation token ──
-        result = self.mint_installation_token()
-        if not result.get("ok"):
-            if backup:
-                self.backend.restore_secret(GITHUB_TOKEN_REF, backup)
-        if warnings:
-            result["warnings"] = warnings
-            result["copilot_ok"] = copilot_ok
-        return result
+    # ── Rotation ────────────────────────────────────────────────────────
+
+    def rotate(self, candidate_key: str | None = None) -> dict:
+        """GitHub rotation = mint a new installation token."""
+        # Copilot check
+        from ..security.lockfile import credential_commit_lock
+        with credential_commit_lock():
+            copilot_ok = self._check_copilot_auth()
+            warnings = []
+            if not copilot_ok:
+                warnings.append(
+                    "Copilot CLI not authenticated. Run 'gh auth login' separately."
+                )
+
+            # ── Backup current token for rollback ──
+            backup = self.backend.backup_secret(GITHUB_TOKEN_REF)
+
+            if candidate_key:
+                # Manual token: validate and store
+                vr = self.validate_with_retry(candidate_key)
+                if not vr.valid:
+                    if vr.reason_class == ValidationReason.QUOTA_OR_BILLING:
+                        # Key is valid but account has no credits — store anyway with warning
+                        pass
+                    else:
+                        return {
+                            "ok": False,
+                            "error": f"Token validation failed: {vr.reason_class.value}",
+                            "validation": {
+                                "reason": vr.reason_class.value,
+                                "detail": vr.detail,
+                                "http_status": vr.http_status,
+                            },
+                        }
+                new_fp, _ = secret_fingerprint(candidate_key)
+                try:
+                    self.backend.set_secret(GITHUB_TOKEN_REF, candidate_key)
+                except SecretWriteFailed as e:
+                    return {"ok": False, "error": f"Store failed: {e}"}
+
+                # ── Smoke test the stored token ──
+                passed, detail = self.smoke_test_safely()
+                if not passed:
+                    self.rollback_secret(GITHUB_TOKEN_REF, backup)
+                    return {
+                        "ok": False,
+                        "error": f"Smoke test failed after storing token: {detail}",
+                    }
+
+                return {
+                    "ok": True,
+                    "new_fingerprint": new_fp,
+                    "copilot_ok": copilot_ok,
+                    "warnings": [
+                        "Account has billing/credit issues — key stored but API calls may fail until resolved"
+                    ]
+                    if not vr.valid and vr.reason_class == ValidationReason.QUOTA_OR_BILLING
+                    else [],
+                }
+
+            # ── Full-auto: mint installation token ──
+            result = self.mint_installation_token()
+            if not result.get("ok"):
+                self.rollback_secret(GITHUB_TOKEN_REF, backup)
+            if warnings:
+                result["warnings"] = warnings
+                result["copilot_ok"] = copilot_ok
+            return result
 
     # ── JWT helpers ─────────────────────────────────────────────────────
 

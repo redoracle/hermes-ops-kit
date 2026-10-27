@@ -22,6 +22,12 @@ No hook configuration is required. When `hermes-ops-kit` is enabled, its
 Python plugin registration subscribes `plugin_security_scan` to Hermes
 `on_session_start`.
 
+Enable through `hermes plugins enable hermes-ops-kit` so native PM admits its
+dependencies. Commands and `transform_tool_result` can hot-reload, but switching
+to a newly published Python environment requires a gateway restart. Verify Python
+tools in a fresh session's full catalog, including deferred tool-search entries;
+see [managed runtime activation](Hermes%20Compatibility.md#managed-runtime-activation).
+
 Do not add `plugin:` / `hook:` entries under `~/.hermes/config.yaml` `hooks:`.
 That block configures shell-command hooks and requires a `command` field.
 
@@ -255,3 +261,11 @@ disabled until they can be reviewed interactively and configured.
 | HIGH with explicit tool/server approval | Preserve existing enabled state       |
 | HIGH without approval                   | Set `enabled: false`                  |
 | CRITICAL, even if approved              | Set `enabled: false` and block boot   |
+
+## Result transformation
+
+Ops-kit registers `transform_tool_result` for current Hermes result replacement.
+It handles strings and JSON-serializable results; unsupported Python objects pass
+through. `post_tool_call` return values are ignored by current core. The first
+string transformer wins, so ops-kit also sanitizes its own tool outputs directly.
+The session-start scanner remains report-only.

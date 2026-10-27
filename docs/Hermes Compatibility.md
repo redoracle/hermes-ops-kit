@@ -2,7 +2,7 @@
 title: Hermes Compatibility
 tags: [hermes, ops-kit, integration, security]
 created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-10-27
 ---
 
 # Hermes Compatibility
@@ -16,7 +16,7 @@ Hermes — it does NOT replace any core functionality.
 | Capability           | How it works                                                                                        |
 | -------------------- | --------------------------------------------------------------------------------------------------- |
 | Secret projection    | Reads from Bitwarden/Vaultwarden, renders `~/.hermes/.env.generated` (3-layer denylist + `--merge`) |
-| Key rotation         | 14-phase state machine with retry, rollback, per-provider locking, orphan cleanup                   |
+| Key rotation         | Validation/retry, rollback, per-provider locks and shared credential commit locking                   |
 | Key validation       | Structured `ValidationResult` with `reason_class`, `http_status`, `retry_recommended`               |
 | Emergency rotation   | Immediate revoke + replace on key compromise via `emergency` subcommand                             |
 | Bulk seed            | `seed-from-env` migrates all runtime keys from `.env` to Bitwarden/Vaultwarden                      |
@@ -45,6 +45,10 @@ Ops Kit provides **metadata and tooling** around these systems — not replaceme
 
 In `~/.hermes/config.yaml`:
 
+Use `hermes plugins enable hermes-ops-kit` to apply plugin selection through
+native dependency admission. The following shows the resulting settings; editing
+the enabled list alone does not reconcile the managed Python environment.
+
 ```yaml
 plugins:
   enabled:
@@ -62,7 +66,7 @@ image_gen:
 | `~/.hermes/.env.generated`                | Rendered env vars from Bitwarden/Vaultwarden | Yes (re-render with `hermes-key-rotate render-env`) |
 | `~/.hermes/.env.generated.bak`            | Previous .env.generated before rotation      | Yes (backup is rotated on each render)              |
 | `~/.hermes/locks/<provider>.lock`         | Per-provider rotation advisory lock          | Yes (auto-cleaned on process exit)                  |
-| `~/.hermes/rotation_checkpoints/<p>.json` | Rotation state machine checkpoint            | Yes (only relevant during an active rotation)       |
+| `~/.hermes/rotation_checkpoints/<p>.json` | Legacy checkpoint (recovery unsupported)            | Yes (only relevant during an active rotation)       |
 | `~/.hermes/ops-kit/routes.yaml`           | Route display labels + profiles              | Yes (will be regenerated from defaults)             |
 | `~/.hermes/ops-kit/image_routes.yaml`     | Image generation routes                      | Yes (will be regenerated)                           |
 | `~/.hermes/ops-kit/assistants.yaml`       | Assistant registry                           | **No** (your assistant configuration)               |
@@ -96,8 +100,9 @@ Bitwarden/Vaultwarden    (API keys encrypted at rest, AES-256)
 
 **Why this is safer:** instead of 10+ long-lived API keys sitting in a
 single `.env` file forever, you have 4 bootstrap vars that unlock an
-encrypted store. The `BW_SESSION` is short-lived (daily expiry) and
-revocable. Provider keys can be rotated without touching `.env`.
+encrypted store. `BW_SESSION` is a sensitive vault-unlock credential. Refresh it
+when the configured CLI reports a locked or unauthenticated session; do not assume
+a fixed daily expiry. Provider keys can be rotated without changing bootstrap settings.
 
 **Admin keys are stored in Bitwarden/Vaultwarden too** (`seed-admin`), classified
 as `secret_class=admin` with `renderable_to_env=false`. The 3-layer
@@ -128,9 +133,13 @@ Provider API keys should be stored in Bitwarden/Vaultwarden, not in `.env`:
 HERMES_SECRET_BACKEND=vaultwarden          # Currently only Bitwarden/Vaultwarden is supported
 VAULTWARDEN_SERVER_URL=https://<host>       # Your Vaultwarden/Bitwarden server
 VAULTWARDEN_USER=<email>                    # Bootstrap user
-VAULTWARDEN_PASSWORD=<master-password>      # Bootstrap password
 HERMES_AUTH_MODE=bitwarden_cli_session      # or bitwarden_cli_password, bitwarden_cli_api_key
+BW_SESSION=<session-key>                   # Sensitive local unlock credential
 ```
+
+These are the session-mode settings. Password mode may require
+`VAULTWARDEN_PASSWORD`; do not store a master password solely for session mode.
+See [local session refresh](quickstart.md#2-configure-bitwardenvaultwarden-cli).
 
 After seeding keys into Bitwarden/Vaultwarden (`hermes-key-rotate rotate --provider <p>`),
 remove provider API keys from `.env`. The rendered `.env.generated` file is
@@ -164,6 +173,7 @@ Every mutating operation preserves the previous state:
 | Ops Kit | Hermes Agent |
 | ------- | ------------ |
 | 0.2.x   | 0.15.x       |
+| 0.11.0 hardening candidate | 0.22.2 canary, commit `bf0203a794a07aac3ff764972ab9087baa4e4f4e` |
 
 Ops Kit is developed against the Hermes plugin API. Breaking changes in the
 Hermes plugin system may require ops-kit updates.
@@ -175,3 +185,71 @@ Hermes plugin system may require ops-kit updates.
 - [[Key Management Lifecycle]] — full secret lifecycle, rotation modes, revocation matrix
 - [[Operations Runbook]] — incident response procedures
 - [[Quickstart]] — getting started guide
+
+## Current-core acceptance and installation boundaries
+
+The hardening changes are checked against local Hermes commit
+`bf0203a794a07aac3ff764972ab9087baa4e4f4e` (v0.22.2 canary), using its real directory
+loader in a temporary Hermes home. Directory loading must work without an installed
+top-level ops-kit distribution. Wheel entry-point loading is tested separately.
+A standalone Conda CLI and Hermes' managed interpreter are separate installations;
+a successful standalone health command does not prove plugin activation or API health.
+
+Result replacement uses `transform_tool_result`; `post_tool_call` is an observer.
+Hermes consumes the first string transformer result, so ops-kit-owned tool outputs
+are redacted at their own boundary as well. Other plugins' transformation ordering
+limits any claim of universal result sanitization.
+
+Native source-image arguments are adapted from `image_url` / `reference_image_urls`.
+Only a single local image is supported; the selected route advertises image capability
+only when its adapter consumes the image (currently Gemini). Other edits fail explicitly.
+No URL downloader or additional multi-reference backend is introduced.
+
+Budget status distinguishes unavailable spend from explicit numeric observations.
+These CLI checks do not intercept Hermes core model dispatch. Remote delegation
+checks the complete serialized task envelope, required HTTPS/token settings, and
+response byte limits; endpoint redirects are refused.
+
+### Managed runtime activation
+
+For a directory installation at `~/.hermes/plugins/hermes-ops-kit`, preserve local
+changes and back up the plugin and `config.yaml` before updating its files. Then:
+
+```bash
+hermes plugins enable hermes-ops-kit
+hermes gateway restart
+hermes pm doctor
+```
+
+Native enablement resolves the plugin's `pyproject.toml` and publishes its selection
+and managed environment together. A refusal leaves both unchanged. `hermes pm repair`
+rebuilds the recorded graph; it does not add a disabled plugin's requirements.
+Restarting adopts a newly published environment; plugin hot reload alone does not
+switch the running interpreter. Commands and transformation hooks can activate
+immediately, while Python tools apply to fresh sessions. Inspect the session's full
+`tools.show` catalog when tool search defers their individual schemas.
+
+Headroom remains an external CLI installed in a separate environment. Its former
+optional package extra pulled MCP 1.x into a workspace where Hermes pins MCP 2.x,
+so it is no longer part of ops-kit's package metadata. See [Headroom](Headroom.md).
+
+### Local acceptance evidence — 2026-10-27
+
+The candidate was deployed and enabled through native admission, followed by an idle
+gateway restart. The replacement gateway was ready and used the new managed
+environment (`google-genai` 2.12.1, `fal-client` 0.13.1). Hot reload succeeded and a
+fresh gateway session's full catalog contained all seven ops-kit tools. All 134
+packaged Python/YAML files matched both the directory installation and managed
+package snapshot. Existing model and image routes were preserved.
+
+Verification passed: 457 tests with the actual Hermes core/runtime contract, wheel
+and source builds, lint, 11 focused Headroom tests, a bounded Gemini text canary
+using the installed managed-runtime adapter, and read-only Bitwarden sync/reads
+with admin-key exclusion from in-memory rendering.
+
+Limits: the fresh-session check inspected the owner-computed tool catalog without
+submitting an LLM turn. No paid FAL image generation or live key rotation/revocation
+was performed. OpenAI's earlier canary was blocked by account credit exhaustion.
+Inference reservations totalled US$0.30 against a US$3 cap; actual billing was not
+retrieved. These are dated local acceptance results, not a guarantee for every
+provider, future release or account.

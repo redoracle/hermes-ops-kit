@@ -250,11 +250,12 @@ class AnthropicRotator(BaseRotator):
         }
         try:
             resp = requests.post(
-                f"https://api.anthropic.com/v1/api_keys/{old_key_id}/archive",
+                f"https://api.anthropic.com/v1/organizations/api_keys/{old_key_id}",
                 headers=headers,
+                json={"status": "archived"},
                 timeout=15,
             )
-            return resp.status_code == 200
+            return resp.status_code == 200 and resp.json().get("status") == "archived"
         except Exception:
             return False
 
@@ -271,9 +272,9 @@ class AnthropicRotator(BaseRotator):
         if not admin:
             return False
         old_meta = self.backend.get_metadata(secret_ref)
-        if not old_meta or not old_meta.item_id:
+        if not old_meta or not old_meta.provider_credential_id:
             return False
-        return self._archive_old_key(admin.value, old_meta.item_id)
+        return self._archive_old_key(admin.value, old_meta.provider_credential_id)
 
     def cleanup_orphaned_key(self, key_value: str) -> bool:
         """Delete a just-created key that failed validation.
@@ -327,16 +328,11 @@ class AnthropicRotator(BaseRotator):
         """Execute Anthropic rotation flow."""
         from ..audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
 
-        old_secret = self.backend.get_secret(ANTHROPIC_API_KEY_REF)
-        old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else (None, None)
-
-        # ── Backup current secret for rollback ──
-        backup = self.backend.backup_secret(ANTHROPIC_API_KEY_REF)
 
         # Determine mode
         mode = "manual-new-key"
         auto_created = False
-        if self._has_admin_key():
+        if self._has_admin_key() and not candidate_key:
             mode = "admin-hybrid"
             workspace = self.backend.get_secret(ANTHROPIC_WORKSPACE_ID_REF)
             admin = self.backend.get_secret(ANTHROPIC_ADMIN_KEY_REF)
@@ -374,69 +370,76 @@ class AnthropicRotator(BaseRotator):
         new_fp, new_l4 = secret_fingerprint(candidate_key)
 
         # ── Store ──
-        try:
-            self.backend.set_secret(
-                ANTHROPIC_API_KEY_REF,
-                candidate_key,
-                metadata={
-                    "rotation_mode": mode,
-                    "last_rotated_at": str(int(time.time())),
-                    "old_fingerprint": old_fp or "none",
-                },
-            )
-        except SecretWriteFailed as e:
-            if auto_created:
-                self.cleanup_orphaned_key(candidate_key)
-            return {"ok": False, "error": f"Store failed: {e}"}
+        from ..security.lockfile import credential_commit_lock
+        with credential_commit_lock():
+            old_secret = self.backend.get_secret(ANTHROPIC_API_KEY_REF)
+            old_metadata = self.backend.get_metadata(ANTHROPIC_API_KEY_REF)
+            old_credential_id = getattr(old_metadata, "provider_credential_id", None)
+            old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else (None, None)
 
-        # ── Smoke test (before rendering env, so bad key never reaches .env.generated) ──
-        passed, detail = self.smoke_test()
-        if not passed:
-            if backup:
-                self.backend.restore_secret(ANTHROPIC_API_KEY_REF, backup)
-            return {"ok": False, "error": f"Smoke test failed: {detail}"}
+            # ── Backup current secret for rollback ──
+            backup = self.backend.backup_secret(ANTHROPIC_API_KEY_REF)
+            try:
+                self.backend.set_secret(
+                    ANTHROPIC_API_KEY_REF,
+                    candidate_key,
+                    metadata={
+                        "rotation_mode": mode,
+                        "last_rotated_at": str(int(time.time())),
+                        "provider_credential_id": "",
+                        "old_fingerprint": old_fp or "none",
+                    },
+                )
+            except SecretWriteFailed as e:
+                if auto_created:
+                    self.cleanup_orphaned_key(candidate_key)
+                return {"ok": False, "error": f"Store failed: {e}"}
 
-        # ── Render env (only after smoke test passes) ──
-        from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+            # ── Smoke test (before rendering env, so bad key never reaches .env.generated) ──
+            passed, detail = self.smoke_test_safely()
+            if not passed:
+                self.rollback_secret(ANTHROPIC_API_KEY_REF, backup)
+                return {"ok": False, "error": f"Smoke test failed: {detail}"}
 
-        try:
-            env_path = render_env(self.backend)
-        except Exception as e:
-            if backup:
-                self.backend.restore_secret(ANTHROPIC_API_KEY_REF, backup)
+            # ── Render env (only after smoke test passes) ──
+            from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+
+            try:
+                env_path = render_env(self.backend)
+            except Exception as e:
+                self.rollback_secret(ANTHROPIC_API_KEY_REF, backup)
                 render_env(self.backend)  # re-render with rolled-back key
-            return {"ok": False, "error": f"Env render failed: {e}"}
+                return {"ok": False, "error": f"Env render failed: {e}"}
 
-        # ── Archive old key if admin-hybrid ──
-        old_archived = False
-        if mode == "admin-hybrid":
-            old_meta = self.backend.get_metadata(ANTHROPIC_API_KEY_REF)
-            admin = self.backend.get_secret(ANTHROPIC_ADMIN_KEY_REF)
-            if old_meta and old_meta.item_id and admin:
-                old_archived = self._archive_old_key(admin.value, old_meta.item_id)
+            # ── Archive old key if admin-hybrid ──
+            old_archived = False
+            if self._has_admin_key() and old_secret and old_credential_id and candidate_key != old_secret.value:
+                admin = self.backend.get_secret(ANTHROPIC_ADMIN_KEY_REF)
+                if admin:
+                    old_archived = self._archive_old_key(admin.value, old_credential_id)
 
-        # ── Audit ──
-        audit_rotation_attempt(
-            provider="anthropic",
-            status="success",
-            old_fp=old_fp,
-            new_fp=new_fp,
-            old_revoked=old_archived,
-            manual_action=not old_archived,
-            env_keys_updated=list(PROVIDER_ENV_KEYS["anthropic"]),
-        )
+            # ── Audit ──
+            audit_rotation_attempt(
+                provider="anthropic",
+                status="success",
+                old_fp=old_fp,
+                new_fp=new_fp,
+                old_revoked=old_archived,
+                manual_action=not old_archived,
+                env_keys_updated=list(PROVIDER_ENV_KEYS["anthropic"]),
+            )
 
-        return {
-            "ok": True,
-            "provider": "anthropic",
-            "operation": "rotation",
-            "mode": mode,
-            "old_fingerprint": old_fp,
-            "new_fingerprint": new_fp,
-            "new_last4": new_l4,
-            "old_archived": old_archived,
-            "env_rendered": env_path,
-        }
+            return {
+                "ok": True,
+                "provider": "anthropic",
+                "operation": "rotation",
+                "mode": mode,
+                "old_fingerprint": old_fp,
+                "new_fingerprint": new_fp,
+                "new_last4": new_l4,
+                "old_archived": old_archived,
+                "env_rendered": env_path,
+            }
 
     def _read_key_stdin(self) -> str:
         if sys.stdin.isatty():

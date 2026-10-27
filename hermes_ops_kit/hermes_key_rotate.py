@@ -38,7 +38,8 @@ from .env.env_loader import load_hermes_env, get_generated_env_path  # noqa: F40
 from .security.file_permissions import check_env_file  # pyright: ignore[reportMissingImports]
 from .security.redaction import redact  # pyright: ignore[reportMissingImports]
 from .security.vaultwarden_backend import VaultwardenSecretBackend  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from . import ops_config_io  # noqa: E402
+from .security.lockfile import credential_commit_lock
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────
@@ -400,16 +401,16 @@ def cmd_rotate_all_parallel(
 ) -> dict:
     """Rotate all providers concurrently, each under its own lock."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .security.lockfile import provider_lock  # pyright: ignore[reportMissingImports]
 
     results: dict[str, dict] = {}
     all_ok = True
     providers = list(PROVIDER_ROTATORS.keys())
 
     def rotate_one(provider: str) -> tuple[str, dict]:
-        with provider_lock(provider):  # noqa: F821 — imported at runtime above
-            return provider, cmd_rotate(backend, provider, dry_run=dry_run)
+        return provider, cmd_rotate(backend, provider, dry_run=dry_run)
 
+    if max_parallel < 1:
+        return {"ok": False, "error": "max_parallel must be positive"}
     with ThreadPoolExecutor(max_workers=min(max_parallel, len(providers))) as executor:
         futures = {executor.submit(rotate_one, p): p for p in providers}
         for future in as_completed(futures):
@@ -431,112 +432,115 @@ def cmd_emergency_compromise(
     In revoke-only mode, the compromised key is revoked without creating a
     replacement — the service will be down until a new key is provisioned.
     """
-    from .security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
+    from .security.lockfile import credential_commit_lock, provider_lock
+    with provider_lock(provider), credential_commit_lock():
+        from .security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
 
-    rotator = _get_rotator(provider, backend)
-    backend.authenticate()
-    backend.unlock()
-    backend.sync()
+        rotator = _get_rotator(provider, backend)
+        backend.authenticate()
+        backend.unlock()
+        backend.sync()
 
-    # Determine the API key ref for this provider
-    api_key_ref = f"hermes/{provider}/api_key"
-    if provider == "google":
-        api_key_ref = "hermes/google/gemini_api_key"
-    elif provider == "github":
-        api_key_ref = "hermes/github/token"
+        # Determine the API key ref for this provider
+        api_key_ref = f"hermes/{provider}/api_key"
+        if provider == "google":
+            api_key_ref = "hermes/google/gemini_api_key"
+        elif provider == "github":
+            api_key_ref = "hermes/github/token"
 
-    old_secret = backend.get_secret(api_key_ref)
-    old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else ("unknown", "")
+        old_secret = backend.get_secret(api_key_ref)
+        old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else ("unknown", "")
 
-    # Phase 1: Revoke immediately — the old key is assumed compromised.
-    # We revoke BEFORE validating the replacement so the attacker's window
-    # is minimised.  The replacement validation and smoke-test steps below
-    # still run to ensure the new key is functional.
-    admin_ref = f"hermes/{provider}/admin_key"
-    admin = backend.get_secret(admin_ref)
-    revoked = rotator.revoke_key(api_key_ref, admin.value if admin else None)
+        # Phase 1: Revoke immediately — the old key is assumed compromised.
+        # We revoke BEFORE validating the replacement so the attacker's window
+        # is minimised.  The replacement validation and smoke-test steps below
+        # still run to ensure the new key is functional.
+        admin_ref = f"hermes/{provider}/admin_key"
+        admin = backend.get_secret(admin_ref)
+        revoked = rotator.revoke_key(api_key_ref, admin.value if admin else None)
 
-    if revoke_only:
+        if revoke_only:
+            from .audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
+
+            audit_rotation_attempt(
+                provider=provider,
+                status="emergency_revoked",
+                old_fp=old_fp,
+                new_fp=None,
+                old_revoked=revoked,
+                manual_action=not revoked,
+            )
+            return {
+                "ok": revoked,
+                "provider": provider,
+                "mode": "emergency-revoke-only",
+                "revoked": revoked,
+                "old_fingerprint": old_fp,
+                "warning": "No replacement key created — service may be down",
+            }
+
+        # Phase 2: Accept new key
+        candidate_key = sys.stdin.read().strip()
+        if not candidate_key:
+            return {"ok": False, "error": "No replacement key provided on stdin"}
+
+        vr = rotator.validate_new_key(candidate_key)
+        if not vr.valid:
+            return {
+                "ok": False,
+                "error": f"Emergency replacement key unusable: {vr.reason_class.value}",
+                "validation": {"reason": vr.reason_class.value, "detail": vr.detail},
+            }
+
+        # Store new key
+        from .security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
+
+        new_fp, new_l4 = secret_fingerprint(candidate_key)
+        backend.set_secret(
+            api_key_ref,
+            candidate_key,
+            metadata={
+                "rotation_mode": "emergency",
+                "last_rotated_at": str(int(time.time())),
+            },
+        )
+
+        # Quick smoke test
+        passed, detail = rotator.smoke_test()
+        if not passed:
+            if old_secret:
+                backend.restore_secret(api_key_ref, old_secret)
+            return {"ok": False, "error": f"Emergency smoke test failed: {detail}"}
+
+        # Render env
+        env_path = None
+        try:
+            env_path = cmd_render_env(backend, dry_run=False)["output"]
+        except Exception as e:
+            return {"ok": False, "error": f"Emergency env render failed: {e}"}
+
+
         from .audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
 
         audit_rotation_attempt(
             provider=provider,
-            status="emergency_revoked",
+            status="emergency_success",
             old_fp=old_fp,
-            new_fp=None,
+            new_fp=new_fp,
             old_revoked=revoked,
-            manual_action=not revoked,
         )
+
         return {
-            "ok": revoked,
+            "ok": True,
             "provider": provider,
-            "mode": "emergency-revoke-only",
+            "mode": "emergency-compromise",
             "revoked": revoked,
+            "replaced": True,
             "old_fingerprint": old_fp,
-            "warning": "No replacement key created — service may be down",
+            "new_fingerprint": new_fp,
+            "new_last4": new_l4,
+            "env_rendered": env_path,
         }
-
-    # Phase 2: Accept new key
-    candidate_key = sys.stdin.read().strip()
-    if not candidate_key:
-        return {"ok": False, "error": "No replacement key provided on stdin"}
-
-    vr = rotator.validate_new_key(candidate_key)
-    if not vr.valid:
-        return {
-            "ok": False,
-            "error": f"Emergency replacement key unusable: {vr.reason_class.value}",
-            "validation": {"reason": vr.reason_class.value, "detail": vr.detail},
-        }
-
-    # Store new key
-    from .security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
-
-    new_fp, new_l4 = secret_fingerprint(candidate_key)
-    backend.set_secret(
-        api_key_ref,
-        candidate_key,
-        metadata={
-            "rotation_mode": "emergency",
-            "last_rotated_at": str(int(time.time())),
-        },
-    )
-
-    # Render env
-    env_path = None
-    try:
-        env_path = cmd_render_env(backend, dry_run=False)["output"]
-    except Exception as e:
-        return {"ok": False, "error": f"Emergency env render failed: {e}"}
-
-    # Quick smoke test
-    passed, detail = rotator.smoke_test()
-    if not passed:
-        if old_secret:
-            backend.restore_secret(api_key_ref, old_secret)
-        return {"ok": False, "error": f"Emergency smoke test failed: {detail}"}
-
-    from .audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
-
-    audit_rotation_attempt(
-        provider=provider,
-        status="emergency_success",
-        old_fp=old_fp,
-        new_fp=new_fp,
-        old_revoked=revoked,
-    )
-
-    return {
-        "ok": True,
-        "provider": provider,
-        "mode": "emergency-compromise",
-        "revoked": revoked,
-        "replaced": True,
-        "old_fingerprint": old_fp,
-        "new_fingerprint": new_fp,
-        "new_last4": new_l4,
-        "env_rendered": env_path,
-    }
 
 
 def _validate_admin_key(provider: str, admin_key: str):
@@ -721,6 +725,7 @@ def cmd_backup_vault(
     return {"ok": True, "output": path, "ref_count": len(refs)}
 
 
+@credential_commit_lock()
 def cmd_restore_vault(
     backend: VaultwardenSecretBackend, input_path: str, dry_run: bool = False
 ) -> dict:
@@ -823,6 +828,7 @@ def cmd_diff_vault(
     }
 
 
+@credential_commit_lock()
 def cmd_migrate(backend: VaultwardenSecretBackend) -> dict:
     """Interactive migration wizard: .env → Vaultwarden."""
     import os as _os
@@ -874,6 +880,7 @@ def cmd_migrate(backend: VaultwardenSecretBackend) -> dict:
     }
 
 
+@credential_commit_lock()
 def cmd_seed_from_env(
     backend: VaultwardenSecretBackend,
     dry_run: bool = False,
@@ -1014,6 +1021,7 @@ def cmd_seed_from_env(
     }
 
 
+@credential_commit_lock()
 def cmd_seed_admin(
     backend: VaultwardenSecretBackend,
     provider: str,
@@ -1276,6 +1284,11 @@ def main() -> None:
     sub.add_parser("migrate", help="Interactive migration wizard: .env → Vaultwarden")
 
     args = parser.parse_args()
+    if args.subcommand == "resume":
+        _finish_and_exit({
+            "ok": False, "error_type": "UnsupportedOperation",
+            "error": "Rotation recovery is not supported; inspect credential state before rotating again",
+        })
 
     # Load bootstrap config
     env = load_hermes_env()
@@ -1303,7 +1316,7 @@ def main() -> None:
         # ── Subcommand dispatch (new structured interface) ──
         if args.subcommand == "rotate":
             if args.provider == "all" and args.parallel:
-                _finish_and_exit(cmd_rotate_all_parallel(backend, dry_run=args.dry_run))
+                _finish_and_exit(cmd_rotate_all_parallel(backend, dry_run=args.dry_run, max_parallel=args.max_parallel))
             elif args.provider:
                 result = cmd_rotate(
                     backend,
@@ -1339,22 +1352,6 @@ def main() -> None:
                 args.provider,
                 revoke_only=args.revoke_only,
             )
-            _finish_and_exit(result)
-
-        elif args.subcommand == "resume":
-            from .providers.rotation_state_machine import RotationState  # pyright: ignore[reportMissingImports]
-
-            state = RotationState.load_checkpoint(args.provider)
-            if not state:
-                _print_json(
-                    {"ok": False, "error": f"No checkpoint found for {args.provider}"}
-                )
-                sys.exit(1)
-            rotator = _get_rotator(args.provider, backend)
-            from .providers.rotation_state_machine import RotationRunner  # pyright: ignore[reportMissingImports]
-
-            runner = RotationRunner(rotator, backend, state)
-            result = runner.execute()
             _finish_and_exit(result)
 
         elif args.subcommand == "validate":

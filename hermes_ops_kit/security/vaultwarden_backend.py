@@ -24,6 +24,7 @@ import json
 import os
 import time
 from typing import Any
+from .lockfile import credential_commit_lock
 
 from ..security.bitwarden_cli_client import (  # pyright: ignore[reportMissingImports]
     BitwardenCLIClient,
@@ -151,6 +152,26 @@ def _renderable_to_env(name: str, secret_class: str | None = None) -> bool:
     """
     sc = secret_class or _classify_ref(name)
     return sc != "admin"
+
+
+def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    """Read supported metadata without exposing arbitrary vault fields."""
+    allowed = {
+        "provider", "env_key", "rotation_mode", "last_rotated_at", "updated_at",
+        "fingerprint", "last4", "status", "manual_revoke_required",
+        "secret_class", "renderable_to_env", "provider_credential_id",
+    }
+    return {
+        field["name"]: field.get("value", "")
+        for field in item.get("fields", []) if field.get("name") in allowed
+    }
+
+
+def _render_permission(name: str, metadata: dict[str, Any]) -> tuple[str, bool]:
+    secret_class = metadata.get("secret_class") or _classify_ref(name)
+    permitted = secret_class in {"runtime", "config"} and _classify_ref(name) != "admin"
+    declared = metadata.get("renderable_to_env", True)
+    return secret_class, permitted and (declared is True or declared == "true")
 
 
 # ─── Backend Implementation ─────────────────────────────────────────────
@@ -350,11 +371,17 @@ class VaultwardenSecretBackend(SecretBackend):
         in sequence) makes one `bw list items` call instead of 20.
         The cache is invalidated on any write (set/delete/backup/restore).
         """
-        if self._items_cache is None:
-            self._items_cache = self._client.list_items()
-        for item in self._items_cache:
-            if item.get("name") == item_name:
-                return item
+        with credential_commit_lock() as snapshot:
+            # An instance may outlive another writer's commit. Reuse listings
+            # only within the same locked snapshot, never across operations.
+            if getattr(self, "_items_cache_snapshot", None) is not snapshot:
+                self._items_cache = None
+                self._items_cache_snapshot = snapshot
+            if self._items_cache is None:
+                self._items_cache = self._client.list_items()
+            for item in self._items_cache:
+                if item.get("name") == item_name:
+                    return item
         return None
 
     def _invalidate_cache(self) -> None:
@@ -379,20 +406,7 @@ class VaultwardenSecretBackend(SecretBackend):
                     break
 
         # Extract custom metadata
-        meta: dict[str, Any] = {}
-        for field in item.get("fields", []):
-            name = field.get("name", "")
-            if name in (
-                "provider",
-                "env_key",
-                "rotation_mode",
-                "last_rotated_at",
-                "fingerprint",
-                "last4",
-                "status",
-                "manual_revoke_required",
-            ):
-                meta[name] = field.get("value", "")
+        meta = _item_metadata(item)
 
         return SecretValue(
             name=ref,
@@ -413,6 +427,7 @@ class VaultwardenSecretBackend(SecretBackend):
 
         return self._item_to_secret_value(item, name)
 
+    @credential_commit_lock()
     def set_secret(
         self,
         name: str,
@@ -435,8 +450,12 @@ class VaultwardenSecretBackend(SecretBackend):
         provider = parts[1] if len(parts) > 1 else "unknown"
 
         # Derive classification from ref path + explicit metadata override
-        secret_class = (metadata or {}).get("secret_class") or _classify_ref(name)
-        renderable = _renderable_to_env(name, secret_class)
+        supplied_metadata = metadata or {}
+        inherited_metadata = _item_metadata(existing) if existing else {}
+        if existing and self._item_to_secret_value(existing, name).value != value:
+            inherited_metadata.pop("provider_credential_id", None)
+        metadata = {**inherited_metadata, **supplied_metadata}
+        secret_class, renderable = _render_permission(name, metadata)
 
         fields: list[dict[str, Any]] = [
             {"name": "provider", "value": provider, "type": 0},
@@ -459,7 +478,7 @@ class VaultwardenSecretBackend(SecretBackend):
 
         if metadata:
             for k, v in metadata.items():
-                if k not in {"rotation_mode", "secret_class"}:
+                if k not in {f["name"] for f in fields}:
                     fields.append({"name": k, "value": str(v), "type": 0})
 
         item_json: dict[str, Any] = {
@@ -483,6 +502,8 @@ class VaultwardenSecretBackend(SecretBackend):
                 result = self._client.create_item(item_json)
                 item_id = result.get("id", "")
 
+            self._invalidate_cache()
+
             return SecretMetadata(
                 name=name,
                 fingerprint=fp,
@@ -493,10 +514,12 @@ class VaultwardenSecretBackend(SecretBackend):
                 item_id=item_id,
                 secret_class=secret_class,
                 renderable_to_env=renderable,
+                provider_credential_id=metadata.get("provider_credential_id") or None,
             )
         except BitwardenCLIError as e:
             raise SecretWriteFailed(redact(str(e))) from e
 
+    @credential_commit_lock()
     def delete_secret(self, name: str) -> None:
         """Delete a secret from the vault."""
         self.authenticate()
@@ -523,6 +546,7 @@ class VaultwardenSecretBackend(SecretBackend):
         """
         return self.get_secret(name)
 
+    @credential_commit_lock()
     def restore_secret(self, name: str, previous: SecretValue) -> SecretMetadata:
         """Restore a previous secret version (rollback).
 
@@ -538,6 +562,7 @@ class VaultwardenSecretBackend(SecretBackend):
             name,
             previous.value,
             metadata={
+                **(previous.metadata or {}),
                 "rotation_mode": "rollback",
                 "last_rotated_at": str(int(time.time())),
                 "rollback_fingerprint": fp,
@@ -575,18 +600,18 @@ class VaultwardenSecretBackend(SecretBackend):
         provider = parts[1] if len(parts) > 1 else None
 
         # Extract fingerprint/last4 from custom fields
-        meta: dict[str, str] = {}
-        for field in item.get("fields", []):
-            fname = field.get("name", "")
-            if fname in ("fingerprint", "last4", "updated_at", "provider"):
-                meta[fname] = field.get("value", "")
+        meta = _item_metadata(item)
+        secret_class, renderable = _render_permission(name, meta)
 
         return SecretMetadata(
             name=name,
             fingerprint=meta.get("fingerprint"),
             last4=meta.get("last4"),
-            updated_at=meta.get("updated_at"),
+            updated_at=meta.get("updated_at") or meta.get("last_rotated_at"),
             version=item.get("revisionDate"),
             provider=provider,
             item_id=item.get("id"),
+            secret_class=secret_class,
+            renderable_to_env=renderable,
+            provider_credential_id=meta.get("provider_credential_id") or None,
         )

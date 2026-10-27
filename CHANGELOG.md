@@ -4,6 +4,18 @@ All notable changes to Hermes Ops Kit.
 
 ## [Unreleased]
 
+### Runtime compatibility and credential safety
+
+- Remove the optional Headroom package extra that conflicts with current Hermes' MCP pins; use the separately installed Headroom CLI.
+- Document native PM dependency admission, restart versus hot-reload behavior, secure Bitwarden session refresh, and dated local gateway/provider acceptance limits.
+- Fix isolated Hermes directory loading and current result-transformation/image contracts.
+- Preserve vault classification and provider identities; invalidate stale values after writes.
+- Use private unique temporary files and serialize candidate activation/publication across providers.
+- Fix parallel-rotation locking and concurrency selection; report revocation only from confirmed provider results.
+- Refuse unsupported crash recovery explicitly; report unavailable budget observations as unknown.
+- Validate full delegation envelopes and required transport settings; preserve existing YAML choices.
+- Propagate check failures; security scanning uses redacted Gitleaks output and the existing allowlist.
+
 ### Hermes Agent v0.19.0 (Quicksilver) Compatibility — v2026.7.20
 
 Adapted hermes-ops-kit to Hermes Agent v0.19.0 "Quicksilver" (release

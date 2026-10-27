@@ -9,7 +9,7 @@ DeepSeek console).
 from __future__ import annotations
 
 from ..providers._openai_compat_ops import OpenAICompatRotator  # pyright: ignore[reportMissingImports]
-from hermes_ops_kit.provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
+from ..provider_catalog import PROVIDER_BASE_URLS  # noqa: E402
 
 
 class DeepSeekRotator(OpenAICompatRotator):

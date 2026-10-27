@@ -59,7 +59,7 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     # Catches opaque tokens with no vendor prefix (e.g. DeepInfra keys) in JSON
     # values like {"api_key":"..."}. Mirrors core agent/redact.py _SENSITIVE_BODY_KEYS.
     (
-        r'("(?:api_key|apikey|api-key|access_token|refresh_token|id_token|token|secret|client_secret|password|authorization)"\s*:\s*")[^"]*"',
+        r'("(?i:api_key|apikey|api-key|access_token|refresh_token|id_token|token|secret|client_secret|password|authorization|bw_session|bw_clientsecret|vaultwarden_password|assistant_api_key|[A-Z][A-Z0-9_]*_(?:API_KEY|TOKEN|PASSWORD|SECRET))"\s*:\s*")[^"]*"',
         r'\1<REDACTED>"',
     ),
     # ── Generic Bearer / API Key Headers ──

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 # Resolved at load time (not import time) so a deployed file created after
 # import takes precedence.

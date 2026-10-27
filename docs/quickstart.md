@@ -2,7 +2,7 @@
 title: Quickstart
 tags: [hermes, ops-kit, onboarding, quickstart]
 created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-10-27
 ---
 
 # Quickstart
@@ -53,7 +53,6 @@ cat > ~/.hermes/.env << 'EOF'
 HERMES_SECRET_BACKEND=vaultwarden
 VAULTWARDEN_SERVER_URL=https://your-vaultwarden.example.com
 VAULTWARDEN_USER=your-email@example.com
-VAULTWARDEN_PASSWORD=your-master-password
 HERMES_AUTH_MODE=bitwarden_cli_session
 EOF
 
@@ -63,12 +62,24 @@ chmod 600 ~/.hermes/.env
 ### 2. Configure Bitwarden/Vaultwarden CLI
 
 ```bash
-bw config server $VAULTWARDEN_SERVER_URL
-bw login $VAULTWARDEN_USER
-bw unlock
-# Copy the session key from output into ~/.hermes/.env:
-# BW_SESSION=<session-key>
+bw config server 'https://your-vaultwarden.example.com'
+BW_SESSION="$(bw login --raw)"
+export BW_SESSION
+bw status
 ```
+
+Enter credentials at the CLI prompts; do not put passwords in command arguments.
+For an already authenticated but locked account, use
+`BW_SESSION="$(bw unlock --raw)"` instead. Verify `status: unlocked` and the expected
+server before reading items. If Hermes configures `BITWARDENCLI_APPDATA_DIR`, use
+that same expanded absolute directory for these commands.
+
+Save the returned value locally as `BW_SESSION='…'` in `~/.hermes/.env`, preserving
+other entries and mode `600`. Do not print it or paste it into chat. On macOS,
+`printf '%s' "$BW_SESSION" | pbcopy` copies it to the local clipboard for your editor;
+clear the clipboard afterward with `printf '' | pbcopy`. Exporting it in one shell
+does not update Hermes' saved session or an already-running process. Session mode
+does not require storing your master password in `.env`.
 
 ### 3. Seed Your First API Key
 
@@ -91,11 +102,18 @@ hermes-key-rotate --render-env --merge
 
 Repeat step 3 for each provider: `anthropic`, `gemini`, `deepseek`, `github`.
 
-Then remove raw keys from `~/.hermes/.env` — keep only the 5 bootstrap vars + `BW_SESSION`.
+Then remove raw keys from `~/.hermes/.env` — retain the bootstrap settings and `BW_SESSION`.
 
 ## Enable in Hermes
 
-Add to `~/.hermes/config.yaml`:
+Enable through Hermes' native package manager so the plugin's SDK dependencies
+and selection are admitted together:
+
+```bash
+hermes plugins enable hermes-ops-kit
+```
+
+The resulting plugin selection in `~/.hermes/config.yaml` includes:
 
 ```yaml
 plugins:
@@ -107,7 +125,9 @@ image_gen:
   model: auto
 ```
 
-Restart Hermes Agent with preflight enforcement:
+Retain your existing image route unless you intend to select `ops-kit-router`.
+Restart Hermes Agent to adopt the newly published dependency environment, with
+preflight enforcement if required by your plugin policy:
 
 ```bash
 hermes-ops-kit preflight && hermes gateway restart
@@ -122,6 +142,11 @@ preflight. To preview or apply security decisions before plugins load:
 hermes-ops-kit preflight --dry-run
 hermes-ops-kit preflight && hermes gateway restart
 ```
+
+Hot reload applies commands and hooks, but does not switch Python environments.
+Open a fresh session for the seven Python tools; they may be deferred behind
+tool search. See [managed runtime activation](Hermes%20Compatibility.md#managed-runtime-activation)
+for the verified deployment procedure and acceptance limits.
 
 ## Verify
 
@@ -157,7 +182,7 @@ hermes-key-rotate --doctor-secrets
 
 ## Daily Routine
 
-1. `bw unlock` → update `BW_SESSION` in `.env`
+1. Check `bw status`; log in or unlock as needed, then update `BW_SESSION` in `.env`.
 2. `hermes-usage` → check all providers green
 3. `hermes-key-rotate --status` → verify key fingerprints
 4. `hermes-ops-kit image routes` → verify image backends
@@ -167,7 +192,7 @@ hermes-key-rotate --doctor-secrets
 | Symptom                   | Fix                                                              |
 | ------------------------- | ---------------------------------------------------------------- |
 | `bw` command not found    | `npm install -g @bitwarden/cli`                                  |
-| `BW_SESSION` expired      | `bw unlock` → copy new session key                               |
+| Vault locked or unauthenticated | Follow the login/unlock steps above and refresh saved `BW_SESSION` |
 | Provider key missing      | `hermes-key-rotate rotate --provider <p> --manual-new-key-stdin` |
 | `.env.generated` empty    | `hermes-key-rotate --render-env`                                 |
 | Image routes all `NO KEY` | Check `GEMINI_API_KEY` in `.env.generated`                       |

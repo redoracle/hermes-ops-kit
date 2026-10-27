@@ -279,84 +279,89 @@ class NvidiaRotator(BaseRotator):
         new_fp, new_l4 = secret_fingerprint(candidate_key)
 
         # ── 4. Store candidate in Vaultwarden ──
-        try:
-            self.backend.set_secret(
-                NVIDIA_API_REF,
-                candidate_key,
-                metadata={
-                    "rotation_mode": "manual-new-key",
-                    "last_rotated_at": str(int(time.time())),
-                    "old_fingerprint": old_fp or "none",
-                    "old_last4": old_l4 or "",
-                },
-            )
-        except SecretWriteFailed as e:
-            return {"ok": False, "error": f"Failed to store candidate: {e}"}
+        from ..security.lockfile import credential_commit_lock
+        with credential_commit_lock():
+            backup = self.backend.backup_secret(NVIDIA_API_REF)
+            if backup is None:
+                return {"ok": False, "error": "No current secret available for rollback"}
+            old_fp, old_l4 = secret_fingerprint(backup.value)
+            try:
+                self.backend.set_secret(
+                    NVIDIA_API_REF,
+                    candidate_key,
+                    metadata={
+                        "rotation_mode": "manual-new-key",
+                        "last_rotated_at": str(int(time.time())),
+                        "old_fingerprint": old_fp or "none",
+                        "old_last4": old_l4 or "",
+                    },
+                )
+            except SecretWriteFailed as e:
+                return {"ok": False, "error": f"Failed to store candidate: {e}"}
 
-        # ── 5. Smoke test (before rendering env, so bad key never reaches .env.generated) ──
-        passed, detail = self.smoke_test()
-        if not passed:
-            if backup:
-                self.backend.restore_secret(NVIDIA_API_REF, backup)
+            # ── 5. Smoke test (before rendering env, so bad key never reaches .env.generated) ──
+            passed, detail = self.smoke_test_safely()
+            if not passed:
+                self.rollback_secret(NVIDIA_API_REF, backup)
+                audit_rotation_attempt(
+                    provider="nvidia",
+                    status="smoke_test_failed",
+                    old_fp=old_fp,
+                    new_fp=new_fp,
+                    old_revoked=False,
+                    manual_action=True,
+                    env_keys_updated=[],
+                )
+                return {
+                    "ok": False,
+                    "error": f"Smoke test failed: {detail}",
+                    "smoke_test": detail,
+                }
+
+            # ── 6. Render env (only after smoke test passes) ──
+            from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+
+            try:
+                env_path = render_env(self.backend)
+            except Exception as e:
+                if backup:
+                    try:
+                        self.backend.restore_secret(NVIDIA_API_REF, backup)
+                        render_env(self.backend)  # re-render with rolled-back key
+                    except Exception as rollback_err:
+                        return {
+                            "ok": False,
+                            "error": f"Env render failed: {e}",
+                            "rollback_error": str(rollback_err),
+                        }
+                return {"ok": False, "error": f"Env render failed: {e}"}
+
+            # ── 7. Audit ──
             audit_rotation_attempt(
                 provider="nvidia",
-                status="smoke_test_failed",
+                status="success",
                 old_fp=old_fp,
                 new_fp=new_fp,
                 old_revoked=False,
                 manual_action=True,
-                env_keys_updated=[],
+                env_keys_updated=list(PROVIDER_ENV_KEYS["nvidia"]),
             )
+
             return {
-                "ok": False,
-                "error": f"Smoke test failed: {detail}",
+                "ok": True,
+                "provider": "nvidia",
+                "operation": "rotation",
+                "old_fingerprint": old_fp,
+                "new_fingerprint": new_fp,
+                "new_last4": new_l4,
+                "env_rendered": env_path,
                 "smoke_test": detail,
+                "warnings": [
+                    "Account has billing/credit issues — key stored but API calls may fail until resolved"
+                ]
+                if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
+                else [],
             }
-
-        # ── 6. Render env (only after smoke test passes) ──
-        from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
-
-        try:
-            env_path = render_env(self.backend)
-        except Exception as e:
-            if backup:
-                try:
-                    self.backend.restore_secret(NVIDIA_API_REF, backup)
-                    render_env(self.backend)  # re-render with rolled-back key
-                except Exception as rollback_err:
-                    return {
-                        "ok": False,
-                        "error": f"Env render failed: {e}",
-                        "rollback_error": str(rollback_err),
-                    }
-            return {"ok": False, "error": f"Env render failed: {e}"}
-
-        # ── 7. Audit ──
-        audit_rotation_attempt(
-            provider="nvidia",
-            status="success",
-            old_fp=old_fp,
-            new_fp=new_fp,
-            old_revoked=False,
-            manual_action=True,
-            env_keys_updated=list(PROVIDER_ENV_KEYS["nvidia"]),
-        )
-
-        return {
-            "ok": True,
-            "provider": "nvidia",
-            "operation": "rotation",
-            "old_fingerprint": old_fp,
-            "new_fingerprint": new_fp,
-            "new_last4": new_l4,
-            "env_rendered": env_path,
-            "smoke_test": detail,
-            "warnings": [
-                "Account has billing/credit issues — key stored but API calls may fail until resolved"
-            ]
-            if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
-            else [],
-        }
 
     # ── Helpers ──────────────────────────────────────────────────
 

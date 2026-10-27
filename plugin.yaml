@@ -18,7 +18,7 @@ provides_tools:
   - ai_secret_backend_status
 
 provides_hooks:
-  - post_tool_call
+  - transform_tool_result
   - on_session_start
 
 provides_commands:

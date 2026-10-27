@@ -126,9 +126,29 @@ def load_yaml_strict(path: str) -> dict:
     """
     if not os.path.exists(path):
         raise ConfigError(f"missing: {path}")
-    data = load_yaml(path)
-    if not data:
-        raise ConfigError(f"empty or unparseable: {path}")
+    try:
+        with open(path) as source:
+            parser = _ruamel()
+            if parser is not None:
+                data = parser.load(source)
+            else:
+                import yaml
+                class UniqueLoader(yaml.SafeLoader):
+                    pass
+                def mapping(loader, node):
+                    result = {}
+                    for key_node, value_node in node.value:
+                        key = loader.construct_object(key_node)
+                        if key in result:
+                            raise ValueError("duplicate mapping key")
+                        result[key] = loader.construct_object(value_node)
+                    return result
+                UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+                data = yaml.load(source, Loader=UniqueLoader)
+    except Exception as exc:
+        raise ConfigError(f"unparseable configuration: {path}") from exc
+    if not isinstance(data, dict) or not data:
+        raise ConfigError(f"empty or non-mapping configuration: {path}")
     return data
 
 

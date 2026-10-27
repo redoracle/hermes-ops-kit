@@ -2,12 +2,35 @@
 title: Operations Runbook
 tags: [hermes, ops-kit, operations, runbook, incident-response]
 created: 2026-06-04
-modified: 2026-06-04
+modified: 2026-10-27
 ---
 
 # Operations Runbook
 
 Day-to-day operational procedures and incident response for Hermes Ops Kit.
+
+## Plugin deployment and dependency reconciliation
+
+Preserve local plugin changes and verified private copies of the plugin and
+`config.yaml` before deploying an update. Enable with
+`hermes plugins enable hermes-ops-kit` so native PM reconciles the dependency graph;
+`hermes pm repair` alone cannot add a disabled plugin's requirements. Restart an
+idle gateway with `hermes gateway restart` after a new environment is published.
+Do not install dependencies into Hermes' managed environment with raw pip.
+
+Check the replacement gateway's readiness and selected interpreter, then verify
+all seven ops-kit tools in a fresh session's full catalog (`tools.show`). Tool-search
+deferral can omit individual tool schemas from the initial banner. Hot-reloaded
+commands/hooks alone do not prove SDK availability or provider inference.
+
+For vault session recovery, follow [Quickstart](quickstart.md#2-configure-bitwardenvaultwarden-cli)
+using the configured server and CLI data directory. Preserve `.env` entries and
+mode `600`; never copy a password or session token into an issue or chat.
+An unset `BWS_ACCESS_TOKEN` warning refers to Hermes' separate Bitwarden Secrets
+Manager integration, not proof that ops-kit's Bitwarden CLI session is invalid.
+
+See [compatibility acceptance evidence](Hermes%20Compatibility.md#local-acceptance-evidence--2026-10-27)
+for the tested core revision, deployment checks and explicit provider limits.
 
 ## Health Checks
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from typing import Any
-from hermes_ops_kit import ops_config_io  # noqa: E402
+from .. import ops_config_io  # noqa: E402
 
 BUDGET_CONFIG_PATHS = [
     ops_config_io.deployed_or_bundled("budget.yaml"),
@@ -55,29 +55,28 @@ def _load_budget() -> dict[str, Any]:
     return dict(DEFAULT_BUDGET)
 
 
-def _provider_class(provider: str) -> str:
-    cfg = _load_budget()
+def _provider_class(provider: str, cfg: dict | None = None) -> str:
+    cfg = _load_budget() if cfg is None else cfg
     for cls_name, providers in cfg.get("provider_classes", {}).items():
         if provider in providers:
             return cls_name
     return "unknown"
 
 
-def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[str, Any]:
-    """Evaluate current budget status."""
-    cfg = _load_budget()
+def evaluate_budget(daily_spend: float | None = None, monthly_spend: float | None = None, *, _config: dict | None = None) -> dict[str, Any]:
+    """Evaluate supplied spend; omitted observations remain explicitly unknown."""
+    cfg = _load_budget() if _config is None else _config
     thresholds = cfg.get("thresholds", {})
     # budget.yaml nests these under `budgets:`; fall back to top-level then DEFAULT.
     _b = cfg.get("budgets", {})
     daily_budget = _b.get("daily_usd", cfg.get("daily_usd", 5.0))
     monthly_budget = _b.get("monthly_usd", cfg.get("monthly_usd", 100.0))
 
-    daily_pct = round(daily_spend / daily_budget * 100, 1) if daily_budget else 0
-    monthly_pct = (
-        round(monthly_spend / monthly_budget * 100, 1) if monthly_budget else 0
-    )
+    daily_pct = (round(daily_spend / daily_budget * 100, 1) if daily_budget else 0) if daily_spend is not None else None
+    monthly_pct = (round(monthly_spend / monthly_budget * 100, 1) if monthly_budget else 0) if monthly_spend is not None else None
 
-    max_pct = max(daily_pct, monthly_pct)
+    observed = [value for value in (daily_pct, monthly_pct) if value is not None]
+    max_pct = max(observed, default=0)
     if max_pct >= thresholds.get("block_percent", 100):
         status = "blocked"
     elif max_pct >= thresholds.get("restrict_percent", 95):
@@ -87,7 +86,7 @@ def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[st
     elif max_pct >= thresholds.get("warn_percent", 70):
         status = "warn"
     else:
-        status = "ok"
+        status = "ok" if daily_spend is not None and monthly_spend is not None else "unknown"
 
     actions = []
     if status in ("warn", "throttle", "restrict", "blocked"):
@@ -114,6 +113,8 @@ def evaluate_budget(daily_spend: float = 0, monthly_spend: float = 0) -> dict[st
     return {
         "ok": status != "blocked",
         "budget_status": status,
+        "spend_available": daily_spend is not None and monthly_spend is not None,
+        "spend_source": "caller" if observed else "unavailable",
         "daily_spend_usd": daily_spend,
         "daily_budget_usd": daily_budget,
         "daily_percent": daily_pct,
@@ -136,8 +137,9 @@ def check_route_allowed(
     provider: str, _model: str = "", _purpose: str = ""
 ) -> BudgetDecision:
     """Check if a route is allowed under current budget policy."""
-    status = evaluate_budget()
-    pclass = _provider_class(provider)
+    cfg = _load_budget()
+    status = evaluate_budget(_config=cfg)
+    pclass = _provider_class(provider, cfg)
     block_classes = status.get("block_classes")
     if block_classes is None:
         block_classes = ["paid_premium", "paid_standard"]
@@ -200,4 +202,7 @@ def check_route_allowed(
             ],
         )
 
+    if status["budget_status"] == "unknown":
+        return BudgetDecision(True, "unknown", f"{provider}: spend unavailable; no spend-based decision",
+                              warnings=["Spend is not measured; this check does not enforce invocation budgets"])
     return BudgetDecision(True, status["budget_status"], f"{provider} allowed")

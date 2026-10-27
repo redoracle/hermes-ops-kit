@@ -74,7 +74,7 @@ plugs into the native Hermes plugin system and stays out of your way.
 | Area              | Capabilities                                                                                                          |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
 | **Secrets**       | Bitwarden/Vaultwarden-backed store · 3 auth modes · atomic chmod-600 writes · classification (admin/runtime/config)   |
-| **Key Rotation**  | 8 providers (OpenAI · Anthropic · GitHub · Gemini · DeepSeek · NVIDIA · Fireworks · DeepInfra) · 14-phase state machine · retry+rollback · per-provider locking · orphan cleanup · emergency mode |
+| **Key Rotation**  | 8 providers (OpenAI · Anthropic · GitHub · Gemini · DeepSeek · NVIDIA · Fireworks · DeepInfra) · validation and rollback · serialized credential commits · emergency mode |
 | **Validation**    | Structured results (`reason_class`, `http_status`, `retry_recommended`) — "unusable" never "expired"                  |
 | **Env Rendering** | 3-layer denylist gate — admin keys can never leak into `.env.generated`                                               |
 | **Health**        | Concurrent live probes across all providers · rate limits · costs                                                     |
@@ -85,7 +85,7 @@ plugs into the native Hermes plugin system and stays out of your way.
 | **MCP Audit**     | Server discovery · tool risk classification · atomic whitelisting                                                     |
 | **Plugin Scan**   | Pre-execution security scan · entropy check · skill vs code detection · rule overrides · doc/test downgrades          |
 | **Security**      | Extensible redaction (Fireworks `fw-`/`xai-`/`fal_`) · credential-read guard · secret scanner gate · safe `bw` CLI wrapper |
-| **Cost Gov**      | USD budgets + Nous plan allowance gating · provider cost classes · route restrictions · free-tier reroute on exhaustion |
+| **Cost Gov**      | Explicit-spend evaluation + Nous allowance checks · unavailable spend reported as unknown · advisory CLI checks |
 | **Compatibility** | `hermes-compat-audit` skill — monitors hermes-agent releases vs plugin · 3-pass audit → implementation plan · grounded GitHub fetcher |
 
 ## What it does not replace
@@ -139,6 +139,10 @@ hermes-key-rotate --status
 
 <p><details><summary><b>All installation methods</b></summary>
 
+For current managed Hermes installations, prefer the Git clone and native
+`hermes plugins enable` procedure below. The standalone Bash/pip paths have a
+different environment boundary; do not use them to mutate Hermes' managed runtime.
+
 `install.sh` supports Linux, macOS, and Windows through WSL. It requires
 Python 3.11+, pip, Git, and Bash. Native Windows PowerShell/cmd is not
 supported by the Bash installer. The plugin package is installed into the
@@ -160,7 +164,7 @@ detector fixtures. Custom `HERMES_OPS_KIT_REPO` sources fail closed on risky
 findings unless the operator explicitly sets `HERMES_OPS_KIT_TRUST_REPO=true`.
 
 ```bash
-# Remote install (recommended)
+# Standalone Bash installer
 curl -fsSL https://raw.githubusercontent.com/redoracle/hermes-ops-kit/main/install.sh | bash
 
 # Pinned version
@@ -169,6 +173,7 @@ HERMES_OPS_KIT_VERSION=v0.11.0 bash -c "$(curl -fsSL https://raw.githubuserconte
 # Git clone + plugin registration
 git clone https://github.com/redoracle/hermes-ops-kit.git ~/.hermes/plugins/hermes-ops-kit
 hermes plugins enable hermes-ops-kit
+hermes gateway restart
 
 # Pip install (library use)
 pip install git+https://github.com/redoracle/hermes-ops-kit.git
@@ -192,8 +197,16 @@ A normal `hermes gateway restart` does **not** run preflight. Use
 
 ### Python dependencies
 
-All provider SDKs are included as core dependencies — `pip install hermes-ops-kit`
-installs everything needed for full functionality across all 8 providers.
+All provider SDKs are declared as core dependencies. With current managed Hermes,
+`hermes plugins enable hermes-ops-kit` admits them through Hermes' package manager;
+restart the gateway after an environment change. Do not use raw pip to modify
+Hermes' managed environment. A standalone pip/Conda install is a separate runtime
+and does not prove the gateway has its dependencies or credentials.
+
+Commands and hooks can hot-reload; Python tools become available to fresh sessions,
+including through Hermes' deferred tool-search catalog. See
+[runtime acceptance and activation](docs/Hermes%20Compatibility.md#managed-runtime-activation)
+for checks and the latest validation limits.
 `install.sh` installs the `dev` extra as well and verifies both Pillow and
 `ruff`, plus Semgrep and Bandit in an isolated scanner environment. It also
 installs pinned Gitleaks `v8.30.1` through Go, or the package-managed Gitleaks
@@ -263,7 +276,7 @@ hermes-key-rotate seed-from-env --dry-run           # Preview what would be impo
 hermes-key-rotate seed-from-env                     # Migrate all runtime keys to Bitwarden/Vaultwarden
 
 # ── Crash recovery ──
-hermes-key-rotate resume --provider openai            # Resume from checkpoint
+hermes-key-rotate resume --provider openai            # Returns UnsupportedOperation; inspect credential state manually
 
 # ── Vault management ──
 hermes-key-rotate backup-vault                        # Export vault metadata to backup JSON
@@ -280,7 +293,7 @@ hermes-key-rotate migrate                             # Interactive migration wi
 | `seed-admin`    | Store admin credentials for auto-rotation                          |
 | `seed-from-env` | Bulk-migrate all runtime keys from `.env` to Bitwarden/Vaultwarden |
 | `emergency`     | Immediate revoke + replace on key compromise                       |
-| `resume`        | Resume interrupted rotation from checkpoint                        |
+| `resume`        | Reserved recovery command; currently returns UnsupportedOperation                        |
 | `validate`      | Probe a key against the provider API without storing               |
 | `render-env`    | Generate `.env.generated`                                          |
 
@@ -298,8 +311,8 @@ hermes-key-rotate migrate                             # Interactive migration wi
 - **Admin keys never leak** — three-layer denylist gate (YAML `deny_render` list + path classification + metadata flag) prevents admin credentials from appearing in `.env.generated`.
 - **Structured validation** — `validate_new_key()` returns typed `ValidationResult` with `reason_class` (`auth_denied`, `rate_limited`, `network_error`, etc.). Transient failures retried with exponential backoff; permanent failures return immediately. Says "candidate key unusable" — never claims "expired" unless the provider says so.
 - **Rollback** — `backup_secret()` before mutation → `restore_secret()` on smoke-test or env-render failure. Old key never revoked before replacement is confirmed healthy.
-- **Per-provider locking** — `fcntl.flock` via `security/lockfile.py` prevents concurrent rotations of the same provider.
-- **State machine** — 14-phase rotation with checkpointing to `~/.hermes/rotation_checkpoints/`. Crashed rotations resume via `hermes-key-rotate resume`.
+- **Rotation locking** — per-provider locks prevent competing rotations; a shared commit lock serializes active-secret writes, smoke tests, rollback, and complete environment publication. Candidate validation can run concurrently.
+- **Recovery limits** — automatic crash recovery is unsupported. `resume` returns a structured error without changing credentials. Inspect vault/runtime state before retrying an interrupted rotation.
 - **Orphan cleanup** — auto-created keys that fail validation are deleted from the provider.
 - **Secret classification** — every Bitwarden/Vaultwarden item carries `secret_class` (`runtime`/`admin`/`config`) and `renderable_to_env` in custom fields.
 - **GitHub token validation** — GitHub tokens validated via `gh` CLI or `curl` fallback — no `gh` install required.
@@ -397,6 +410,11 @@ never touched (Hermes degrades to direct providers on its own if the proxy
 dies), and `preflight` re-aligns route and upstream before every gateway
 restart. Not a provider, not a dependency — on hosts without Headroom the
 route simply stays direct.
+
+Install Headroom separately with `pipx install 'headroom-ai[proxy]'`, using
+a Python version supported by Headroom. The former `hermes-ops-kit[headroom]`
+extra is removed so its MCP dependencies do not conflict with Hermes' managed
+environment; ops-kit continues to invoke the external `headroom` CLI.
 
 **Prerequisite:** the primary provider's `providers` entry in `config.yaml`
 must declare `base_url` and `api_key_env` so the proxy can resolve an
@@ -523,7 +541,8 @@ Secrets Manager:
 ```
 
 A single bootstrap credential (`BW_SESSION`) unlocks all keys — and
-it's short-lived (daily expiry), revocable, and never written to git.
+it is sensitive and must never be written to git. Refresh it when the configured
+CLI reports a locked or unauthenticated session; no fixed daily expiry is assumed.
 Contrast with the old approach of 10+ long-lived API keys sitting in
 a single `.env` file forever.
 
@@ -560,14 +579,16 @@ Bootstrap `~/.hermes/.env` (chmod 600) — **only these 4-6 vars**:
 HERMES_SECRET_BACKEND=vaultwarden
 VAULTWARDEN_SERVER_URL=https://<your-vaultwarden-host>
 VAULTWARDEN_USER=<email>
-VAULTWARDEN_PASSWORD=<master-password>
 HERMES_AUTH_MODE=bitwarden_cli_session
 BW_SESSION=<session-key>
 ```
 
 Three auth modes: password bootstrap, API key (`BW_CLIENTID` +
-`BW_CLIENTSECRET`), and session token. Session tokens expire
-periodically — refresh with `bw unlock`.
+`BW_CLIENTSECRET`), and session token. Store `VAULTWARDEN_PASSWORD` only if
+your chosen password mode requires it. Refresh a locked or unauthenticated CLI
+session using the
+[local login/session-refresh procedure](docs/quickstart.md#2-configure-bitwardenvaultwarden-cli)
+and update the saved `.env` value rather than only exporting it in a shell.
 
 See [`skills/bw/SKILL.md`](skills/bw/SKILL.md) and
 [`skills/operator/`](skills/operator/) for Bitwarden/Vaultwarden operational guides.
@@ -676,7 +697,7 @@ hermes_export.py           Structured export (usage, security, audit, briefings)
 
 security/                  Bitwarden/Vaultwarden backend · redaction · fingerprints · credential-read guard · SecretSource bridge · lockfile
 env/                       Env loading · rendering (3-layer denylist) · atomic writes
-providers/                 8 LLM adapters + 8 rotators + shared OpenAI-compat base + state machine
+providers/                 8 LLM adapters + 8 rotators + shared OpenAI-compat base
 assistants/                Config-driven delegation (8 modules)
 image_routes/              Image gen routing + 4 adapters (ComfyUI, Gemini, OpenAI, FAL)
 security/plugin_scanner/   Pre-execution plugin security scan (entropy, doc-mode, skill-mode)
@@ -783,7 +804,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 | [`docs/Threat Model.md`](docs/Threat%20Model.md)                           | Trust boundaries · secret lifecycle threats · key rotation mitigations · MCP security · redaction pipeline · atomic write guarantees |
 | [`docs/Route Profile Design.md`](docs/Route%20Profile%20Design.md)         | AUX vs IMAGE routes · profile presets · fallback chain design · `apply-profile` flow · custom profiles                               |
 | [`docs/architecture.md`](docs/architecture.md)                             | Module map · data flow diagrams · SecretBackend protocol · plugin lifecycle hooks · subprocess adapter pattern                       |
-| [`docs/Key Management Lifecycle.md`](docs/Key%20Management%20Lifecycle.md) | Full secret inventory · 14-phase state machine · rotation modes · revocation matrix · env rendering pipeline                         |
+| [`docs/Key Management Lifecycle.md`](docs/Key%20Management%20Lifecycle.md) | Full secret inventory · rotation and recovery limits · rotation modes · revocation matrix · env rendering pipeline                         |
 | [`docs/Architecture Decisions.md`](docs/Architecture%20Decisions.md)       | ADR-001 through ADR-005 — key architectural decisions with rationale                                                                 |
 | [`docs/Operations Runbook.md`](docs/Operations%20Runbook.md)               | Health checks · incident response · recovery procedures · log locations                                                              |
 | [`docs/external-security-tools.md`](docs/external-security-tools.md)       | Platform-specific install guide for gitleaks, Semgrep, and Bandit (macOS, Linux, Windows, Docker)                                    |
@@ -806,8 +827,9 @@ bash scripts/test-scanner.sh              # 10-test scanner integration suite
 bash scripts/preflight-scan.sh             # Pre-release secret audit
 ```
 
-All tests use synthetic fixtures and in-memory configs — no real API keys
-or provider calls needed. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+Tests use synthetic fixtures, isolated Hermes homes, and temporary files.
+Integration tests create disposable virtualenvs and may download build dependencies;
+no real API keys or provider calls are needed. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
 full test suite breakdown.
 
 ## Contributing

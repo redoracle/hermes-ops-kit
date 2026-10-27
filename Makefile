@@ -29,22 +29,20 @@ install-pipx: ## Install via pipx (standalone)
 # ── Format & Lint ───────────────────────────────────────────────
 
 format: ## Format all Python files
-	$(RUFF) format $(SRC) 2>/dev/null || echo "ruff not installed — run: pip install ruff"
+	$(RUFF) format $(SRC)
 
 lint: ## Lint all Python files
-	$(RUFF) check $(SRC) 2>/dev/null || echo "ruff not installed — run: pip install ruff"
+	$(RUFF) check $(SRC)
 
 lint-fix: ## Lint and auto-fix
-	$(RUFF) check --fix $(SRC) 2>/dev/null || echo "ruff not installed"
+	$(RUFF) check --fix $(SRC)
 
-check: format lint ## Format and lint
+check: lint compile test ## Run lint, syntax checks, and tests
 
 # ── Compile / Syntax ────────────────────────────────────────────
 
 compile: ## Syntax-check all Python files
-	@find $(SRC) -name '*.py' ! -path '*__pycache__*' ! -path '.pytest_cache/*' \
-		-exec $(PYTHON) -m py_compile {} \; 2>&1 | grep -v "^$$" || true
-	@echo "compile: OK"
+	$(PYTHON) -m compileall -q -x '(^|/)([.]venv|venv|[.]git|__pycache__)/' $(SRC)
 
 # ── Test ────────────────────────────────────────────────────────
 
@@ -71,18 +69,17 @@ simulate-leak: ## Simulate secret leak
 
 # ── Security ────────────────────────────────────────────────────
 
-security-scan: ## Scan for secrets in source
-	@grep -rPn '(sk-ant-[A-Za-z0-9-_]{15,}|sk-[A-Za-z0-9-_]{15,}|AIza[0-9A-Za-z_-]{30,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|Bearer\s+[A-Za-z0-9_\-\.]{10,}|-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----)' \
-		$(SRC) --include='*.py' --include='*.yaml' --include='*.md' \
-		--exclude-dir='__pycache__' --exclude-dir='.pytest_cache' 2>/dev/null || echo "security-scan: clean ✅"
+SECURITY_SCANNER ?= gitleaks
+security-scan: ## Scan working-tree secrets (requires gitleaks; existing allowlist applies)
+	$(SECURITY_SCANNER) detect --source $(SRC) --no-git --redact --config "$(CURDIR)/.gitleaks.toml"
 
 # ── Build ───────────────────────────────────────────────────────
 
 build: ## Build Python wheel
-	$(PYTHON) -m build --wheel 2>/dev/null || ($(PIP) install --user build && $(PYTHON) -m build --wheel)
+	$(PYTHON) -m build --wheel
 
 build-dist: ## Build wheel + sdist
-	$(PYTHON) -m build 2>/dev/null || ($(PIP) install --user build && $(PYTHON) -m build)
+	$(PYTHON) -m build
 
 # ── Clean ───────────────────────────────────────────────────────
 
@@ -131,6 +128,6 @@ git-push: test security-scan ## Run tests + security scan then push
 
 # ── All ─────────────────────────────────────────────────────────
 
-all: format lint compile test security-scan ## Run all checks (format, lint, compile, test, security)
+all: lint compile test security-scan ## Run all checks (format, lint, compile, test, security)
 	@echo ""
 	@echo "✅ all checks passed"

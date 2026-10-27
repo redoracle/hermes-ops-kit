@@ -155,7 +155,10 @@ pip fallback; non-fatal on failure: it is an optimization, not a
 requirement). The `[proxy]` extra is mandatory — without it (fastapi/uvicorn
 missing) `headroom proxy` crashes on start with `No module named 'fastapi'`
 and the picker shows `headroom (0 models)`. LiteLLM is **not** installed.
-Optional extra: `pip install 'hermes-ops-kit[headroom]'`.
+Install the optional CLI separately with `pipx install 'headroom-ai[proxy]'`
+using a Python version supported by Headroom. The former
+`hermes-ops-kit[headroom]` extra is removed: its MCP dependencies conflict
+with current Hermes, and ops-kit invokes the external CLI rather than importing it.
 
 ## Administration
 

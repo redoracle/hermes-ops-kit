@@ -2,8 +2,8 @@
 Hermes Ops Kit — Atomic File Write
 
 Safe atomic write sequence for secret-bearing files:
-  1. Write content to <path>.tmp
-  2. chmod 0600
+  1. Create a unique owner-only temp file beside the target
+  2. Write content through its already-open descriptor
   3. fsync
   4. rename to final path
   5. verify permissions
@@ -14,7 +14,7 @@ Never logs file content.
 from __future__ import annotations
 
 import os
-import stat
+import tempfile
 
 
 def atomic_write(
@@ -26,24 +26,20 @@ def atomic_write(
 
     Uses temp file + rename to prevent partial reads.
     """
-    tmp_path = path + ".tmp"
-
-    # 1. Write temp file
-    with open(tmp_path, "w") as f:
-        f.write(content)
-        f.flush()
-        os.fsync(f.fileno())
-
-    # 2. Set permissions on temp file
-    os.chmod(tmp_path, mode)
-
-    # 3. Atomic rename
-    os.rename(tmp_path, path)
-
-    # 4. Verify
-    actual = stat.S_IMODE(os.stat(path).st_mode)
-    if actual != mode:
-        os.chmod(path, mode)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(os.path.abspath(path)),
+        prefix=f".{os.path.basename(path)}.", text=True,
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), mode)
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def atomic_append(path: str, line: str) -> None:
@@ -66,20 +62,4 @@ def atomic_write_json(path: str, data: object, mode: int = 0o600) -> None:
     never be observable.
     """
     import json
-    import tempfile
-
-    fd, tmp_path = tempfile.mkstemp(
-        dir=os.path.dirname(os.path.abspath(path)),
-        prefix=f".{os.path.basename(path)}.",
-        text=True,
-    )
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp_path, mode)
-        os.replace(tmp_path, path)
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+    atomic_write(path, json.dumps(data, indent=2), mode)

@@ -195,6 +195,9 @@ class OpenAIRotator(BaseRotator):
         """Delete old API key via admin API."""
         if not old_api_key_id:
             return False
+        project = self.backend.get_secret(OPENAI_PROJECT_ID_REF)
+        if not project or not project.value:
+            return False
         try:
             import requests  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
         except Exception:
@@ -203,11 +206,11 @@ class OpenAIRotator(BaseRotator):
         headers = {"Authorization": f"Bearer {admin_key}"}
         try:
             resp = requests.delete(
-                f"https://api.openai.com/v1/api_keys/{old_api_key_id}",
+                f"https://api.openai.com/v1/organization/projects/{project.value}/api_keys/{old_api_key_id}",
                 headers=headers,
                 timeout=15,
             )
-            return resp.status_code == 200
+            return resp.status_code == 200 and resp.json().get("deleted") is True
         except Exception:
             return False
 
@@ -224,9 +227,9 @@ class OpenAIRotator(BaseRotator):
         if not admin:
             return False
         old_meta = self.backend.get_metadata(secret_ref)
-        if not old_meta or not old_meta.item_id:
+        if not old_meta or not old_meta.provider_credential_id:
             return False
-        return self._delete_old_key(admin.value, old_meta.item_id)
+        return self._delete_old_key(admin.value, old_meta.provider_credential_id)
 
     def cleanup_orphaned_key(self, key_value: str) -> bool:
         """Delete a just-created key that failed validation.
@@ -274,11 +277,6 @@ class OpenAIRotator(BaseRotator):
         """Execute OpenAI rotation flow."""
         from ..audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
 
-        old_secret = self.backend.get_secret(OPENAI_API_KEY_REF)
-        old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else (None, None)
-
-        # ── Backup current secret for rollback ──
-        backup = self.backend.backup_secret(OPENAI_API_KEY_REF)
 
         # ── Full-auto path: use admin key ──
         auto_created = False
@@ -321,74 +319,81 @@ class OpenAIRotator(BaseRotator):
         new_fp, new_l4 = secret_fingerprint(candidate_key)
 
         # ── Store ──
-        try:
-            self.backend.set_secret(
-                OPENAI_API_KEY_REF,
-                candidate_key,
-                metadata={
-                    "rotation_mode": "full-auto" if self._has_admin_key() else "manual",
-                    "last_rotated_at": str(int(time.time())),
-                    "old_fingerprint": old_fp or "none",
-                },
-            )
-        except SecretWriteFailed as e:
-            if auto_created:
-                self.cleanup_orphaned_key(candidate_key)
-            return {"ok": False, "error": f"Store failed: {e}"}
+        from ..security.lockfile import credential_commit_lock
+        with credential_commit_lock():
+            old_secret = self.backend.get_secret(OPENAI_API_KEY_REF)
+            old_metadata = self.backend.get_metadata(OPENAI_API_KEY_REF)
+            old_credential_id = getattr(old_metadata, "provider_credential_id", None)
+            old_fp, _ = secret_fingerprint(old_secret.value) if old_secret else (None, None)
 
-        # ── Smoke test (before rendering env, so bad key never reaches .env.generated) ──
-        passed, detail = self.smoke_test()
-        if not passed:
-            if backup:
-                self.backend.restore_secret(OPENAI_API_KEY_REF, backup)
-            return {"ok": False, "error": f"Smoke test failed: {detail}"}
+            # ── Backup current secret for rollback ──
+            backup = self.backend.backup_secret(OPENAI_API_KEY_REF)
+            try:
+                self.backend.set_secret(
+                    OPENAI_API_KEY_REF,
+                    candidate_key,
+                    metadata={
+                        "rotation_mode": "full-auto" if auto_created else "manual",
+                        "last_rotated_at": str(int(time.time())),
+                        "provider_credential_id": "",
+                        "old_fingerprint": old_fp or "none",
+                    },
+                )
+            except SecretWriteFailed as e:
+                if auto_created:
+                    self.cleanup_orphaned_key(candidate_key)
+                return {"ok": False, "error": f"Store failed: {e}"}
 
-        # ── Render env (only after smoke test passes) ──
-        from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+            # ── Smoke test (before rendering env, so bad key never reaches .env.generated) ──
+            passed, detail = self.smoke_test_safely()
+            if not passed:
+                self.rollback_secret(OPENAI_API_KEY_REF, backup)
+                return {"ok": False, "error": f"Smoke test failed: {detail}"}
 
-        try:
-            env_path = render_env(self.backend)
-        except Exception as e:
-            if backup:
-                self.backend.restore_secret(OPENAI_API_KEY_REF, backup)
+            # ── Render env (only after smoke test passes) ──
+            from ..env.render_env import render_env  # pyright: ignore[reportMissingImports]
+
+            try:
+                env_path = render_env(self.backend)
+            except Exception as e:
+                self.rollback_secret(OPENAI_API_KEY_REF, backup)
                 render_env(self.backend)  # re-render with rolled-back key
-            return {"ok": False, "error": f"Env render failed: {e}"}
+                return {"ok": False, "error": f"Env render failed: {e}"}
 
-        # ── Revoke old key if full-auto ──
-        old_revoked = False
-        if self._has_admin_key() and old_secret:
-            old_meta = self.backend.get_metadata(OPENAI_API_KEY_REF)
-            if old_meta and old_meta.item_id:
-                admin = self.backend.get_secret(OPENAI_ADMIN_KEY_REF)
-                if admin:
-                    old_revoked = self._delete_old_key(admin.value, old_meta.item_id)
+            # ── Revoke old key if full-auto ──
+            old_revoked = False
+            if self._has_admin_key() and old_secret:
+                if old_credential_id and candidate_key != old_secret.value:
+                    admin = self.backend.get_secret(OPENAI_ADMIN_KEY_REF)
+                    if admin:
+                        old_revoked = self._delete_old_key(admin.value, old_credential_id)
 
-        # ── Audit ──
-        audit_rotation_attempt(
-            provider="openai",
-            status="success",
-            old_fp=old_fp,
-            new_fp=new_fp,
-            old_revoked=old_revoked,
-            manual_action=not old_revoked,
-            env_keys_updated=list(PROVIDER_ENV_KEYS["openai"]),
-        )
+            # ── Audit ──
+            audit_rotation_attempt(
+                provider="openai",
+                status="success",
+                old_fp=old_fp,
+                new_fp=new_fp,
+                old_revoked=old_revoked,
+                manual_action=not old_revoked,
+                env_keys_updated=list(PROVIDER_ENV_KEYS["openai"]),
+            )
 
-        return {
-            "ok": True,
-            "provider": "openai",
-            "operation": "rotation",
-            "old_fingerprint": old_fp,
-            "new_fingerprint": new_fp,
-            "new_last4": new_l4,
-            "old_revoked": old_revoked,
-            "env_rendered": env_path,
-            "warnings": [
-                "Account has billing/credit issues — key stored but API calls may fail until resolved"
-            ]
-            if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
-            else [],
-        }
+            return {
+                "ok": True,
+                "provider": "openai",
+                "operation": "rotation",
+                "old_fingerprint": old_fp,
+                "new_fingerprint": new_fp,
+                "new_last4": new_l4,
+                "old_revoked": old_revoked,
+                "env_rendered": env_path,
+                "warnings": [
+                    "Account has billing/credit issues — key stored but API calls may fail until resolved"
+                ]
+                if vr.reason_class == ValidationReason.QUOTA_OR_BILLING
+                else [],
+            }
 
     def _read_key_stdin(self) -> str:
         if sys.stdin.isatty():
