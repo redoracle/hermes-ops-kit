@@ -131,7 +131,7 @@ commits from semantic-release's Contents API sync.
 1. Squash-merges the PR changes onto `main` as a single commit
 2. Sets the commit author to `redoracle` (not `dependabot[bot]`)
 3. Closes the PR without merging (deletes the branch)
-4. If conflicts arise, leaves the PR open with a warning comment
+4. If conflicts arise, or the PR changes `.github/workflows/**` (which `GITHUB_TOKEN` cannot push), leaves the PR open with an explanatory comment for manual application
 
 **Rationale:**
 - Keeps Dependabot active (maintaining GitHub Actions currency) without bot contributors
