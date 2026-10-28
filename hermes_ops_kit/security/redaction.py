@@ -20,6 +20,29 @@ import re
 # Patterns are tested in order; first match wins.
 # Keep provider-specific patterns first (more specific), generic patterns last.
 
+# Word boundary that also holds after a JSON-escaped newline/tab (``\\n`` glues the next
+# word to the letter ``n``, so a plain ``\\b`` would miss text on the following line).
+_WB = r"(?:\b|(?<=\\[nrt]))"
+
+# Skip text that is already a redaction placeholder, keeping redact() idempotent
+# and stopping scan_for_secrets() from flagging redacted output.
+_NOT_PLACEHOLDER = r"(?!<[A-Z_]*REDACTED>)"
+
+# Right-hand side of an assignment: JSON-embedded (\"..\" / \'..\'), "double" or
+# 'single' quoted with backslash escapes, a bare token (any non-space character, so
+# ``/ + = _ -`` are covered), or an unterminated quote followed by a bare run.
+_ASSIGNED_VALUE = (
+    r"(?:\\\"(?:(?!\\\").)*\\\""
+    r"|\\'(?:(?!\\').)*\\'"
+    r"|\"(?:\\.|[^\"\\])*\""
+    r"|'(?:\\.|[^'\\])*'"
+    r"|[\"'\\]*[^\s\"'\\]+)"
+)
+
+# A header credential: stops at whitespace, quotes, separators or a backslash so it
+# also works inside quoted shell arguments and JSON-embedded text.
+_HEADER_VALUE = r"[^\s\"',;\\]+"
+
 SECRET_PATTERNS: list[tuple[str, str]] = [
     # ── Provider API Keys ──
     (r"nvapi-[A-Za-z0-9_-]{40,}", "<NVIDIA_KEY_REDACTED>"),
@@ -41,14 +64,17 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     (r"fpk_[A-Za-z0-9]{30,}", "<FIREWORKS_KEY_REDACTED>"),  # Fireworks project key
     (r"xai-[A-Za-z0-9]{30,}", "<XAI_KEY_REDACTED>"),  # xAI (Grok) API key
     (r"fal_[A-Za-z0-9_-]{10,}", "<FAL_KEY_REDACTED>"),  # Fal.ai (image adapter)
-    # ── Vaultwarden / Bitwarden Secrets ──
-    (r"BW_SESSION=[A-Za-z0-9+/=]{20,}", "BW_SESSION=<REDACTED>"),
-    (r"BW_CLIENTSECRET=[A-Za-z0-9]{20,}", "BW_CLIENTSECRET=<REDACTED>"),
-    (r"BW_PASSWORD=[^\s]{1,}", "BW_PASSWORD=<REDACTED>"),
-    (r"VAULTWARDEN_PASSWORD=[^\s]{1,}", "VAULTWARDEN_PASSWORD=<REDACTED>"),
-    (r"BW_CLIENTID=[^\s]{1,}", "BW_CLIENTID=<REDACTED>"),
-    # ── Assistant / Assistant Token Patterns ──
-    (r"ASSISTANT_API_KEY=[A-Za-z0-9]{20,}", "ASSISTANT_API_KEY=<REDACTED>"),
+    # ── Vaultwarden / Bitwarden Secrets + assistant key ──
+    # Optional ``export``; value may be bare, "double"/'single' quoted (with escapes),
+    # or JSON-embedded (\"...\"). Already-redacted placeholders are skipped so
+    # redact() is idempotent and scan_for_secrets() does not flag redacted text.
+    (
+        r"(?i)" + _WB + r"((?:export\s+)?(?:BW_SESSION|BW_CLIENTSECRET|BW_PASSWORD|"
+        r"VAULTWARDEN_PASSWORD|BW_CLIENTID|ASSISTANT_API_KEY)\s*=\s*+)"
+        + _NOT_PLACEHOLDER
+        + _ASSIGNED_VALUE,
+        r"\1<REDACTED>",
+    ),
     (
         r"hermes-assistant-token:\s*[A-Za-z0-9]{20,}",
         "hermes-assistant-token: <REDACTED>",
@@ -66,14 +92,46 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
         r'("(?i:api_key|apikey|api-key|access_token|refresh_token|id_token|token|secret|client_secret|password|authorization|bw_session|bw_clientsecret|vaultwarden_password|assistant_api_key|[A-Z][A-Z0-9_]*_(?:API_KEY|TOKEN|PASSWORD|SECRET))"\s*:\s*")[^"]*"',
         r'\1<REDACTED>"',
     ),
-    # ── Generic Bearer / API Key Headers ──
-    (r"Bearer\s+[A-Za-z0-9_\-\.]+", "Bearer <TOKEN_REDACTED>"),
-    (r"x-api-key:\s*[A-Za-z0-9_\-\.]+", "x-api-key: <KEY_REDACTED>"),
-    (r"Authorization:\s*[A-Za-z0-9_\-\.]+", "Authorization: <REDACTED>"),
+    # ── Auth headers / cookies / URL credentials ──
+    # Authorization first, so a following Bearer pattern sees the placeholder, not
+    # the credential. The scheme group is possessive: a placeholder after it must
+    # not backtrack into treating the scheme word itself as the credential.
+    (
+        r"(?i)(" + _WB + r"authorization\s*[:=]\s*+(?:(?:bearer|basic|digest|token|negotiate)\s+)?+)"
+        + _NOT_PLACEHOLDER
+        + _HEADER_VALUE,
+        r"\1<TOKEN_REDACTED>",
+    ),
+    (
+        r"(?i)" + _WB + r"Bearer\s+" + _NOT_PLACEHOLDER + r"[A-Za-z0-9_\-\.~+/]+=*",
+        "Bearer <TOKEN_REDACTED>",
+    ),
+    (
+        r"(?i)(" + _WB + r"x-api-key\s*[:=]\s*+)" + _NOT_PLACEHOLDER + _HEADER_VALUE,
+        r"\1<KEY_REDACTED>",
+    ),
+    (
+        r"(?i)(" + _WB + r"(?:set-)?cookie\s*:\s*+)" + _NOT_PLACEHOLDER + r"[^\r\n\"\\]+",
+        r"\1<COOKIE_REDACTED>",
+    ),
+    (
+        r"(\b[A-Za-z][A-Za-z0-9+.\-]*://)(?!<)[^\s/@:\"'\\]+:[^\s/@\"'\\]+@",
+        r"\1<USERINFO_REDACTED>@",
+    ),
     # ── .env / Shell Assignment Patterns ──
     (
-        r"(?:^|\n)([A-Z_]+_KEY|[A-Z_]+_TOKEN|[A-Z_]+_PASSWORD|[A-Z_]+_SECRET)=[^\n]+",
-        r"\1=<REDACTED>",
+        r"(?m)^(\s*(?:export\s+)?[A-Z][A-Z0-9_]*(?:_KEY|_TOKEN|_PASSWORD|_SECRET)\s*=\s*+)"
+        + _NOT_PLACEHOLDER
+        + r"[^\r\n]+",
+        r"\1<REDACTED>",
+    ),
+    # Same assignments inside JSON-serialized text, where a newline is the two
+    # characters ``\\n`` and the value ends at the closing escaped quote.
+    (
+        r"(?<=\\n)(\s*(?:export\s+)?[A-Z][A-Z0-9_]*(?:_KEY|_TOKEN|_PASSWORD|_SECRET)\s*=\s*+)"
+        + _NOT_PLACEHOLDER
+        + _ASSIGNED_VALUE,
+        r"\1<REDACTED>",
     ),
 ]
 

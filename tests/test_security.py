@@ -6,6 +6,8 @@ Run with: python3 -m pytest tests/test_security.py -v
 
 from __future__ import annotations
 
+import pytest
+
 import os
 import stat
 import sys
@@ -60,6 +62,63 @@ def test_redacts_github_app_installation_token_full_length():
     for tok in ("ghs_" + "aB3_-" * 8, "ghs_" + "aB3_-" * 104, "ghp_" + "a1" * 200):
         out = redact(f"token={tok} end")
         assert out == "token=<GITHUB_TOKEN_REDACTED> end"
+
+
+# Synthetic credential-bearing shapes (F1): none may survive any output boundary.
+_SECRET = "abc123DEF456ghi789JKL012mno345PQR678stu"
+_B64 = "dXNlcjpwYXNzd29yZDEyMzQ1Njc4OTA="
+_LEAK_CASES = [
+    ('export BW_SESSION="' + _SECRET + '=="', _SECRET),
+    ("export BW_SESSION='" + _SECRET + "=='", _SECRET),
+    ("BW_SESSION=abc/def+ghi_xyz-0123456789ABCDEF==", "abc/def+ghi_xyz"),
+    ('{"stdout":"export BW_SESSION=\\"' + _SECRET + '==\\""}', _SECRET),
+    ("Authorization: Basic " + _B64, _B64),
+    ("authorization: basic " + _B64, _B64),
+    ("Authorization: Bearer abc/def+ghi==xyz", "abc/def+ghi==xyz"),
+    ("curl -H 'Authorization: Bearer abc.def-ghi' https://x", "abc.def-ghi"),
+    ("x-api-key: abc/def+ghi==", "abc/def+ghi=="),
+    ("Set-Cookie: sid=" + _SECRET + "; Path=/", _SECRET),
+    ("git clone https://user:hunter2secret@host.example/repo.git", "hunter2secret"),
+    ("API_KEY = " + _SECRET, _SECRET),
+    ("foo\nOPENAI_API_KEY=" + _SECRET + "\nbar", _SECRET),
+    ('VAULTWARDEN_PASSWORD="correct horse battery"', "horse battery"),
+]
+
+
+@pytest.mark.parametrize("text,secret", _LEAK_CASES)
+def test_redact_removes_credential_shapes(text, secret):
+    out = redact(text)
+    assert secret not in out
+    assert redact(out) == out  # idempotent: placeholders are never re-matched
+
+
+@pytest.mark.parametrize("text,secret", _LEAK_CASES)
+def test_scanner_and_sink_gate_reject_credential_shapes(text, secret):
+    clean, _ = scan_for_secrets(text)
+    assert not clean
+    with pytest.raises(Exception):
+        assert_clean(text, sink="test")
+
+
+@pytest.mark.parametrize("text,secret", _LEAK_CASES)
+def test_redacted_output_passes_the_scanner(text, secret):
+    clean, violations = scan_for_secrets(redact(text))
+    assert clean, violations
+
+
+@pytest.mark.parametrize(
+    "benign",
+    [
+        "The quick brown fox jumps over the lazy dog.",
+        "https://host:8080/path",
+        "contact user@example.com",
+        "see the Authorization section of the docs",
+        "git@github.com:org/repo.git",
+        "BW_SESSION is required before running this",
+    ],
+)
+def test_redact_keeps_benign_text(benign):
+    assert redact(benign) == benign
 
 
 def test_redacts_nvidia_key():

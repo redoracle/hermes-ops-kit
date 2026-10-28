@@ -46,7 +46,7 @@ FORBIDDEN_BLOCK_PATTERNS: list[tuple[str, str]] = [
     (r'^\s*[A-Z_]+_TOKEN\s*=\s*["\']?\S+', "env TOKEN assignment"),
     (r'^\s*[A-Z_]+_PASSWORD\s*=\s*["\']?\S+', "env PASSWORD assignment"),
     (r'^\s*[A-Z_]+_SECRET\s*=\s*["\']?\S+', "env SECRET assignment"),
-    (r"Authorization:\s*\S", "Authorization header"),
+    (r"(?i)Authorization:\s*\S", "Authorization header"),
     (r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----", "PEM private key"),
 ]
 

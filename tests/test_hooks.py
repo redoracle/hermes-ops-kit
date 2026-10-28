@@ -52,3 +52,20 @@ def test_on_session_start_runs_permissions_and_scan(monkeypatch, capsys):
 
     assert "unsafe permissions" in capsys.readouterr().err
     assert calls == [{"session_id": "session-1"}]
+
+
+def test_transform_tool_result_redacts_quoted_export_in_string():
+    out = hooks.transform_tool_result("terminal", 'export BW_SESSION="abc123DEF456ghi789JKL012mno345PQR678stu=="')
+    assert out is not None and "abc123DEF456" not in out
+
+
+def test_transform_tool_result_redacts_json_embedded_credentials():
+    result = {"stdout": 'export BW_SESSION="abc123DEF456ghi789JKL012mno345PQR678stu=="\nAuthorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Njc4OTA='}
+    out = hooks.transform_tool_result("terminal", result)
+    assert out is not None
+    assert "abc123DEF456" not in out and "dXNlcjpw" not in out
+
+
+def test_transform_tool_result_leaves_benign_output_unchanged():
+    assert hooks.transform_tool_result("terminal", "all good") is None
+    assert hooks.transform_tool_result("terminal", {"ok": True}) is None
