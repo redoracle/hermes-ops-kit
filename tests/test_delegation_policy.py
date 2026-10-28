@@ -5,7 +5,12 @@ import pytest
 
 from hermes_ops_kit.assistants.base import AssistantConfig, AssistantTask
 from hermes_ops_kit.assistants.client import AssistantClient, AssistantClientError
-from hermes_ops_kit.assistants.policy import PolicyViolation, check_task
+from hermes_ops_kit.assistants.policy import (
+    PolicyViolation,
+    check_task,
+    effective_constraints,
+    serialize_task,
+)
 
 
 def config(**kwargs):
@@ -89,3 +94,115 @@ def test_response_limit_is_enforced():
 def test_opaque_bootstrap_values_in_context_are_blocked(name):
     allowed, _ = check_task(task(context={name: "synthetic-opaque-value"}), config())
     assert not allowed
+
+
+RESERVED = [
+    "no_secret_access",
+    "no_env_dump",
+    "no_file_write",
+    "no_shell_execution",
+    "no_network_scan",
+]
+NOT_BOOLEAN = [0, 1, None, "false", "true", "", [], {}, "no"]
+# Reserved flags a config can ever allow a caller to relax, and the field that does so.
+RELAXABLE = {
+    "no_secret_access": "allow_secret_prompts",
+    "no_file_write": "allow_file_mutation",
+    "no_shell_execution": "allow_shell_execution",
+}
+
+
+def transmitted(source, cfg):
+    return json.loads(serialize_task(source, cfg))["constraints"]
+
+
+@pytest.mark.parametrize("flag", RESERVED)
+@pytest.mark.parametrize("value", NOT_BOOLEAN)
+def test_reserved_flag_must_be_exact_boolean(flag, value):
+    cfg, source = config(), task(constraints={flag: value})
+    allowed, reasons = check_task(source, cfg)
+    assert not allowed
+    assert any(flag in reason and "boolean" in reason for reason in reasons)
+    # The bad value never reaches the remote worker; the restriction stays in force.
+    assert transmitted(source, cfg)[flag] is True
+
+
+@pytest.mark.parametrize("flag", RESERVED)
+def test_caller_cannot_relax_a_configured_restriction(flag):
+    cfg, source = config(), task(constraints={flag: False})
+    allowed, _ = check_task(source, cfg)
+    assert not allowed
+    assert transmitted(source, cfg)[flag] is True
+
+
+@pytest.mark.parametrize("flag", ["no_env_dump", "no_network_scan"])
+def test_unconfigurable_flags_can_never_be_relaxed(flag):
+    cfg = config(
+        allow_secret_prompts=True, allow_file_mutation=True, allow_shell_execution=True
+    )
+    allowed, _ = check_task(task(constraints={flag: False}), cfg)
+    assert not allowed
+
+
+@pytest.mark.parametrize("flag,field", RELAXABLE.items())
+def test_config_permission_allows_relaxing_only_that_flag(flag, field):
+    cfg = config(**{field: True})
+    source = task(constraints={flag: False})
+    allowed, reasons = check_task(source, cfg)
+    assert allowed, reasons
+    assert transmitted(source, cfg)[flag] is False
+
+
+@pytest.mark.parametrize("flag,field", RELAXABLE.items())
+def test_caller_may_tighten_a_permitted_flag(flag, field):
+    cfg = config(**{field: True})
+    source = task(constraints={flag: True})
+    allowed, reasons = check_task(source, cfg)
+    assert allowed, reasons
+    assert transmitted(source, cfg)[flag] is True
+
+
+@pytest.mark.parametrize(
+    "alias", ["No_Shell_Execution", " no_shell_execution", "no-shell-execution"]
+)
+def test_alias_spellings_of_reserved_flags_are_rejected_and_dropped(alias):
+    cfg, source = config(), task(constraints={alias: False})
+    allowed, reasons = check_task(source, cfg)
+    assert not allowed
+    assert any("canonical name" in reason for reason in reasons)
+    assert alias not in transmitted(source, cfg)
+
+
+def test_non_reserved_constraints_pass_through():
+    cfg, source = config(), task(constraints={"timeout_seconds": 10, "patch_only": True})
+    assert check_task(source, cfg)[0]
+    sent = transmitted(source, cfg)
+    assert sent["timeout_seconds"] == 10 and sent["patch_only"] is True
+
+
+@pytest.mark.parametrize("bad", ["no_shell_execution", ["x"], 5])
+def test_constraints_must_be_an_object(bad):
+    allowed, reasons = check_task(task(constraints=bad), config())
+    assert not allowed
+    assert any("object" in reason for reason in reasons)
+
+
+@pytest.mark.parametrize(
+    "constraints",
+    [{}, {"no_file_write": True}, {"timeout_seconds": 5, "no_secret_access": True}],
+)
+def test_evaluated_constraints_equal_transmitted_constraints(constraints):
+    cfg, source = config(), task(constraints=constraints)
+    evaluated, violations = effective_constraints(source, cfg)
+    assert not violations
+    assert transmitted(source, cfg) == evaluated
+    assert AssistantClient(cfg)._build_task_envelope(source) == serialize_task(source, cfg)
+
+
+def test_rejected_task_never_reaches_transport(monkeypatch):
+    client = AssistantClient(config())
+    transport = MagicMock()
+    monkeypatch.setattr(client, "_open", transport)
+    with pytest.raises(PolicyViolation):
+        client.delegate(task(constraints={"no_shell_execution": 0}))
+    transport.assert_not_called()
