@@ -56,6 +56,7 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
 
 from .config.route_map import aux_harness_triples  # noqa: E402
 from . import ops_config_io  # noqa: E402
+from .ui.output import Table  # noqa: E402
 
 # AUX route map — canonical source: config/route_map.py
 AUX_MAP = aux_harness_triples()
@@ -732,11 +733,20 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"Hermes route harness · ok={report['ok']} · tested={report['summary']['total_routes_tested']}"
         )
-        for entry in report["routes"]:
-            print(
-                f"- {entry['category']:<9s} {entry['route']:<18s} {entry['result']:<8s} "
-                f"{entry['actual_provider']}:{entry['actual_model']} → {entry['runtime_path']}"
-            )
+        route_rows = [
+            [
+                e["category"],
+                e["route"],
+                e["result"],
+                f"{e['actual_provider']}:{e['actual_model']} → {e['runtime_path']}",
+            ]
+            for e in report["routes"]
+        ]
+        route_table = Table(["CATEGORY", "ROUTE", "RESULT", "RESOLVED"], route_rows, max_width=60)
+        print(route_table.header())
+        print(route_table.separator())
+        for row in route_rows:
+            print(route_table.row(row))
     return 0 if report["ok"] else 1
 
 

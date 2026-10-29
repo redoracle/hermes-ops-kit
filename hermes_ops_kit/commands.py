@@ -11,6 +11,8 @@ import os
 import re
 import sys
 
+from .ui.output import Table  # noqa: E402
+from .ui.width import display_width, pad  # noqa: E402
 from ._subprocess import run_module  # pyright: ignore[reportMissingImports]
 from . import ops_config_io  # noqa: E402
 
@@ -182,10 +184,10 @@ def _handle_doctor() -> int:
         total += 1
         if ok:
             ok_count += 1
-            print(f"  ✅ {label:<20s} {detail}")
+            print(f"  ✅ {pad(label, 20)} {detail}")
         else:
             warnings.append(f"{label}: {detail}")
-            print(f"  ⚠ {label:<20s} {detail}")
+            print(f"  🟡 {pad(label, 20)} {detail}")
 
     def _hdr(title: str) -> None:
         print(f"\n{title}")
@@ -325,7 +327,7 @@ def _handle_doctor() -> int:
     if warnings:
         print("\nWARNINGS")
         for w in warnings:
-            print(f"  ⚠ {w}")
+            print(f"  🟡 {w}")
 
     print("\nNEXT")
     print("  hermes-ops-kit doctor")
@@ -664,19 +666,29 @@ def _handle_route_test(args: list[str]) -> int:
         f"Route Verification · ok={report['ok']} · "
         f"tested={report['summary']['total_routes_tested']}"
     )
+    route_rows = []
     for entry in report["routes"]:
         icon = (
             "✅"
             if entry["result"] == "passed"
-            else "⚠️"
+            else "🟡"
             if entry["result"] == "failed"
             else "·"
         )
-        print(
-            f"  {icon} {entry['category']:<9s} {entry['route']:<18s} "
-            f"{entry['result']:<8s} "
-            f"{entry['actual_provider']}:{entry['actual_model']} → {entry['runtime_path']}"
+        route_rows.append(
+            [
+                icon,
+                entry["category"],
+                entry["route"],
+                entry["result"],
+                f"{entry['actual_provider']}:{entry['actual_model']} → {entry['runtime_path']}",
+            ]
         )
+    route_table = Table(["", "CATEGORY", "ROUTE", "RESULT", "RESOLVED"], route_rows, max_width=60)
+    print(route_table.header())
+    print(route_table.separator())
+    for row in route_rows:
+        print(route_table.row(row))
     return 0 if report["ok"] else 1
 
 
@@ -854,9 +866,8 @@ def _mcp_tools(args: list[str]) -> int:
             continue
 
         # Column widths
-        name_w = max(len(t["tool_name"]) for t in tools) if tools else 20
+        tool_rows = []
         for t in tools:
-            risk = t["risk"]
             # Status label
             if t.get("approved"):
                 status = "APPROVED ✓"
@@ -864,8 +875,13 @@ def _mcp_tools(args: list[str]) -> int:
                 status = "BLOCKED ✗"
             else:
                 status = "REQUIRES APPROVAL"
-            # Color-coded risk (no ANSI for compatibility with --no-color)
-            print(f"  {t['tool_name']:<{name_w}s}  {risk:<8s}  {status}")
+            tool_rows.append([t["tool_name"], t["risk"], status])
+        tool_table = Table(["TOOL", "RISK", "STATUS"], tool_rows, max_width=60)
+        if tool_rows:
+            print(tool_table.header())
+            print(tool_table.separator())
+        for row in tool_rows:
+            print(tool_table.row(row))
     print()
     return 0
 
@@ -883,19 +899,29 @@ def _handle_budget(args: list[str]) -> int:
         s = evaluate_budget()
         status_icon = {
             "ok": "✅",
-            "warn": "⚠",
-            "throttle": "⚠",
+            "warn": "🟡",
+            "throttle": "🟡",
             "restrict": "⛔",
             "blocked": "🚫",
-        }.get(s["budget_status"], "?")
+        }.get(s["budget_status"], "❓")
         print(f"BUDGET · {s['budget_status'].upper()}\n")
+        budget_rows = []
         for period in ("daily", "monthly"):
             spend = s[f"{period}_spend_usd"]
             observed = f"${spend:.2f}" if spend is not None else "unavailable"
             percent = s[f"{period}_percent"]
             percent_text = f"{percent}%" if percent is not None else "unknown"
-            print(f"  {period:<7} {observed} / ${s[f'{period}_budget_usd']:.2f}   {percent_text}  {status_icon}")
-        print(f"  mode     {s['enforcement_mode']}")
+            budget_rows.append(
+                [period, observed, f"${s[f'{period}_budget_usd']:.2f}", percent_text, status_icon]
+            )
+        budget_table = Table(
+            ["PERIOD", "SPENT", "BUDGET", "USED", ""], budget_rows, aligns="<>>>"
+        )
+        print(budget_table.header())
+        print(budget_table.separator())
+        for row in budget_rows:
+            print(budget_table.row(row))
+        print(f"\n  mode     {s['enforcement_mode']}")
         if s["actions"]:
             print(f"  actions  {', '.join(s['actions'])}")
     elif sub == "check-route" and len(args) >= 2:
@@ -975,8 +1001,9 @@ def _handle_audit(args: list[str]) -> int:
             print("No audit events")
             return 0
         print(f"AUDIT · last {len(events)} events\n")
+        audit_rows: list[list[str]] = []
         for evt in events:
-            ts = evt.get("ts", "?")[-8:].replace("T", " ")
+            ts = str(evt.get("ts", "?")).replace("T", " ").rstrip("Z")
             etype = evt.get("type", "?")
             detail = ""
             if etype == "assistant_called":
@@ -989,8 +1016,13 @@ def _handle_audit(args: list[str]) -> int:
                 detail = json.dumps(
                     {k: v for k, v in evt.items() if k not in ("ts", "type")},
                     default=str,
-                )[:80]
-            print(f"  {ts}  {etype:<25s} {detail}")
+                )
+            audit_rows.append([ts, etype, detail])
+        audit_table = Table(["TIME (UTC)", "EVENT", "DETAIL"], audit_rows, max_width=80)
+        print(audit_table.header())
+        print(audit_table.separator())
+        for row in audit_rows:
+            print(audit_table.row(row))
         return 0
 
     elif sub == "search":
@@ -1295,9 +1327,10 @@ def _handle_install(_args: list[str]) -> int:
 
     # Print results (human mode only — --json emits a single pure JSON doc)
     if not json_output:
+        check_w = max(display_width(name) for name, _, _ in checks) + 1
         for name, ok, detail in checks:
             icon = "✅" if ok else "❌"
-            print(f"  {icon} {name}: {detail}")
+            print(f"  {icon} {pad(name + ':', check_w)} {detail}")
 
     # Reconciler section (read-only)
     if json_output:

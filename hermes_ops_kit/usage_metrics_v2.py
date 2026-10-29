@@ -47,6 +47,8 @@ from .provider_catalog import (  # noqa: E402
 )
 from .security.redaction import redact  # noqa: E402
 from ._subprocess import child_env, minimal_env
+from .ui.output import Table  # noqa: E402
+from .ui.width import truncate  # noqa: E402
 
 # ─── Provider registry (single source of truth) ──────────────────
 # Every "which providers exist" decision derives from here so a new provider
@@ -1597,6 +1599,27 @@ def _icon(s: str) -> str:
     return {"online": "●", "offline": "○", "error": "◐"}.get(s, "?")
 
 
+def _aligned(rows: list[list[str]], aligns: str = "") -> list[str]:
+    """Indented lines for ``rows`` with every column padded to the same terminal width."""
+    if not rows:
+        return []
+    table = Table([""] * len(rows[0]), rows, aligns=aligns, max_width=64)
+    return [table.row(r) for r in rows]
+
+
+def _route_rows(entries: list[dict], *, role=lambda r: r["role"], blank_ms: str = "?") -> list[list[str]]:
+    return [
+        [
+            role(r),
+            r["route"],
+            f"{r['latency']}ms" if r.get("latency") else blank_ms,
+            r.get("cost", ""),
+            r["reason"],
+        ]
+        for r in entries
+    ]
+
+
 def _ms(data: dict) -> str:
     ms = data.get("api_latency_ms")
     return f"{ms}ms" if ms is not None else "?"
@@ -1780,15 +1803,13 @@ def fmt_compact(results: dict) -> str:
         f"HERMES OPS KIT · PROVIDERS {online}/{len(PROVIDERS)} · ASSISTANTS {asst_online}/{len(ASSISTANTS)} · {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
     route_data = build_routes(results)
-    for section in ["routes", "aux_routes", "fallbacks"]:
-        for r in route_data.get(section, []):
-            if section == "aux_routes" and not r.get("online"):
-                continue
-            ms = f"{r['latency']}ms" if r.get("latency") else "?"
-            cost = r.get("cost", "")
-            lines.append(
-                f"  {r['role']:<10s} {r['route']:<38s} {ms:>6s}  {cost:<9s} {r['reason']}"
-            )
+    compact_routes = [
+        r
+        for section in ["routes", "aux_routes", "fallbacks"]
+        for r in route_data.get(section, [])
+        if not (section == "aux_routes" and not r.get("online"))
+    ]
+    lines.extend(_aligned(_route_rows(compact_routes), "<<>"))
     gh = results.get("github", {})
     ge = results.get("gemini", {})
     ds = results.get("deepseek", {})
@@ -1853,24 +1874,17 @@ def fmt_rich(results: dict) -> str:
     if main_routes:
         lines.append("")
         lines.append("ROUTE")
-        for r in main_routes:
-            ms = f"{r['latency']}ms" if r.get("latency") else "?"
-            cost = r.get("cost", "")
-            lines.append(
-                f"  {r['role']:<10s} {r['route']:<36s} {ms:>6s}  {cost:<9s} {r['reason']}"
-            )
+        lines.extend(_aligned(_route_rows(main_routes), "<<>"))
 
     active_aux = [r for r in aux_routes if r.get("online")]
     if active_aux:
         lines.append("")
         lines.append("AUX ROUTES")
-        for r in active_aux:
-            ms = f"{r['latency']}ms" if r.get("latency") else "?"
-            cost = r.get("cost", "")
-            role_short = r["role"].replace("aux_", "")
-            lines.append(
-                f"  {role_short:<12s} {r['route']:<36s} {ms:>6s}  {cost:<9s} {r['reason']}"
+        lines.extend(
+            _aligned(
+                _route_rows(active_aux, role=lambda r: r["role"].replace("aux_", "")), "<<>"
             )
+        )
 
     # IMAGE ROUTES — separate from AUX ROUTES
     image_routes = build_image_routes(results)
@@ -1878,21 +1892,18 @@ def fmt_rich(results: dict) -> str:
     if active_images:
         lines.append("")
         lines.append("IMAGE ROUTES")
-        for r in active_images:
-            ms = f"{r['latency']}ms" if r.get("latency") else ""
-            cost = r.get("cost", "")
-            lines.append(
-                f"  {r['role']:<10s} {r['route']:<36s} {ms:>6s}  {cost:<9s} {r['reason']}"
-            )
+        lines.extend(_aligned(_route_rows(active_images, blank_ms=""), "<<>"))
     # Show offline image routes too (dimmed marker)
     offline_images = [r for r in image_routes if not r.get("online")]
     if offline_images and not active_images:
         lines.append("")
         lines.append("IMAGE ROUTES")
-        for r in offline_images:
-            lines.append(
-                f"  {r['role']:<10s} {r['route']:<36s} {'':>6s}  {'OFFLINE':<9s} {r['reason']}"
+        lines.extend(
+            _aligned(
+                [[r["role"], r["route"], "", "OFFLINE", r["reason"]] for r in offline_images],
+                "<<>",
             )
+        )
 
     # HEADROOM — proxy overlay on the primary route (shown when relevant)
     hr = results.get("_headroom") or {}
@@ -1913,35 +1924,29 @@ def fmt_rich(results: dict) -> str:
     if fb_routes:
         lines.append("")
         lines.append("FALLBACKS")
-        for r in fb_routes:
-            ms = f"{r['latency']}ms" if r.get("latency") else "?"
-            cost = r.get("cost", "")
-            lines.append(
-                f"  {r['role']:<10s} {r['route']:<36s} {ms:>6s}  {cost:<9s} {r['reason']}"
-            )
+        lines.extend(_aligned(_route_rows(fb_routes), "<<>"))
 
     # MODEL ALIASES — named shortcuts from ~/.hermes/config.yaml model_aliases
     aliases = _get_hermes_config().get("model_aliases", {})
     if aliases:
         lines.append("")
         lines.append("MODEL ALIASES")
+        alias_rows = []
         for alias_name, alias_cfg in aliases.items():
             if not isinstance(alias_cfg, dict):
                 continue
             ap = str(alias_cfg.get("provider") or "?")
             am = str(alias_cfg.get("model") or "?")
-            route = f"{ap}:{am}"
             pdata = results.get(_PROVIDER_NORMALIZE.get(ap, ap), {})
-            ms = _ms(pdata)
-            lines.append(
-                f"  {alias_name:<12s} {route:<36s} {ms:>6s}  --model {alias_name}"
-            )
+            alias_rows.append([alias_name, f"{ap}:{am}", _ms(pdata), f"--model {alias_name}"])
+        lines.extend(_aligned(alias_rows, "<<>"))
 
     # ASSISTANTS
     assistants = results.get("_assistants", {})
     if assistants:
         lines.append("")
         lines.append("ASSISTANTS")
+        assistant_rows = []
         for aid in ASSISTANTS:
             ad = assistants.get(aid, {})
             if not ad:
@@ -1954,17 +1959,20 @@ def fmt_rich(results: dict) -> str:
                 cap_str = (
                     " · ".join(caps[:3]) if caps else ad.get("role", "remote_worker")
                 )
-                lines.append(
-                    f"  {icon} {name:<12s} {ms:>6s}  READY    {ad.get('role', 'remote_worker'):<18s} {cap_str}"
+                assistant_rows.append(
+                    [icon, name, ms, "READY", ad.get("role", "remote_worker"), cap_str]
                 )
             else:
-                err = ad.get("error", "offline")
-                lines.append(f"  {icon} {name:<12s} {ms:>6s}  {err[:40]}")
+                assistant_rows.append(
+                    [icon, name, ms, "OFFLINE", "", str(ad.get("error", "offline"))[:40]]
+                )
+        lines.extend(_aligned(assistant_rows, "<<>"))
 
     # PROVIDERS
     lines.append("")
     lines.append("PROVIDERS")
     # Free/included first, then paid
+    provider_rows = []
     for p in DISPLAY_ORDER:
         d = results.get(p, {})
         if not d:
@@ -1984,17 +1992,16 @@ def fmt_rich(results: dict) -> str:
                 mc_str = f"{mc:>3d}"
                 quota = _quota_str(d, p)
                 cost_label = _cost_label(d, p)
-            rec = _rec(d, p)
             # Ellipsize long model names (e.g. NVIDIA NIM prefixes) so the
-            # column stays aligned — 22 chars is the fixed rec column width.
-            if len(rec) > 22:
-                rec = rec[:19] + "..."
-            lines.append(
-                f"  {icon} {name:<12s} {ms:>6s}  {mc_str} models  {cost_label:<6s} rec: {rec:<22s} {quota}"
+            # column stays aligned — 22 cells is the fixed rec column width.
+            rec = truncate(_rec(d, p), 22)
+            provider_rows.append(
+                [icon, name, ms, f"{mc_str.strip()} models", cost_label, f"rec: {rec}", quota]
             )
         else:
             err = d.get("error", "")[:60]
-            lines.append(f"  {icon} {name:<12s} {ms:>6s}  OFFLINE  {err}")
+            provider_rows.append([icon, name, ms, "OFFLINE", "", "", err])
+    lines.extend(_aligned(provider_rows, "<<>>"))
 
     # LIMITS
     lines.append("")

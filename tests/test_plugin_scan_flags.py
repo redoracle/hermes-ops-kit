@@ -89,7 +89,11 @@ def _scan(capsys, *extra):
 
 def test_summary_prints_one_line_per_plugin(leaky_home, capsys):
     out = _scan(capsys, "--summary")
-    assert "demo-leaky" in out and "findings" in out
+    assert "FINDINGS" in out  # the table header
+    assert any(
+        line.split()[1:2] == ["demo-leaky"] and line.split()[-1].isdigit()
+        for line in out.splitlines()
+    )  # one row for the plugin, ending in its findings count
     assert "[shell-execution]" not in out
 
 

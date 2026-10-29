@@ -15,6 +15,7 @@ from typing import Any
 from ..._cli_args import PRESENTATION_FLAGS, SWITCH, VALUE, check_flags
 from ...ui.json_output import ok_envelope, error_envelope, error_item  # pyright: ignore[reportMissingImports]
 from ...ui.console import Console  # pyright: ignore[reportMissingImports]
+from ...ui.output import Table
 from ...security.plugin_scanner.scanner import (  # pyright: ignore[reportMissingImports]
     scan_plugin,
     scan_all,
@@ -348,45 +349,59 @@ def _cmd_scan(args: list[str]) -> int:
         return 1
 
 
+# Risk icons are emoji that every terminal draws exactly 2 cells wide (ui/width.py explains
+# why "⚠️" and "ℹ️" are not usable in an aligned table).
+RISK_ICONS = {
+    "none": "✅",
+    "low": "🔵",
+    "medium": "🟡",
+    "high": "🔴",
+    "critical": "⛔",
+}
+_UNKNOWN_ICON = "❓"
+# Finding details nest under the plugin-name column: 2 (indent) + 2 (icon) + 2 (gap) cells.
+_DETAIL = " " * 6
+
+
+def _status_label(policy_status: dict[str, Any]) -> str:
+    if policy_status["status"] == "enabled":
+        return "ENABLED ✓" if policy_status["reason"] == "plugin_approved" else "ENABLED"
+    if policy_status["status"] == "blocked":
+        return "BLOCKED ✗"
+    if policy_status["status"] == "disabled":
+        return "DISABLED"
+    return policy_status["status"].upper()
+
+
 def _print_scan_results(
     results: list[Any],
     policy_statuses: list[dict[str, Any]],
     console: Console,
     detail: str = "default",
 ) -> None:
-    """Pretty-print scan results.
+    """Pretty-print scan results as an aligned table.
 
     ``detail``: ``summary`` (one line per plugin), ``default`` (first five findings,
     none for cached results), ``verbose`` (every finding), ``explain`` (every finding
     with its remediation and the commands that approve or silence it).
     """
-    for r, policy_status in zip(results, policy_statuses, strict=True):
-        risk_icon = {
-            "none": "✅",
-            "low": "ℹ️ ",
-            "medium": "⚠️ ",
-            "high": "🔴",
-            "critical": "⛔",
-        }.get(r.risk_level.value, "❓")
+    rows = [
+        [
+            RISK_ICONS.get(r.risk_level.value, _UNKNOWN_ICON),
+            r.plugin_name,
+            r.risk_level.value.upper(),
+            _status_label(policy_status),
+            str(len(r.findings)),
+            "[cache]" if r.cache_hit else "",
+        ]
+        for r, policy_status in zip(results, policy_statuses, strict=True)
+    ]
+    table = Table(["", "PLUGIN", "RISK", "STATUS", "FINDINGS", ""], rows, aligns="<<<<>")
+    console.print(console.bold(table.header()))
+    console.print(console.dim(table.separator()))
 
-        if policy_status["status"] == "enabled":
-            status = (
-                "ENABLED ✓"
-                if policy_status["reason"] == "plugin_approved"
-                else "ENABLED"
-            )
-        elif policy_status["status"] == "blocked":
-            status = "BLOCKED ✗"
-        elif policy_status["status"] == "disabled":
-            status = "DISABLED"
-        else:
-            status = policy_status["status"].upper()
-
-        cache_tag = " [cache]" if r.cache_hit else ""
-        console.print(
-            f"{risk_icon} {r.plugin_name:<30} {r.risk_level.value.upper():<10} "
-            f"{status:<12} ({len(r.findings)} findings){cache_tag}"
-        )
+    for r, row in zip(results, rows, strict=True):
+        console.print(table.row(row))
 
         if detail == "summary" or (r.cache_hit and detail == "default"):
             continue
@@ -396,24 +411,24 @@ def _print_scan_results(
             sev_icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(
                 f.severity.value if hasattr(f.severity, "value") else f.severity, "⚪"
             )
-            console.print(f"   {sev_icon} [{f.rule}] {f.message[:100]}")
+            console.print(f"{_DETAIL}{sev_icon} [{f.rule}] {f.message[:100]}")
             if hasattr(f, "file_path") and f.file_path:
                 location = f"{f.file_path}"
                 if hasattr(f, "line") and f.line:
                     location += f":{f.line}"
-                console.print(f"      at {location}")
+                console.print(f"{_DETAIL}   at {location}")
             if detail == "explain":
                 if getattr(f, "remediation", ""):
-                    console.print(f"      fix:     {f.remediation}")
+                    console.print(f"{_DETAIL}   fix:     {f.remediation}")
                 console.print(
-                    f"      silence: hermes-ops-kit plugin override {r.plugin_name} {f.rule} allow"
+                    f"{_DETAIL}   silence: hermes-ops-kit plugin override {r.plugin_name} {f.rule} allow"
                 )
                 console.print(
-                    f"      approve: hermes-ops-kit plugin approve --finding {f.id}"
+                    f"{_DETAIL}   approve: hermes-ops-kit plugin approve --finding {f.id}"
                 )
 
         if detail in ("default", "summary") and len(r.findings) > 5:
-            console.print(f"   ... and {len(r.findings) - 5} more findings")
+            console.print(f"{_DETAIL}... and {len(r.findings) - 5} more findings")
 
 
 def _scan_policy_status(result: Any) -> dict[str, Any]:
@@ -1155,7 +1170,7 @@ def _cmd_policy(args: list[str]) -> int:
             if policy.get("disabled_plugins"):
                 console.print("\n  Disabled:")
                 for p in policy["disabled_plugins"]:
-                    console.print(f"    ⚠️  {p}")
+                    console.print(f"    🟡 {p}")
             if policy.get("blocked_plugins"):
                 console.print("\n  Blocked:")
                 for p in policy["blocked_plugins"]:
@@ -1249,17 +1264,25 @@ def _cmd_cache(args: list[str]) -> int:
                 console.print(f"  Expired:   {stats['expired_entries']}")
                 if entries:
                     console.print("\n  Cached plugins:")
-                    for e in entries:
-                        risk_icon = {
-                            "blocked": "⛔",
-                            "warning": "⚠️",
-                            "clean": "✅",
-                        }.get(e.get("scan_result", ""), "❓")
-                        console.print(
-                            f"    {risk_icon} {e['plugin_name']:<30} "
-                            f"{e.get('risk_level', '?'):<10} "
-                            f"scanned: {e.get('scanned_at', '?')}"
-                        )
+                    by_result = {"blocked": "⛔", "warning": "🟡", "clean": "✅"}
+                    cache_rows = [
+                        [
+                            # the same palette as the scan table: by risk level
+                            RISK_ICONS.get(
+                                str(e.get("risk_level", "")).lower(),
+                                by_result.get(e.get("scan_result", ""), _UNKNOWN_ICON),
+                            ),
+                            e["plugin_name"],
+                            str(e.get("risk_level", "?")).upper(),
+                            str(e.get("scanned_at", "?")),
+                        ]
+                        for e in entries
+                    ]
+                    cache_table = Table(["", "PLUGIN", "RISK", "SCANNED"], cache_rows)
+                    console.print(console.bold(cache_table.header()))
+                    console.print(console.dim(cache_table.separator()))
+                    for cache_row in cache_rows:
+                        console.print(cache_table.row(cache_row))
             return 0
         except Exception as exc:
             if json_mode:

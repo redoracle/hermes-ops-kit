@@ -45,6 +45,7 @@ import sys
 from typing import Any
 
 from .ui.console import Console
+from .ui.output import Table
 from .ui.json_output import ok_envelope
 from .security.redaction import sanitize_url_for_display
 from .config.route_map import AUX_SHORT_KEYS, aux_config_key, aux_hermes_path
@@ -266,16 +267,20 @@ def cmd_show(args: argparse.Namespace) -> None:
     # ── Image Routes (separate from auxiliary — image generation, not LLM text) ──
     if img_data:
         con.print(con.header("=== IMAGE ROUTES ==="))
-        for name, i in img_data.items():
-            provider = i["provider"]
-            model = i["model"]
-            label = i["label"]
-            cost = i["cost_class"]
-            marker = " ★" if i["is_default"] else ""
-            con.print(
-                f"  {name:<10s} {provider}:{model:<28s} "
-                f"{cost:<10s} {label}{con.bold(marker)}"
-            )
+        image_rows = [
+            [
+                name,
+                f"{i['provider']}:{i['model']}",
+                i["cost_class"],
+                f"{i['label']}{' ★' if i['is_default'] else ''}",
+            ]
+            for name, i in img_data.items()
+        ]
+        table = Table(["ROUTE", "PROVIDER:MODEL", "COST", "LABEL"], image_rows, max_width=60)
+        con.print(con.bold(table.header()))
+        con.print(con.dim(table.separator()))
+        for row in image_rows:
+            con.print(table.row(row))
         con.print(f"  prefer_local: {img_policies['prefer_local']}")
         con.print()
 
