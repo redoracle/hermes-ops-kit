@@ -187,3 +187,44 @@ def test_every_chat_allowlisted_command_survives_every_presentation_flag():
                     )
                     is None
                 ), (entry, flag)
+
+
+def _approve_all(monkeypatch, inventory):
+    approved = []
+    monkeypatch.setattr(
+        "hermes_ops_kit.mcp_auditor.auditor.inventory_servers", inventory
+    )
+    code = commands._mcp_approve(
+        ["--all"], approve_server_fn=approved.append, approve_tool_fn=lambda t: None
+    )
+    return code, approved
+
+
+def test_mcp_approve_all_fails_when_the_inventory_cannot_be_read(monkeypatch, capsys):
+    """An unreadable config is not an empty inventory: no success exit, no "nothing to approve"."""
+
+    def broken():
+        raise RuntimeError("Cannot load Hermes MCP config: bad yaml")
+
+    code, approved = _approve_all(monkeypatch, broken)
+    out = capsys.readouterr().out
+    assert code == 1 and approved == []
+    assert "Cannot read the MCP server inventory" in out and "bad yaml" in out
+    assert "nothing to approve" not in out
+
+
+def test_mcp_approve_all_redacts_the_inventory_error(monkeypatch, capsys):
+    def broken():
+        raise RuntimeError("bad config near token=sk-proj-abc123-fake-inventory-0000")
+
+    code, _ = _approve_all(monkeypatch, broken)
+    assert code == 1
+    assert "sk-proj-abc123-fake-inventory-0000" not in capsys.readouterr().out
+
+
+def test_mcp_approve_all_with_an_empty_inventory_is_still_a_success(
+    monkeypatch, capsys
+):
+    code, approved = _approve_all(monkeypatch, lambda: [])
+    assert code == 0 and approved == []
+    assert "nothing to approve" in capsys.readouterr().out

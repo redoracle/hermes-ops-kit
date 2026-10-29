@@ -778,14 +778,17 @@ def _mcp_approve(
         return 1
     if "--all" in args:
         # Approve all known MCP servers atomically
-        server_ids = []
         try:
             from .mcp_auditor.auditor import inventory_servers  # pyright: ignore[reportMissingImports]
 
-            for s in inventory_servers():
-                server_ids.append(s["server_id"])
-        except Exception:
-            pass
+            server_ids = [s["server_id"] for s in inventory_servers()]
+        except Exception as exc:
+            # An unreadable inventory is not an empty one: say so and fail, instead of
+            # reporting "nothing to approve" with exit 0.
+            from .security.redaction import redact
+
+            print(f"Cannot read the MCP server inventory: {redact(str(exc))}")
+            return 1
         if not server_ids:
             print("No MCP servers configured; nothing to approve.")
             return 0

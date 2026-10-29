@@ -12,7 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.11.0-orange" alt="v0.11.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-1370%20passed-brightgreen" alt="1370 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-1375%20passed-brightgreen" alt="1375 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -776,7 +776,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
 │
-├── tests/                                  ← 1370 pytest tests + 8 simulator scenarios
+├── tests/                                  ← 1375 pytest tests + 8 simulator scenarios
 │   ├── test_security.py                    ← 38 tests
 │   ├── test_snapshots.py                   ← 14 tests
 │   ├── test_simulator.py                   ← 8 scenarios (run separately)
@@ -820,7 +820,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -v               # 1370 tests (security, snapshots, scanner, CLI, reconciler, profiles)
+python3 -m pytest tests/ -v               # 1375 tests (security, snapshots, scanner, CLI, reconciler, profiles)
 python3 tests/test_simulator.py --all      # 8 failure scenarios (no real APIs)
 bash scripts/test-scanner.sh              # 10-test scanner integration suite
 bash scripts/preflight-scan.sh             # Pre-release secret audit (needs GNU grep: macOS `brew install grep`)

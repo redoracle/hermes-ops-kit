@@ -637,11 +637,12 @@ def _cmd_revoke(args: list[str]) -> int:
         else:
             i += 1
 
-    if finding_id and finding_id not in get_policy().get("approved_findings", []):
-        console.print_error(f"Finding is not approved: {finding_id}")
-        return 1
-
     try:
+        # inside the try: an unreadable policy file reaches the handler below
+        if finding_id and finding_id not in get_policy().get("approved_findings", []):
+            console.print_error(f"Finding is not approved: {finding_id}")
+            return 1
+
         if finding_id:
             policy = revoke_finding(finding_id)
         elif all_plugins:

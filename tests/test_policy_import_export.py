@@ -232,3 +232,26 @@ def test_revoking_an_approved_finding_still_works(home):
 def test_the_policy_layer_refuses_a_malformed_id_too(home):
     with pytest.raises(ValueError):
         policy.approve_finding("nonsense")
+
+
+def test_revoking_a_finding_with_an_unreadable_policy_reports_it_without_a_traceback(
+    home, capsys
+):
+    """The policy read used to sit outside the try, so a corrupt file gave a raw traceback."""
+    policy_file = home / "ops-kit" / "plugin_policy.json"
+    policy_file.parent.mkdir(parents=True, exist_ok=True)
+    policy_file.write_text("{not json")
+    assert cli.handle_plugin(["revoke", "--finding", GOOD_ID]) == 1
+    captured = capsys.readouterr()
+    assert "Revoke failed" in captured.out + captured.err
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_the_json_mode_error_for_an_unreadable_policy_is_an_envelope(home, capsys):
+    policy_file = home / "ops-kit" / "plugin_policy.json"
+    policy_file.parent.mkdir(parents=True, exist_ok=True)
+    policy_file.write_text("{not json")
+    assert cli.handle_plugin(["revoke", "--finding", GOOD_ID, "--json"]) == 1
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is False
+    assert "Cannot load plugin policy" in json.dumps(envelope)
