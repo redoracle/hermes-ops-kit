@@ -79,6 +79,15 @@ Until then the job runs unattended, as before. The Node dependencies of the rele
 pinned by `package-lock.json` and installed with `npm ci --ignore-scripts`; Dependabot proposes
 updates to the lock like any other dependency (see *Dependency updates*).
 
+The `release-config` workflow guards those updates. On pull requests that touch `package.json`,
+`package-lock.json` or `.releaserc.json` it runs `scripts/check-release-notes.mjs`, which drives the
+configured semantic-release plugins on sample commits. A bump that would break the next release
+fails on its own pull request instead of at release time. For example, version 10 of
+`conventional-changelog-conventionalcommits` needs `conventional-changelog-writer` 9 or newer,
+while the stable `@semantic-release/release-notes-generator` ships writer 8. Dependabot's npm
+entry therefore ignores major updates of that preset. Remove the rule once a stable generator
+depends on writer 9 or newer (`npm view @semantic-release/release-notes-generator dependencies`).
+
 ## Chat commands (`/ops-kit`)
 
 `/ops-kit` is read-only from a chat surface, because anyone who can message the

@@ -96,7 +96,9 @@ See `docs/architecture.md` for the module map and data flow. Key conventions:
 - [ ] Relevant CHANGELOG entry added
 
 Dependabot PRs are integrated by a maintainer; see the *Dependency updates* section of
-`docs/Operations Runbook.md`.
+`docs/Operations Runbook.md`. Pull requests that change `package.json`, `package-lock.json` or
+`.releaserc.json` also run the `release-config` check (`scripts/check-release-notes.mjs`); see
+*Release approval* in `docs/Operations Runbook.md`.
 
 ## Boundaries
 

@@ -13,6 +13,14 @@ updates:
       interval: "monthly"
     cooldown:
       default-days: 7
+    ignore:
+      # Version 10 of this preset needs conventional-changelog-writer >= 9, but the stable
+      # @semantic-release/release-notes-generator bundles writer 8, so release notes fail
+      # with "Missing helper". Remove this rule once a stable generator depends on writer
+      # >= 9 (check: npm view @semantic-release/release-notes-generator dependencies).
+      # scripts/check-release-notes.mjs (release-config workflow) fails the PR otherwise.
+      - dependency-name: "conventional-changelog-conventionalcommits"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
