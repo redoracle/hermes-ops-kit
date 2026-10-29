@@ -388,3 +388,103 @@ def test_preflight_reconcile_is_best_effort():
     assert isinstance(res, dict)
     assert "action" in res
     assert "errors" in res
+
+
+# ── Upstream defined under `custom_providers:` (the list form Hermes core also accepts) ──
+
+CUSTOM_CONFIG_TEMPLATE = """\
+model:
+  provider: custom:whiplash-local
+  default: freellm
+  base_url: http://llm.example.test:8080/v1
+  api_mode: chat_completions
+fallback_providers:
+  - provider: custom:freellm
+    model: auto
+custom_providers:
+  - name: whiplash-local
+    base_url: http://llm.example.test:8080/v1
+    key_env: WHIPLASH_LLM_API_KEY
+    discover_models: true
+  - name: freellm
+    base_url: http://fallback.example.test:3001/v1
+    key_env: FREELLM_API_KEY
+"""
+
+
+@pytest.fixture
+def custom_home(tmp_path: Path) -> Path:
+    home = tmp_path / "hermes"
+    (home / "ops-kit").mkdir(parents=True)
+    (home / "config.yaml").write_text(CUSTOM_CONFIG_TEMPLATE)
+    (home / ".env").write_text("WHIPLASH_LLM_API_KEY=test-key\n")
+    return home
+
+
+def test_status_resolves_an_upstream_defined_in_custom_providers(custom_home: Path):
+    _write_headroom_yaml(custom_home, enabled=False, port=_free_port())
+    res = _headroom(custom_home, "status", "--json")
+    assert res.returncode == 0, res.stdout + res.stderr
+    upstream = _result(res)["upstream"]
+    assert upstream["provider"] == "custom:whiplash-local"
+    assert upstream["base_url"] == "http://llm.example.test:8080/v1"
+
+
+def test_up_no_longer_reports_an_unresolvable_upstream(custom_home: Path):
+    """`headroom up` used to fail with "cannot resolve an OpenAI-compatible upstream"."""
+    _write_headroom_yaml(custom_home, enabled=False, port=_free_port())
+    res = _headroom(custom_home, "up", "--dry-run")
+    assert "cannot resolve" not in res.stdout + res.stderr
+
+
+def test_doctor_finds_the_upstream_and_its_key_env(custom_home: Path):
+    _write_headroom_yaml(custom_home, enabled=False, port=_free_port())
+    res = _headroom(custom_home, "doctor", "--json")
+    checks = {c["name"]: c for c in _result(res)["checks"]}
+    assert checks["upstream resolvable"]["ok"] is True
+    assert checks["upstream key env"]["ok"] is True
+    assert checks["upstream key env"]["detail"] == "WHIPLASH_LLM_API_KEY"
+
+
+def test_enable_disable_roundtrip_for_a_custom_provider(custom_home: Path, proxy_stub: int):
+    _write_headroom_yaml(custom_home, enabled=True, port=proxy_stub)
+    original = _load_config(custom_home)
+
+    res = _headroom(custom_home, "reconcile", "--json")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _result(res)["action"] == "enabled"
+
+    cfg = _load_config(custom_home)
+    assert cfg["model"]["provider"] == "headroom"
+    entry = cfg["providers"]["headroom"]
+    assert entry["base_url"] == f"http://127.0.0.1:{proxy_stub}/v1"
+    assert entry["key_env"] == "WHIPLASH_LLM_API_KEY"  # reused from the custom provider
+    assert cfg["model"]["base_url"] == original["model"]["base_url"]  # left untouched
+    assert cfg["custom_providers"] == original["custom_providers"]
+    assert cfg["fallback_providers"] == original["fallback_providers"]
+
+    # While proxied, the upstream is still reported from the snapshot.
+    res = _headroom(custom_home, "status", "--json")
+    upstream = _result(res)["upstream"]
+    assert upstream["provider"] == "custom:whiplash-local"
+    assert upstream["base_url"] == "http://llm.example.test:8080/v1"
+
+    _write_headroom_yaml(custom_home, enabled=False, port=proxy_stub)
+    res = _headroom(custom_home, "reconcile", "--json")
+    assert _result(res)["action"] == "restored_direct"
+    restored = _load_config(custom_home)
+    assert restored["model"] == original["model"]
+    assert "headroom" not in (restored.get("providers") or {})
+    assert restored["custom_providers"] == original["custom_providers"]
+
+
+def test_a_custom_provider_without_an_endpoint_names_both_places(tmp_path: Path):
+    home = tmp_path / "hermes"
+    (home / "ops-kit").mkdir(parents=True)
+    (home / "config.yaml").write_text(
+        "model:\n  provider: custom:broken\ncustom_providers:\n  - name: broken\n"
+    )
+    _write_headroom_yaml(home, enabled=False, port=_free_port())
+    res = _headroom(home, "up")
+    assert res.returncode == 1
+    assert "providers: or custom_providers:" in res.stdout + res.stderr

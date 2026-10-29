@@ -47,21 +47,71 @@ def is_proxied(hermes_cfg: dict, settings: dict) -> bool:
     return bool(base) and base == str(settings["base_url"]).rstrip("/")
 
 
+def _endpoint(entry: dict) -> str:
+    """The endpoint of a provider block, under the keys Hermes core accepts."""
+    return str(entry.get("base_url") or entry.get("url") or entry.get("api") or "").strip()
+
+
+def _custom_provider_aliases(display_name: str, provider_key: str = "") -> set[str]:
+    """Every identity Hermes core accepts for one ``custom_providers`` entry.
+
+    Mirrors ``hermes_cli.providers.custom_provider_aliases`` (a contract test compares the
+    two against a real core), so ``custom:whiplash-local``, ``whiplash-local`` and
+    ``Whiplash Local`` all name the same endpoint.
+    """
+    aliases: set[str] = set()
+    for value in (display_name, provider_key):
+        raw = str(value or "").strip().lower()
+        if not raw:
+            continue
+        normalized = raw.replace(" ", "-")
+        slug = normalized if normalized.startswith("custom:") else f"custom:{normalized}"
+        aliases.update({raw, normalized, slug})
+        if normalized.startswith("custom:"):
+            suffix = normalized.split(":", 1)[1]
+            if suffix:
+                aliases.update({suffix, f"custom:{normalized}"})
+    return aliases
+
+
+def resolve_provider_entry(hermes_cfg: dict, provider: str) -> dict[str, Any]:
+    """The endpoint block Hermes would use for ``provider``, or ``{}``.
+
+    Same order as core: a ``providers.<name>`` block that carries an endpoint, then the
+    ``custom_providers:`` list. The result always has ``base_url`` (core also accepts
+    ``url`` and ``api``) and keeps ``key_env`` / ``api_key_env`` as written.
+    """
+    named = (hermes_cfg.get("providers") or {}).get(provider)
+    if isinstance(named, dict) and _endpoint(named):
+        return {**named, "base_url": _endpoint(named)}
+    requested = provider.strip().lower()
+    if requested:
+        for entry in hermes_cfg.get("custom_providers") or []:
+            if not isinstance(entry, dict) or not _endpoint(entry):
+                continue
+            aliases = _custom_provider_aliases(
+                str(entry.get("name") or ""), str(entry.get("provider_key") or "")
+            )
+            if requested in aliases:
+                return {**entry, "base_url": _endpoint(entry)}
+    return {}
+
+
 def upstream_provider_entry(
     hermes_cfg: dict, settings: dict
 ) -> tuple[str, dict[str, Any]]:
-    """(provider_name, providers entry) of the real upstream provider.
+    """(provider_name, endpoint entry) of the real upstream provider.
 
     When already proxied the previous primary is read from the snapshot;
-    otherwise it is the current ``model.provider``.
+    otherwise it is the current ``model.provider``. The entry comes from
+    ``providers:`` or from ``custom_providers:`` (see ``resolve_provider_entry``).
     """
     model = hermes_cfg.get("model") or {}
     provider = str(model.get("provider", "")).strip()
     if provider.lower() == PROVIDER_NAME:
         snap = load_snapshot(settings)
         provider = str(((snap.get("model") or {}).get("provider")) or "").strip()
-    entry = (hermes_cfg.get("providers") or {}).get(provider)
-    return provider, entry if isinstance(entry, dict) else {}
+    return provider, resolve_provider_entry(hermes_cfg, provider)
 
 
 def resolve_primary_provider(hermes_cfg: dict) -> tuple[str, bool]:
@@ -263,7 +313,7 @@ def _reconcile_enable(
     if not upstream_url or not key_env:
         result["warnings"].append(
             f"primary provider '{provider}' has no OpenAI-compatible "
-            f"providers entry (base_url + api_key_env) — cannot proxy it; "
+            f"providers/custom_providers entry (base_url + key_env) — cannot proxy it; "
             f"keeping the direct route"
         )
         if proxied:

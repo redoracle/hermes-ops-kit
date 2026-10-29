@@ -81,6 +81,17 @@ providers:
     base_url: https://api.deepseek.com/v1
 ```
 
+The same applies to a provider defined in the `custom_providers` list (the
+form Hermes core also accepts, named `custom:<name>` in `model.provider`);
+the endpoint is read from its `base_url` and `key_env`:
+
+```yaml
+custom_providers:
+  - name: my-llm
+    base_url: http://llm.example.test:8080/v1
+    key_env: MY_LLM_API_KEY
+```
+
 Providers accessed through provider-native SDKs (no `base_url`) cannot be
 proxied — the reconcile step returns `noop` and the route stays direct.
 
@@ -228,7 +239,7 @@ direct — `apply.aux_routes` is an explicit opt-in experiment).
 | Picker shows `headroom (0 models)`                                            | Proxy down → its `/v1/models` is unreachable. If the proxy log shows `No module named 'fastapi'`, the `[proxy]` extra is missing | `pip install --user 'headroom-ai[proxy]'` (add `--break-system-packages` on PEP 668 distros), then `hermes-ops-kit headroom up` |
 | Another provider's model picked under the `headroom` entry → errors/fallbacks | One proxy = one upstream: the foreign slug reaches the wrong endpoint      | Pick the model under its own provider, or switch the primary and re-run preflight                                  |
 | Doctor: `fallbacks stay direct` failing                                       | A fallback points at `127.0.0.1:<port>`                                    | Remove the local `base_url` from the fallback in config.yaml                                                       |
-| `enable`/`up` fails: "cannot resolve an OpenAI-compatible upstream"            | The primary provider has no `providers` entry with `base_url` + `api_key_env` in config.yaml | Add a `providers.<name>` block with `base_url` and `api_key_env` (see prerequisite above); providers accessed through native SDKs cannot be proxied |
+| `enable`/`up` fails: "cannot resolve an OpenAI-compatible upstream"            | The primary provider has no `providers` or `custom_providers` entry with `base_url` + a key env in config.yaml | Add a `providers.<name>` block (or a `custom_providers` entry) with `base_url` and `api_key_env`/`key_env` (see prerequisite above); providers accessed through native SDKs cannot be proxied |
 | Everything broken, just go back to direct                                     | —                                                                          | `hermes-ops-kit headroom disable`; last resort: `cp ~/.hermes/config.yaml.bak.<ts>.headroom ~/.hermes/config.yaml` |
 
 ### Files and paths

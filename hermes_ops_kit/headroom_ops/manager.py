@@ -153,7 +153,8 @@ def _doctor_checks(state: dict[str, Any]) -> list[tuple[str, bool, str]]:
             "upstream resolvable",
             bool(upstream),
             upstream
-            or f"providers.{state['upstream_provider'] or '?'} has no base_url",
+            or f"no providers/custom_providers entry with a base_url for "
+            f"'{state['upstream_provider'] or '?'}'",
         )
     )
 
@@ -277,7 +278,7 @@ def _resolve_upstream_or_fail(con: Console, state: dict[str, Any]) -> str | None
         con.print_error(
             f"cannot resolve an OpenAI-compatible upstream for provider "
             f"'{state['upstream_provider'] or '?'}' — add base_url to its "
-            f"providers entry in {hermes_config()}"
+            f"providers: or custom_providers: entry in {hermes_config()}"
         )
         return None
     return upstream

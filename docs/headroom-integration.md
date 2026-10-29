@@ -120,15 +120,16 @@ explicit opt-in experiment).
 ## Provider prerequisite
 
 The primary provider must have an OpenAI-compatible `providers` entry in
-`~/.hermes/config.yaml` with `base_url` and `api_key_env`. Without it the
-upstream cannot be resolved and reconcile returns `noop`. Providers accessed
-through native SDKs (no `base_url`) cannot be proxied.
+`~/.hermes/config.yaml` with `base_url` and `api_key_env`, or an entry in the
+`custom_providers` list (provider `custom:<name>`) with `base_url` and `key_env`.
+Without either the upstream cannot be resolved and reconcile returns `noop`.
+Providers accessed through native SDKs (no `base_url`) cannot be proxied.
 
 ## Runbook
 
 ```bash
-# First time — ensure the primary provider has a providers entry
-# (base_url + api_key_env) in ~/.hermes/config.yaml, then:
+# First time — ensure the primary provider has a providers or custom_providers
+# entry (base_url + api_key_env/key_env) in ~/.hermes/config.yaml, then:
 hermes-ops-kit headroom doctor
 hermes-ops-kit headroom enable --dry-run
 hermes-ops-kit headroom enable
