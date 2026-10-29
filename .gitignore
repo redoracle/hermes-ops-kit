@@ -28,6 +28,7 @@ __pycache__/
 .headroom/
 .mcp.json
 .obsidian-mcp-vault/
+.vaultloom/
 .obsidian/
 
 # Local operator playbooks (hand-authored, personal — local-only, not shipped)

@@ -222,5 +222,3 @@ Hard-won gotchas from real item-management sessions (full playbook: [`skills/ope
 
 - `hermes-key-rotate` — automated key rotation backed by this vault
 - `hermes-ops-kit` — multi-provider AI orchestration with secret backend
-- [[HERMES_KEY_ROTATION_SPEC|Hermes Key Rotation Spec]]
-- [[AI_PROVIDER_ROTATION_RUNBOOK|Rotation Runbook]]

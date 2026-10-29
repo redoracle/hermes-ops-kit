@@ -12,7 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.11.0-orange" alt="v0.11.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-1466%20passed-brightgreen" alt="1466 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-1468%20passed-brightgreen" alt="1468 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -337,7 +337,7 @@ Use `hermes-key-rotate --status` to see fingerprints and `render-env`
 to generate `.env.generated`. Admin refs are blocked by the 3-layer
 denylist — they can never leak into runtime files.
 
-Configuration: [`config/env_projection.yaml`](config/env_projection.yaml) defines 23 env-var → secret-ref mappings plus a `deny_render` blocklist. See [`docs/architecture.md`](docs/architecture.md).
+Configuration: [`hermes_ops_kit/config/env_projection.yaml`](hermes_ops_kit/config/env_projection.yaml) defines 23 env-var → secret-ref mappings plus a `deny_render` blocklist. See [`docs/architecture.md`](docs/architecture.md).
 
 ### Usage metrics
 
@@ -372,7 +372,7 @@ Reads `~/.hermes/config.yaml` as the authoritative source of truth.
 Profiles patch native Hermes config keys — Hermes never needs to read
 ops-kit files. Design: [`docs/Route Profile Design.md`](docs/Route%20Profile%20Design.md).
 
-Configuration: [`config/routes.yaml`](config/routes.yaml).
+Configuration: [`hermes_ops_kit/config/routes.yaml`](hermes_ops_kit/config/routes.yaml).
 
 ### Image routes
 
@@ -388,7 +388,7 @@ Separate routing layer from LLM text routes. Local ComfyUI (private),
 Gemini 2.5 Flash Image (fast), OpenAI gpt-image-2 (quality), FAL.ai (cloud
 fallback). Priority-based with `prefer_local` policy.
 
-Configuration: [`config/image_routes.yaml`](config/image_routes.yaml).
+Configuration: [`hermes_ops_kit/config/image_routes.yaml`](hermes_ops_kit/config/image_routes.yaml).
 The `OpsKitRouterProvider` (in `image_routes/hermes_provider.py`) self-registers
 via the plugin's `register()` function — no separate plugin needed.
 
@@ -449,8 +449,8 @@ Config-driven delegation to remote Hermes agent runtimes. Capabilities,
 policy, and security constraints are defined per-assistant in YAML —
 zero code for new assistants.
 
-Configuration: [`config/assistants.yaml`](config/assistants.yaml),
-[`config/assistant_tasks.yaml`](config/assistant_tasks.yaml).
+Configuration: [`hermes_ops_kit/config/assistants.yaml`](hermes_ops_kit/config/assistants.yaml),
+[`hermes_ops_kit/config/assistant_tasks.yaml`](hermes_ops_kit/config/assistant_tasks.yaml).
 See [`examples/`](examples/) for annotated templates.
 
 ### MCP auditor
@@ -464,7 +464,7 @@ hermes-ops-kit mcp revoke                   # Clear all approvals
 ```
 
 Classifies MCP tools by capability: critical → blocked, high → approval
-required. Policy: [`policy/rules.yaml`](policy/rules.yaml), persisted as
+required. Policy: [`hermes_ops_kit/policy/rules.yaml`](hermes_ops_kit/policy/rules.yaml), persisted as
 `~/.hermes/mcp_policy.json`. `hermes-ops-kit preflight` enforces the audit by
 disabling unsafe MCP servers before Hermes boots.
 
@@ -498,7 +498,7 @@ warm cache. Skip with `hermes gateway run` directly if boot speed is critical.
 **Disable-by-default:** Medium+ risk plugins are disabled until approved.
 0 blocked plugins in the current production scan (down from 12 before tuning).
 
-Policy: [`policy/rules.yaml`](policy/rules.yaml) + `~/.hermes/ops-kit/plugin_policy.json`.
+Policy: [`hermes_ops_kit/policy/rules.yaml`](hermes_ops_kit/policy/rules.yaml) + `~/.hermes/ops-kit/plugin_policy.json`.
 Docs: [`docs/plugin-security-scanner.md`](docs/plugin-security-scanner.md).
 Test: `bash scripts/test-scanner.sh` (10-test integration suite).
 
@@ -591,8 +591,8 @@ session using the
 [local login/session-refresh procedure](docs/quickstart.md#2-configure-bitwardenvaultwarden-cli)
 and update the saved `.env` value rather than only exporting it in a shell.
 
-See [`skills/bw/SKILL.md`](skills/bw/SKILL.md) and
-[`skills/operator/`](skills/operator/) for Bitwarden/Vaultwarden operational guides.
+See [`hermes_ops_kit/skills/bw/SKILL.md`](hermes_ops_kit/skills/bw/SKILL.md) and
+[`hermes_ops_kit/skills/operator/`](hermes_ops_kit/skills/operator/) for Bitwarden/Vaultwarden operational guides.
 
 ## Security
 
@@ -777,7 +777,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
 │
-├── tests/                                  ← 1466 pytest tests + 8 simulator scenarios
+├── tests/                                  ← 1468 pytest tests + 8 simulator scenarios
 │   ├── test_security.py                    ← 38 tests
 │   ├── test_snapshots.py                   ← 14 tests
 │   ├── test_simulator.py                   ← 8 scenarios (run separately)
@@ -821,7 +821,7 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -v               # 1466 tests (security, snapshots, scanner, CLI, reconciler, profiles)
+python3 -m pytest tests/ -v               # 1468 tests (security, snapshots, scanner, CLI, reconciler, profiles)
 python3 tests/test_simulator.py --all      # 8 failure scenarios (no real APIs)
 bash scripts/test-scanner.sh              # 10-test scanner integration suite
 bash scripts/preflight-scan.sh             # Pre-release secret audit (needs GNU grep: macOS `brew install grep`)
