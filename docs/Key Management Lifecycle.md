@@ -205,8 +205,8 @@ echo "sk-emergency-key" | hermes-key-rotate emergency --provider openai --yes-i-
 ### Validate
 
 ```bash
-# Check if a key works before storing it
-hermes-key-rotate validate --provider openai --key "sk-..."
+# Check if a key works before storing it (the key is read from stdin, never from argv)
+echo "sk-..." | hermes-key-rotate validate --provider openai
 ```
 
 ### Status
@@ -230,8 +230,8 @@ hermes-key-rotate --render-env
 
 ```bash
 # Backup is automatic during rotation (backup_secret() before set_secret())
-# Manual restore after failed rotation:
-hermes-key-rotate rollback --provider openai
+# There is no `rollback` command. After a failed rotation inspect the state, then rotate again:
+hermes-key-rotate --status --provider openai
 ```
 
 ### Revoke (Manual)

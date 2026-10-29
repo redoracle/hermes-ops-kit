@@ -4,6 +4,13 @@
 > **Data:** 2026-06-09
 > **Autore:** redoracle
 > **Target:** hermes-ops-kit
+>
+> **Stato dei comandi (2026-10-29):** questo documento descrive la progettazione, non la CLI attuale.
+> Implementati: `plugin scan` (`--profile`, `--plugin`, `--category`, `--json`, `--force`, `--use-*`/`--no-*`),
+> `approve`, `revoke`, `override`, `disable`, `enable`, `block`, `policy`, `cache show|clear`,
+> `rules update`. **Previsti, non ancora implementati:** `plugin config set|profile|init`, `plugin audit`,
+> `plugin rules test`, `plugin scan --no-behavior`, le categorie `code`, `dependencies`, `reputation` e
+> `behavior` (sandbox). Riferimento per l'uso reale: `docs/plugin-security-scanner.md`.
 
 ---
 
@@ -1680,7 +1687,7 @@ Cache SHA popolata per tutti i plugin
 - **Semgrep engine**: subprocess runner, regole community caching, 2,500+ regole p/security + p/secrets
 - **Regole custom Hermes**: `hermes-env-exfiltration`, `hermes-bitwarden-session-steal`, `hermes-obfuscated-exec`, `hermes-setup-script-dangerous` (vedi §9.3)
 - **Sistema categorie + profili**: `plugin_scanner.yaml`, profili `startup`/`install`/`update`/`manual`/`ci`
-- CLI base: `plugin scan --profile`, `plugin config`, `plugin rules update`, `plugin cache show`
+- CLI base: `plugin scan --profile`, `plugin rules update`, `plugin cache show` (`plugin config` è previsto, non implementato)
 - **Approval & disable-by-default (§7):** `plugin approve` / `revoke` / `disable` / `enable` / `policy`, con `plugin_policy.json` atomico e audit JSONL
 - Integrazione con `policy/engine.py` (PolicyDecision per plugin)
 
@@ -1704,7 +1711,7 @@ Cache SHA popolata per tutti i plugin
 - Categoria `dependencies`: Semgrep Supply Chain (npm + PyPI + Gem audit in unico tool)
 - Categoria `reputation`: OSSF Scorecard integration (repo scoring pre-install)
 - Integrazione **Bandit** come complemento Python-specifico a Semgrep
-- CLI: `plugin audit --json`, `plugin scan --explain`
+- CLI (previsto): `plugin audit --json`, `plugin scan --explain`
 - Alerting via hook Hermes per findings medium+
 
 ### Fase 3: Sandbox & Threat Intel Esterna (2-3 settimane)

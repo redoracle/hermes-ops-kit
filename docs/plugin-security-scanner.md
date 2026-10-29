@@ -263,6 +263,10 @@ hermes-ops-kit plugin scan --plugin <name-or-path>            # Single plugin
 hermes-ops-kit plugin scan --category secrets,policy          # Specific categories
 hermes-ops-kit plugin scan --force                            # Skip cache
 hermes-ops-kit plugin scan --json                             # Machine-readable output
+hermes-ops-kit plugin scan --summary                          # One line per plugin
+hermes-ops-kit plugin scan --verbose                          # Every finding
+hermes-ops-kit plugin scan --explain                          # Findings + fix + the approve/override commands
+hermes-ops-kit plugin scan --tool semgrep --tool bandit       # Only these external tools
 
 # Approval
 hermes-ops-kit plugin approve <plugin>                        # Approve entire plugin
@@ -285,15 +289,21 @@ hermes-ops-kit plugin revoke --all                            # Revoke all appro
 
 # Plugin state
 hermes-ops-kit plugin disable <plugin>                        # Explicitly disable
-hermes-ops-kit plugin enable <plugin>                         # Re-enable
+hermes-ops-kit plugin enable <plugin>                         # Re-enable (adds it to plugins.enabled if its scan allows)
 hermes-ops-kit plugin block <plugin>                          # Permanently block
 
 # Policy & cache
 hermes-ops-kit plugin policy                                  # Show policy + overrides
 hermes-ops-kit plugin policy --json                           # JSON policy
+hermes-ops-kit plugin policy export > plugin_policy_backup.json  # Back up the policy
+hermes-ops-kit plugin policy import plugin_policy_backup.json    # Dry run: show what would change
+hermes-ops-kit plugin policy import plugin_policy_backup.json --apply  # Write it
 hermes-ops-kit plugin cache show                              # Cache contents
+hermes-ops-kit plugin cache stats                             # Cache size and entry counts
 hermes-ops-kit plugin cache clear                             # Clear cache
 hermes-ops-kit plugin rules update                            # Check external tool status
+hermes-ops-kit plugin rules list                              # Bundled Semgrep rule files + counts
+hermes-ops-kit plugin config show                             # Scan profiles that actually run
 
 # First-install bootstrap
 hermes-ops-kit install setup                                  # Create scanner config + reports

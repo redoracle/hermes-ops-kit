@@ -1,5 +1,5 @@
 ---
-modified: 2026-08-10
+modified: 2026-10-28
 ---
 
 # Architecture Decisions
@@ -119,7 +119,7 @@ Key architectural decisions for Hermes Ops Kit, their rationale, and consequence
 
 ## ADR-006: No Bot Contributors — Dependabot Auto-Apply
 
-**Status:** Accepted (2026-08)
+**Status:** Superseded by [ADR-007](#adr-007-maintainer-controlled-dependency-integration) (2026-10)
 
 **Context:** Dependabot keeps GitHub Actions versions current and prevents supply-chain
 staleness. However, squash-merging Dependabot PRs creates commits authored by
@@ -147,6 +147,31 @@ commits from semantic-release's Contents API sync.
 - Existing bot contributor entries in GitHub's cache require GC of orphaned `refs/pull/*`
   objects to fully disappear (can take weeks or require GitHub Support intervention)
 - See: [[Architecture]] (.github/workflows section)
+
+---
+
+## ADR-007: Maintainer-Controlled Dependency Integration
+
+**Status:** Accepted (2026-10)
+
+**Context:** ADR-006's workflow pushed a Dependabot PR's changes straight to `main` as soon as
+the PR opened, before its checks had run, so an unvalidated dependency change could reach
+`main`. The default `GITHUB_TOKEN` also cannot push changes under `.github/workflows/`, so the
+job failed for every GitHub Actions update.
+
+**Decision:** Remove `.github/workflows/dependabot-apply.yml`. Dependabot keeps opening PRs and
+the normal CI and security checks keep running on them. A maintainer inspects the candidate,
+applies the change in their own commit after the checks pass, and closes the PR (see
+[[Operations Runbook#Dependency updates (Dependabot)]]). No automatic finalizer replaces it.
+
+**Rationale:**
+- Nothing reaches `main` before it has been validated
+- ADR-006's goal still holds: the maintainer authors the commit, so no bot appears as a contributor
+- Avoids a privileged workflow or an additional long-lived token
+
+**Consequences:**
+- Dependabot PRs wait for the maintainer (monthly schedule, at most 5 open PRs per ecosystem)
+- Automating this again needs a separate design, including its token permissions
 
 ---
 

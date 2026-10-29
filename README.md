@@ -12,7 +12,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/hermes-0.19.0-purple" alt="Hermes 0.19.0"></a>
   <a href="./CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.11.0-orange" alt="v0.11.0"></a>
-  <a href="#tests"><img src="https://img.shields.io/badge/tests-381%20passed-brightgreen" alt="381 tests"></a>
+  <a href="#tests"><img src="https://img.shields.io/badge/tests-1370%20passed-brightgreen" alt="1370 tests"></a>
   <a href="./CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/conduct-contributor%20covenant-ff69b4" alt="Contributor Covenant"></a>
 </p>
 
@@ -282,7 +282,7 @@ hermes-key-rotate resume --provider openai            # Returns UnsupportedOpera
 hermes-key-rotate backup-vault                        # Export vault metadata to backup JSON
 hermes-key-rotate restore-vault <file> --dry-run      # Verify backup integrity
 hermes-key-rotate diff                                # Compare vault vs .env vs .env.generated
-hermes-key-rotate migrate                             # Interactive migration wizard
+hermes-key-rotate migrate                             # One-shot: seed missing keys from .env, then render (no prompts)
 ```
 
 **Subcommands** (new structured interface — flat flags still work):
@@ -304,7 +304,7 @@ hermes-key-rotate migrate                             # Interactive migration wi
 | `backup-vault`         | Export all 9 refs (fingerprints only) to `~/.hermes/ops-kit/vault-backup.json`  |
 | `restore-vault <file>` | Verify backup integrity against current vault                                   |
 | `diff`                 | Compare Bitwarden/Vaultwarden vs `.env` vs `.env.generated`, show discrepancies |
-| `migrate`              | One-shot migration wizard: scan → seed → render → verify                        |
+| `migrate`              | One-shot, non-interactive: scan `.env` → seed keys missing from the vault → render `.env.generated` |
 
 **Security guarantees:**
 
@@ -399,7 +399,7 @@ hermes-ops-kit headroom status               # Desired + actual route + proxy he
 hermes-ops-kit headroom doctor               # Health + invariant checks
 hermes-ops-kit headroom enable [--dry-run]   # Route the primary through the proxy
 hermes-ops-kit headroom disable [--dry-run]  # Restore the direct route (exact)
-hermes-ops-kit headroom reconcile [--dry-run]# Align config.yaml to desired state
+hermes-ops-kit headroom reconcile [--dry-run]  # Align config.yaml to desired state
 hermes-ops-kit headroom stats                # Token savings from /stats
 ```
 
@@ -772,12 +772,11 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 │   ├── workflows/ci.yml                    ← Tests + lint
 │   ├── workflows/release.yml               ← Semantic-release (auto versioning + tags)
 │   ├── workflows/security.yml              ← Gitleaks + dependency review
-│   ├── workflows/dependabot-apply.yml      ← Auto-apply Dependabot PRs as redoracle commits
 │   ├── dependabot.yml
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
 │
-├── tests/                                  ← 381 pytest tests + 8 simulator scenarios
+├── tests/                                  ← 1370 pytest tests + 8 simulator scenarios
 │   ├── test_security.py                    ← 38 tests
 │   ├── test_snapshots.py                   ← 14 tests
 │   ├── test_simulator.py                   ← 8 scenarios (run separately)
@@ -821,10 +820,10 @@ Full module map and data flow: [`docs/architecture.md`](docs/architecture.md).
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -v               # 381 tests (security, snapshots, scanner, CLI)
+python3 -m pytest tests/ -v               # 1370 tests (security, snapshots, scanner, CLI, reconciler, profiles)
 python3 tests/test_simulator.py --all      # 8 failure scenarios (no real APIs)
 bash scripts/test-scanner.sh              # 10-test scanner integration suite
-bash scripts/preflight-scan.sh             # Pre-release secret audit
+bash scripts/preflight-scan.sh             # Pre-release secret audit (needs GNU grep: macOS `brew install grep`)
 ```
 
 Tests use synthetic fixtures, isolated Hermes homes, and temporary files.

@@ -169,7 +169,7 @@ hermes-ops-kit headroom status               # desired + actual route + proxy he
 hermes-ops-kit headroom doctor [--json]      # full checklist (see below)
 hermes-ops-kit headroom enable [--dry-run]   # desired=on + reconcile now
 hermes-ops-kit headroom disable [--dry-run]  # restore direct route + stop proxy
-hermes-ops-kit headroom reconcile [--dry-run]# align config.yaml to desired state
+hermes-ops-kit headroom reconcile [--dry-run]  # align config.yaml to desired state
 hermes-ops-kit headroom up | down            # daemon lifecycle ONLY (route untouched!)
 hermes-ops-kit headroom stats                # /stats: requests, tokens saved
 hermes-ops-kit headroom export               # machine-readable JSON

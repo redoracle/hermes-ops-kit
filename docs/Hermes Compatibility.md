@@ -194,6 +194,9 @@ loader in a temporary Hermes home. Directory loading must work without an instal
 top-level ops-kit distribution. Wheel entry-point loading is tested separately.
 A standalone Conda CLI and Hermes' managed interpreter are separate installations;
 a successful standalone health command does not prove plugin activation or API health.
+Ops-kit repair and update modify only the standalone one: a target that Hermes owns (or
+whose ownership cannot be established) is refused with the native maintenance commands
+([Ownership guard](install-reconciler.md#ownership-guard)).
 
 Result replacement uses `transform_tool_result`; `post_tool_call` is an observer.
 Hermes consumes the first string transformer result, so ops-kit-owned tool outputs
@@ -203,12 +206,18 @@ limits any claim of universal result sanitization.
 Native source-image arguments are adapted from `image_url` / `reference_image_urls`.
 Only a single local image is supported; the selected route advertises image capability
 only when its adapter consumes the image (currently Gemini). Other edits fail explicitly.
-No URL downloader or additional multi-reference backend is introduced.
+No URL downloader or additional multi-reference backend is introduced. A caller-supplied
+`model` applies only to the route the caller selected: a fallback route, or the local
+route substituted by `prefer_local`, uses its own configured model even when it shares
+the provider.
 
 Budget status distinguishes unavailable spend from explicit numeric observations.
 These CLI checks do not intercept Hermes core model dispatch. Remote delegation
 checks the complete serialized task envelope, required HTTPS/token settings, and
-response byte limits; endpoint redirects are refused.
+response byte limits; endpoint redirects are refused. Reserved task constraints must be
+booleans and can only tighten the configured restrictions. The `/ops-kit` slash command
+returns bounded, redacted text for a read-only subset of commands
+([Chat commands](Operations%20Runbook.md#chat-commands-ops-kit)).
 
 ### Managed runtime activation
 

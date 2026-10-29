@@ -22,6 +22,14 @@ hermes_skill_factory.py    # SKILL.md generator from commands + runbooks
 hermes_assistant_manager.py# Assistant CRUD + ping + discover + validation
 hermes_route_manager.py    # Route configuration CLI (LLM text + IMAGE ROUTES)
 hermes_export.py           # Structured export: usage, security, audit, briefings
+slash.py                   # /ops-kit chat command: allowlisted read-only subcommands, bounded + redacted
+_subprocess.py             # child_env()/minimal_env()/module_command(): explicit environments for every spawn
+ops_config_io.py           # home() (call-time profile home), config IO, read_only() mode
+
+install_reconciler/        # Runtime install doctor / repair / update (see install-reconciler.md)
+  discovery.py             #   Target probe + classify_ownership() (managed / standalone / unknown)
+  depcheck.py              #   Resolved-dependency health against the target's markers
+  installer_adapter.py     #   run_install(): ownership-guarded, --no-deps
 
 image_routes/              # Image generation routing (NOT LLM text — separate layer)
   manager.py               #   CLI: routes, doctor, test, set-default, set-route
@@ -37,7 +45,7 @@ image_routes/              # Image generation routing (NOT LLM text — separate
     custom_image.py        #     OpenAI-compatible custom endpoints (FreeLLM, proxies)
 
 security/                  # Secret backend, redaction, fingerprints, locking, classification
-  redaction.py             #   Single shared redact() — 16 patterns
+  redaction.py             #   Shared SECRET_PATTERNS table: redact(), redact_structure()/redact_json() for results
   secret_backend.py        #   SecretBackend Protocol + SecretClass + ValidationResult + 12 error types
   vaultwarden_backend.py   #   Full Bitwarden/Vaultwarden implementation (3 auth modes, 26 refs, classification)
   bitwarden_cli_client.py  #   Safe subprocess wrapper (base64-encoded args for bw >= 2026.5.0)
@@ -53,7 +61,7 @@ security/                  # Secret backend, redaction, fingerprints, locking, c
     findings.py            #     Finding, RiskLevel, ScanResult, ScanProfile data models
     cache.py               #     SQLite SHA-256 cache (keyed by git_commit + file_tree_sha)
     policy.py              #     Approval policy v2: plugin_policy.json + rule_overrides + JSONL audit
-    plugin_scanner.yaml    #     Default configuration (profiles, timeouts, categories)
+    plugin_scanner.yaml    #     Informational snapshot of the defaults (not read; profiles are in findings.py)
     categories/
       secrets.py           #     Secrets: regex + entropy + dummy detection + doc/test/skill downgrades
       policy.py            #     Policy: AST + regex + skill-mode + pip/curl .py guards
@@ -62,7 +70,8 @@ security/                  # Secret backend, redaction, fingerprints, locking, c
       hermes-warning.yaml  #     Custom Semgrep rules (WARNING severity)
 
 env/                       # Environment rendering pipeline (3-layer denylist gate)
-  env_loader.py            #   Loads ~/.hermes/.env, validates bootstrap vars
+  loader.py                #   Sole .env parser (python-dotenv, no interpolation); get_secret() per-profile reads
+  env_loader.py            #   Deprecated shim over loader.py (+ bootstrap-var validation)
   render_env.py            #   Renders .env.generated with deny_render + classification check
                         #   --merge flag: syncs new/updated keys from .generated into .env
   atomic_write.py          #   temp → chmod 600 → fsync → rename
@@ -196,7 +205,8 @@ hermes-key-rotate rotate --provider openai [--manual-new-key-stdin]
 
 Failure handling:
   Any phase failure → save checkpoint → ROLLED_BACK or MANUAL_ACTION_REQUIRED
-  Resume with: hermes-key-rotate resume --provider openai
+  Recovery: inspect with `hermes-key-rotate --status --provider openai`, then rotate again
+  (`resume` is not supported and returns UnsupportedOperation)
 ```
 
 ## Data Flow: Env Rendering Safety (3-layer denylist)

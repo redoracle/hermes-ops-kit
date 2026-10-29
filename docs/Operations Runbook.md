@@ -2,7 +2,7 @@
 title: Operations Runbook
 tags: [hermes, ops-kit, operations, runbook, incident-response]
 created: 2026-06-04
-modified: 2026-10-27
+modified: 2026-10-28
 ---
 
 # Operations Runbook
@@ -17,6 +17,12 @@ Preserve local plugin changes and verified private copies of the plugin and
 `hermes pm repair` alone cannot add a disabled plugin's requirements. Restart an
 idle gateway with `hermes gateway restart` after a new environment is published.
 Do not install dependencies into Hermes' managed environment with raw pip.
+`hermes-ops-kit install doctor --repair` and `install update` enforce this: they
+refuse a target that Hermes owns (or whose ownership cannot be established) and name
+the native commands to use instead — `hermes plugins update hermes-ops-kit`,
+`hermes pm install` or `hermes update`. The refusal is recorded in
+`~/.hermes/ops-kit/update_log.jsonl` as `stopped_at: ownership`; see
+[Ownership guard](install-reconciler.md#ownership-guard).
 
 Check the replacement gateway's readiness and selected interpreter, then verify
 all seven ops-kit tools in a fresh session's full catalog (`tools.show`). Tool-search
@@ -31,6 +37,62 @@ Manager integration, not proof that ops-kit's Bitwarden CLI session is invalid.
 
 See [compatibility acceptance evidence](Hermes%20Compatibility.md#local-acceptance-evidence--2026-10-27)
 for the tested core revision, deployment checks and explicit provider limits.
+
+## Dependency updates (Dependabot)
+
+Dependabot opens PRs; nothing applies them automatically (see
+[[Architecture Decisions#ADR-007: Maintainer-Controlled Dependency Integration|ADR-007]]).
+Integrate each one yourself so the commit carries your authorship and the checks have run:
+
+```bash
+gh pr list --author "app/dependabot"
+gh pr view <N> --json files,statusCheckRollup      # what changes, and did its checks pass?
+git switch -c deps/<topic> main
+gh pr diff <N> | git apply                         # apply the candidate yourself
+uv lock --check && uv run --locked python -m pytest tests/ -q   # when dependencies changed
+git commit -am "chore(deps): <summary>"            # no bot trailer
+git push origin deps/<topic>                       # then merge per the usual flow
+gh pr close <N> --comment "Applied manually in <sha>"
+```
+
+Changes under `.github/workflows/` can only be pushed with the `workflows` permission, so
+apply those from your own credentials, never from a workflow token.
+
+Every `uses:` line in `.github/workflows/` is pinned to a full commit SHA with a version comment
+(`# v7.0.1`), which Dependabot keeps current. Dependabot waits 7 days (`cooldown`) before proposing a
+new release; security updates are not delayed.
+
+## Release approval
+
+`.github/workflows/release.yml` runs on every push to `main` with a write token and the PyPI
+token. Its job declares `environment: release`, so publishing can wait for a human, but only
+once the environment has reviewers. This is a one-time repository setting; the workflow cannot
+set it:
+
+1. GitHub repository **Settings > Environments > New environment**, named `release`.
+2. Enable **Required reviewers** and add the maintainer(s). Optionally restrict deployment
+   branches to `main`.
+3. Move `PYPI_API_TOKEN` from repository secrets into this environment's secrets, so only an
+   approved run can read it.
+
+Until then the job runs unattended, as before. The Node dependencies of the release job are
+pinned by `package-lock.json` and installed with `npm ci --ignore-scripts`; Dependabot proposes
+updates to the lock like any other dependency (see *Dependency updates*).
+
+## Chat commands (`/ops-kit`)
+
+`/ops-kit` is read-only from a chat surface, because anyone who can message the
+agent can send it. Reachable: `doctor`, `audit tail|search`, `mcp list|risks|tools|policy`,
+`budget status`, `maintenance profiles`, `image routes`, `routes show`,
+`headroom status`, `install doctor`, `plugin policy`, `assistant list`. Each runs in its
+own process with no stdin, a 20 s timeout and a 64 KiB capture limit, in read-only mode
+(`HERMES_OPS_KIT_READ_ONLY=1`: nothing is seeded into the profile, no MCP server is
+started); the reply is redacted and capped at about 3500 characters. Everything else — rotation, approvals,
+scans, repairs, exports, usage probes, image generation — answers "run it in a
+terminal: `hermes-ops-kit …`". Flags are limited to presentation (`--json`, `--compact`,
+`--verbose`, `--plain`, `--no-color`) plus the value flags a command really has; in
+particular `--repair` and `--python` are refused. Core runs a synchronous handler inline,
+so in the terminal UI a command blocks the prompt for up to the timeout.
 
 ## Health Checks
 
@@ -127,11 +189,8 @@ hermes-ops-kit image test "test prompt" --route fast
 # Check rotation state
 hermes-key-rotate --status --provider <provider>
 
-# Resume interrupted rotation
-hermes-key-rotate resume --provider <provider>
-
-# Force rollback if stuck
-hermes-key-rotate rollback --provider <provider>
+# `resume` returns UnsupportedOperation: inspect the credential state with --status,
+# then run `rotate --provider <provider>` again
 ```
 
 ### Regenerate .env.generated
