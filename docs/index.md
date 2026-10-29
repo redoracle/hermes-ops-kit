@@ -19,7 +19,7 @@ Map of the `docs/` folder, grouped by what you are trying to do.
 
 - [[Threat Model]] — trust boundaries, threats, mitigations
 - [[plugin-security-scanner]] — plugin scanner documentation
-- [[plugin-security-scanner-design]] — scanner design report
+- [[plugin-security-scanner-design]] — scanner design report (Italian; describes the design, not the current CLI)
 - [[hermes-hook-integration]] — scanner hook wiring for Hermes
 - [[external-security-tools]] — gitleaks, Semgrep and Bandit install guide
 

@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from urllib.parse import unquote
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
@@ -30,17 +33,28 @@ def _prose(path: Path) -> str:
 def _docs(root: Path) -> list[Path]:
     """`docs/*.md` as a clean checkout has them: tracked files only, so a git-ignored local
     note cannot make a link look alive here and dead in CI."""
-    listing = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-z", "--", "docs/*.md"],
-        capture_output=True,
-        env={"PATH": os.environ.get("PATH", "")},
-        check=False,
+    docs_dir = root / "docs"
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", ":(glob)docs/*.md"],
+            capture_output=True,
+            env={
+                k: os.environ[k]
+                for k in ("PATH", "HOME", "SYSTEMROOT")
+                if k in os.environ
+            },
+            check=False,
+        )
+    except OSError:  # no git binary: an sdist or a minimal image
+        listing = None
+    tracked = (
+        [root / n for n in listing.stdout.decode().split("\0") if n]
+        if listing is not None and listing.returncode == 0
+        else []
     )
-    tracked = [root / n for n in listing.stdout.decode().split("\0") if n]
-    return (
-        sorted(tracked)
-        if listing.returncode == 0 and tracked
-        else sorted((root / "docs").glob("*.md"))
+    # the glob matches top-level notes only, like the fallback below
+    return sorted(p for p in tracked if p.parent == docs_dir) or sorted(
+        docs_dir.glob("*.md")
     )
 
 
@@ -86,3 +100,35 @@ def test_the_checker_catches_what_it_is_for(tmp_path):
         encoding="utf-8",
     )
     assert broken_links(tmp_path) == ["README.md: skills/", "docs/a.md: [[Old Name]]"]
+
+
+def test_docs_are_the_tracked_top_level_notes_only(tmp_path):
+    """A git-ignored local note must not count (it passed locally and failed in CI once), and
+    neither may a nested one: the wikilink check only knows top-level stems."""
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    env = {k: os.environ[k] for k in ("PATH", "HOME", "SYSTEMROOT") if k in os.environ}
+    (tmp_path / "docs" / "sub").mkdir(parents=True)
+    for name in ("a.md", "sub/b.md", "local-only.md"):
+        (tmp_path / "docs" / name).write_text("# note\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("docs/local-only.md\n", encoding="utf-8")
+    for args in (["init", "-q"], ["add", "."]):
+        subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+    assert [p.name for p in _docs(tmp_path)] == ["a.md"]
+
+
+def test_without_a_git_binary_the_listing_falls_back_to_the_glob(tmp_path, monkeypatch):
+    (tmp_path / "docs").mkdir()
+    for name in ("a.md", "local.md"):
+        (tmp_path / "docs" / name).write_text("# note\n", encoding="utf-8")
+
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+    assert [p.name for p in _docs(tmp_path)] == ["a.md", "local.md"]
