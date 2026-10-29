@@ -4,6 +4,46 @@ All notable changes to Hermes Ops Kit.
 
 ## [Unreleased]
 
+### Audit hardening, aligned output and release safeguards — 2026-10-29 (v0.11.3)
+
+**Behavior changes**
+
+- Options a command does not understand are now refused (exit 2) instead of ignored, and `-h`/`--help` never runs the action. Previously `plugin approve --all --dry-run` approved everything and `mcp revoke -h` revoked all approvals.
+- Human-readable output is laid out by terminal width. `plugin scan` and `plugin cache show` print a table with a header and a right-aligned `FINDINGS` count instead of "(N findings)"; `audit tail` shows the full date; `budget`, `image routes`, `route-manager show`, `route-test`, `mcp tools`, the doctors and the default `hermes-usage` view use aligned columns; warning icons are now 🟡. Anything that parses the text should use `--json`, which is unchanged.
+- `rotate --provider all` runs one provider at a time (it only worked with `--parallel` before). A provider that raises is reported as its own failed result and no longer hides the others.
+- `emergency --revoke-only` that revokes nothing now says why (`reason`) and sets `manual_action_required`.
+
+**Security**
+
+- Redaction covers quoted and `export` assignments, full `Authorization`/`Bearer`/`Basic` values, `x-api-key`, cookies and URL credentials, and stays idempotent.
+- Assistant delegation: reserved constraint flags must be exact booleans and callers can only tighten them; `no_env_dump` and `no_network_scan` are enforced.
+- Provider-returned image URLs: http(s) only, public hosts unless the adapter's own origin, size-capped, written atomically. Assistant pings never follow redirects.
+- `/ops-kit` in chat runs only an allowlist of read-only commands, with a timeout and bounded, redacted output.
+- Plugin scanner: gitleaks runs on a staged copy so a plugin cannot switch it off, and a gitleaks failure is a finding, not a clean scan. New: `plugin scan --summary/--explain/--tool`, `plugin cache stats`, `plugin rules list`, `plugin config show`, `plugin policy export/import` (dry run by default; an import that loosens approvals needs `--allow-approvals`). `plugin enable` restores a plugin to `plugins.enabled` when its scan allows it.
+- Profiles and secrets: the Hermes home is resolved at call time, credentials come from `get_secret()`, `os.environ` is not written when embedded in Hermes, and every subprocess gets an explicit environment.
+- Install doctor, repair and update refuse Hermes-managed or unidentifiable runtimes, and report missing or incompatible dependencies and failed prerequisites the same way in JSON, display and exit status.
+
+**Reporting**
+
+- `mcp ...` prints the cause of an unreadable `config.yaml` or policy and exits 1 instead of a traceback. `mcp approve --all` no longer reports "nothing to approve" when the inventory cannot be read, and `plugin revoke --finding` reports an unreadable policy file.
+- `plugin scan` says when findings of cached results are not listed.
+
+**Providers and Headroom**
+
+- Headroom resolves its upstream from `custom_providers:` as well as `providers:`, matching names the way Hermes core does. `headroom disable` no longer leaves an empty `providers:` key that `enable` created.
+- New `provider_keys.py`: one lookup of a provider's endpoint and key variable, shared by doctor, route verification, the route harness and Headroom. `doctor` now finds the Headroom overlay's key, and a `custom:` name Hermes accepts (`My Prov` as `custom:my-prov`) is no longer reported as missing a credential.
+
+**CI and release**
+
+- Every GitHub Action is pinned to a full commit SHA. The release job declares `environment: release` (it waits for a reviewer once the environment has one). npm dependencies are locked (`package-lock.json`, `npm ci --ignore-scripts`), Dependabot covers npm with a 7-day cooldown, and `dependabot-apply.yml` is removed.
+- `scripts/preflight-scan.sh` scans tracked and unignored files only and fails loudly without GNU grep.
+
+### Docs, tests and CI — 2026-10-29 (after v0.11.3, not released)
+
+- Docs: README links that pointed at paths valid only inside the package are fixed; new `docs/index.md`; the architecture map, key-rotation notes and the `hermes-key-rotate` skill follow the code; an empty generated `runbook` skill is removed.
+- Tests: `tests/test_documented_commands.py` checks every command in the README, docs and packaged skills against the real CLI; `tests/test_doc_links.py` fails on a dead link in `README.md` or `docs/`; the suite refuses non-loopback network connections (`@pytest.mark.network` opts out); `tests/test_table_alignment.py` covers the aligned output.
+- Release safeguards: the `release-config` workflow runs `scripts/check-release-notes.mjs` on pull requests that touch the release tooling, and Dependabot ignores major updates of `conventional-changelog-conventionalcommits` (version 10 needs `conventional-changelog-writer` 9 or newer, while the stable release-notes generator ships 8).
+
 ### Runtime compatibility and credential safety
 
 - Remove the optional Headroom package extra that conflicts with current Hermes' MCP pins; use the separately installed Headroom CLI.
