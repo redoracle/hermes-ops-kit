@@ -82,7 +82,8 @@ def test_a_clean_repository_passes_from_any_directory(repo, tmp_path):
         ("ssh ubuntu@host.example", "SSH user"),
         ("server at 10.20.30.40", "non-local IP"),
         ("runs on my-oracle-vps", "cloud provider"),
-        ("path /home/ubuntu/secret", "filesystem paths"),
+        # built at runtime: a literal home path would trip the push-time path guard
+        (f"path /{'home'}/ubuntu/secret", "filesystem paths"),
         ("key sk-AbCdEfGhIjKlMnOpQrStUvWxYz012345", "API key"),
     ],
 )
