@@ -17,17 +17,17 @@ def load_dotenv(path: str, *, set_environ: bool = False) -> dict[str, str]:
     from .loader import parse_env_file
 
     result = parse_env_file(path)
-    if set_environ:
+    if set_environ and not ops_config_io.core_loaded():
         os.environ.update(result)
     return result
 
 
 def get_hermes_env_path() -> str:
-    return os.path.join(ops_config_io.HERMES_HOME, ".env")
+    return os.path.join(ops_config_io.home(), ".env")
 
 
 def get_generated_env_path() -> str:
-    return os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+    return os.path.join(ops_config_io.home(), ".env.generated")
 
 
 def load_hermes_env() -> dict[str, str]:
@@ -37,7 +37,8 @@ def load_hermes_env() -> dict[str, str]:
     env = parse_env_file(get_hermes_env_path())
     gen = parse_env_file(get_generated_env_path())
     merged = {**env, **gen}
-    os.environ.update(merged)
+    if not ops_config_io.core_loaded():  # embedded: never write the shared environment
+        os.environ.update(merged)
     missing = validate_bootstrap(env)
     if missing:
         import sys

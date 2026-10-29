@@ -31,6 +31,25 @@ class Severity(str, Enum):
     INFO = "info"
 
 
+NATIVE_MAINTENANCE_HINT = (
+    "use Hermes' native maintenance instead (`hermes plugins update hermes-ops-kit`, "
+    "`hermes pm install` or `hermes update`); ops-kit does not modify it directly"
+)
+
+
+def mutation_refusal(role: str, reason: str) -> str | None:
+    """Why direct mutation of a runtime is refused, or None when it is allowed.
+
+    Only a provably standalone environment may be modified. Managed and
+    ambiguous (``unknown``) runtimes are refused with a native-maintenance hint.
+    """
+    if role == "standalone":
+        return None
+    kind = "managed by Hermes" if role == "managed" else "of unclear ownership"
+    detail = f" ({reason})" if reason else ""
+    return f"target environment is {kind}{detail}; {NATIVE_MAINTENANCE_HINT}"
+
+
 @dataclass
 class RuntimeContext:
     """Which runtime we are inspecting — never assume ``sys.executable``."""
@@ -41,7 +60,8 @@ class RuntimeContext:
     python_version: str = ""
     plugin_source: str = ""
     installation_mode: InstallationMode = InstallationMode.UNKNOWN
-    runtime_role: str = "dev"
+    runtime_role: str = "unknown"  # managed | standalone | unknown; never assumed
+    ownership_reason: str = ""
     installer_policy: str = "auto"
 
     def to_dict(self) -> dict:
@@ -97,6 +117,10 @@ class ActualInstallation:
     extra_distributions: list[str] = field(default_factory=list)  # duplicates found
     probe_error: str = ""
     fingerprint: str = ""
+    # Observations used to judge resolved dependencies. Deliberately not part of
+    # to_dict(): the report keeps its shape and exposes only findings.
+    installed_distributions: dict[str, str] = field(default_factory=dict)
+    marker_environment: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -178,6 +202,12 @@ MULTIPLE_INSTALLATIONS = "MULTIPLE_INSTALLATIONS"
 RUNTIME_PROBE_FAILURE = "RUNTIME_PROBE_FAILURE"
 DEPENDENCY_DECLARATION_DRIFT = "DEPENDENCY_DECLARATION_DRIFT"
 PACKAGING_METADATA_DRIFT = "PACKAGING_METADATA_DRIFT"
+# Resolved-dependency health (what is actually installed, not what is declared)
+MISSING_DEPENDENCY = "MISSING_DEPENDENCY"
+INCOMPATIBLE_DEPENDENCY = "INCOMPATIBLE_DEPENDENCY"
+DEPENDENCY_CHECK_UNAVAILABLE = "DEPENDENCY_CHECK_UNAVAILABLE"
+# A host prerequisite of `install doctor` (Python version, bw CLI, env file permissions)
+PREREQUISITE_FAILED = "PREREQUISITE_FAILED"
 
 
 @dataclass

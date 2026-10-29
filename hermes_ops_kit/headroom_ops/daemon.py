@@ -23,6 +23,7 @@ import urllib.request
 
 from ..headroom_ops.settings import proxy_root, sanitized_proxy_flags  # noqa: E402
 from ..security.redaction import sanitize_url_for_display  # noqa: E402
+from .._subprocess import child_env
 
 READYZ_PATH = "/readyz"
 STATS_PATH = "/stats"
@@ -207,6 +208,7 @@ def up(settings: dict, upstream_url: str, dry_run: bool = False) -> dict:
             stderr=log,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
+            env=child_env(),
         )
     from ..env.atomic_write import atomic_write
 

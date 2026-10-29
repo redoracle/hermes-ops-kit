@@ -49,10 +49,22 @@ from .ui.json_output import ok_envelope
 from .security.redaction import sanitize_url_for_display
 from .config.route_map import AUX_SHORT_KEYS, aux_config_key, aux_hermes_path
 
-from .ops_config_io import OPS_KIT_DIR
+from . import ops_config_io
 
-ROUTES_CONFIG = os.path.join(OPS_KIT_DIR, "routes.yaml")
-IMAGE_ROUTES_CONFIG = os.path.join(OPS_KIT_DIR, "image_routes.yaml")
+
+def routes_config() -> str:
+    """Deployed routes.yaml of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.ops_kit_dir(), "routes.yaml")
+
+
+def image_routes_config() -> str:
+    """Deployed image_routes.yaml of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.ops_kit_dir(), "image_routes.yaml")
+
+
+# Deprecated import-time aliases (compatibility window); the manager uses the functions.
+ROUTES_CONFIG = routes_config()
+IMAGE_ROUTES_CONFIG = image_routes_config()
 BUNDLED_ROUTES = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "config", "routes.yaml"
 )
@@ -161,8 +173,8 @@ def cmd_show(args: argparse.Namespace) -> None:
     """Display current route configuration."""
     con = Console(json_mode=args.json)
     hc = _load_yaml(hermes_config())
-    _rc = _load_yaml(ROUTES_CONFIG) or _load_yaml(BUNDLED_ROUTES)
-    img_cfg = _load_yaml(IMAGE_ROUTES_CONFIG) or _load_yaml(BUNDLED_IMAGE_ROUTES)
+    _rc = _load_yaml(routes_config()) or _load_yaml(BUNDLED_ROUTES)
+    img_cfg = _load_yaml(image_routes_config()) or _load_yaml(BUNDLED_IMAGE_ROUTES)
 
     model = hc.get("model", {})
     fb = hc.get("fallback_providers", [])
@@ -322,7 +334,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     else:
         print("✓ Route configuration valid")
     print(f"  config: {hermes_config()}")
-    print(f"  routes: {ROUTES_CONFIG}")
+    print(f"  routes: {routes_config()}")
 
 
 def cmd_set_primary(args: argparse.Namespace) -> None:
@@ -367,15 +379,27 @@ def cmd_fallback(args: argparse.Namespace) -> None:
         for i, f in enumerate(fb, 1):
             print(f"  {i}. {f.get('provider', '?')}:{f.get('model', '?')}")
     elif args.fb_action == "add":
+        if any(
+            f.get("provider") == args.provider and f.get("model") == args.model
+            for f in fb
+        ):
+            print(f"Already a fallback: {args.provider}:{args.model}")
+            return
         fb.append({"provider": args.provider, "model": args.model})
         hc["fallback_providers"] = fb
         _save_yaml(hermes_config(), hc)
         print(f"Added fallback: {args.provider}:{args.model}")
     elif args.fb_action == "remove":
         provider = args.provider
-        hc["fallback_providers"] = [f for f in fb if f.get("provider") != provider]
+        kept = [f for f in fb if f.get("provider") != provider]
+        hc["fallback_providers"] = kept
         _save_yaml(hermes_config(), hc)
-        print(f"Removed fallback: {provider}")
+        removed = len(fb) - len(kept)
+        print(
+            f"Removed {removed} fallback(s) for provider: {provider}"
+            if removed
+            else f"No fallback for provider: {provider}"
+        )
     elif args.fb_action == "clear":
         hc["fallback_providers"] = []
         _save_yaml(hermes_config(), hc)
@@ -492,7 +516,7 @@ def cmd_providers(_args: argparse.Namespace) -> None:
 def cmd_export(args: argparse.Namespace) -> None:
     """Export full route configuration as JSON."""
     hc = _load_yaml(hermes_config())
-    rc = _load_yaml(ROUTES_CONFIG) or _load_yaml(BUNDLED_ROUTES)
+    rc = _load_yaml(routes_config()) or _load_yaml(BUNDLED_ROUTES)
 
     output = {
         "hermes_config": {

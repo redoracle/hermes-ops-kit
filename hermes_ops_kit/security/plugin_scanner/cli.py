@@ -6,11 +6,13 @@ Called from commands.py:_handle_plugin().
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
 # Ensure package imports resolve
 
+from ..._cli_args import PRESENTATION_FLAGS, SWITCH, VALUE, check_flags
 from ...ui.json_output import ok_envelope, error_envelope, error_item  # pyright: ignore[reportMissingImports]
 from ...ui.console import Console  # pyright: ignore[reportMissingImports]
 from ...security.plugin_scanner.scanner import (  # pyright: ignore[reportMissingImports]
@@ -34,8 +36,38 @@ from ...security.plugin_scanner.policy import (  # pyright: ignore[reportMissing
     remove_rule_override,
     get_rule_overrides,
     get_plugin_status,
+    is_finding_id,
 )
 from ... import ops_config_io  # noqa: E402
+from ..._subprocess import minimal_env
+
+
+# Flags each `plugin <subcommand>` really reads (`scan` checks its own). A flag outside the
+# set is refused instead of ignored: `plugin approve --all --dry-run` used to approve
+# everything, because no such option exists.
+_PLUGIN_FLAGS: dict[str, dict[str, bool]] = {
+    "approve": {
+        "--all": SWITCH,
+        "--category": VALUE,
+        "--finding": VALUE,
+        "--notes": VALUE,
+        "--json": SWITCH,
+    },
+    "revoke": {"--all": SWITCH, "--finding": VALUE, "--json": SWITCH},
+    "override": {
+        "--remove": SWITCH,
+        "--rule": VALUE,
+        "--show": SWITCH,
+        "--json": SWITCH,
+    },
+    "disable": {"--json": SWITCH},
+    "enable": {"--json": SWITCH},
+    "block": {"--json": SWITCH, "--reason": VALUE},
+    "policy": {"--json": SWITCH, "--apply": SWITCH, "--allow-approvals": SWITCH},
+    "cache": {"--json": SWITCH},
+    "rules": {"--json": SWITCH},
+    "config": {"--json": SWITCH},
+}
 
 
 def handle_plugin(args: list[str]) -> int:
@@ -49,6 +81,25 @@ def handle_plugin(args: list[str]) -> int:
     subcmd = args[0]
     rest = args[1:]
 
+    if any(a in ("-h", "--help") for a in args):
+        # Anywhere on the line: `plugin approve --all -h` must never approve everything.
+        _plugin_usage()
+        return 0
+
+    accepted = _PLUGIN_FLAGS.get(subcmd)
+    if accepted is not None:
+        verdict = check_flags(
+            f"plugin {subcmd}",
+            accepted,
+            rest,
+            # read-only views take the chat command's presentation flags as no-ops
+            ignored=PRESENTATION_FLAGS
+            if subcmd in ("policy", "cache", "rules", "config")
+            else frozenset(),
+        )
+        if verdict is not None:
+            return verdict
+
     if subcmd == "scan":
         return _cmd_scan(rest)
     elif subcmd == "approve":
@@ -57,6 +108,8 @@ def handle_plugin(args: list[str]) -> int:
         return _cmd_override(rest)
     elif subcmd == "revoke":
         return _cmd_revoke(rest)
+    elif subcmd == "config":
+        return _cmd_config(rest)
     elif subcmd == "disable":
         return _cmd_disable(rest)
     elif subcmd == "enable":
@@ -81,6 +134,8 @@ def _plugin_usage() -> int:
     print("  hermes-ops-kit plugin scan --plugin <name-or-path> [--force] [--json]")
     print("  hermes-ops-kit plugin scan --use-bandit --use-gitleaks --use-semgrep")
     print("  hermes-ops-kit plugin scan --no-bandit  # disable external tools")
+    print("  hermes-ops-kit plugin scan --tool <semgrep|bandit|gitleaks>  # only these tools")
+    print("  hermes-ops-kit plugin scan --summary | --verbose | --explain")
     print("  hermes-ops-kit plugin approve <plugin>")
     print("  hermes-ops-kit plugin approve <plugin> --category <category>")
     print("  hermes-ops-kit plugin approve --finding <finding-id>")
@@ -95,9 +150,11 @@ def _plugin_usage() -> int:
     print("  hermes-ops-kit plugin enable <plugin>")
     print("  hermes-ops-kit plugin block <plugin>")
     print("  hermes-ops-kit plugin policy [--json]")
-    print("  hermes-ops-kit plugin cache show")
-    print("  hermes-ops-kit plugin cache clear")
-    print("  hermes-ops-kit plugin rules update")
+    print("  hermes-ops-kit plugin policy export > backup.json")
+    print("  hermes-ops-kit plugin policy import <file> [--apply] [--allow-approvals]")
+    print("  hermes-ops-kit plugin cache show | stats | clear")
+    print("  hermes-ops-kit plugin rules update | list")
+    print("  hermes-ops-kit plugin config show [--json]")
     print()
     print("Scan profiles: startup, install, update, manual, ci")
     print("Scan categories: secrets, policy (MVP)")
@@ -106,6 +163,24 @@ def _plugin_usage() -> int:
 
 
 # ── Scan Command ───────────────────────────────────────────────────
+
+
+_SCAN_OPTIONS = (
+    "--profile <name>",
+    "--plugin <name-or-path>",
+    "--category <a,b>",
+    "--use-semgrep|--no-semgrep",
+    "--use-bandit|--no-bandit",
+    "--use-gitleaks|--no-gitleaks",
+    "--tool <semgrep|bandit|gitleaks> (repeatable)",
+    "--json",
+    "--force",
+    "--verbose",
+    "--summary",
+    "--explain",
+)
+
+_SCAN_TOOLS = ("semgrep", "bandit", "gitleaks")
 
 
 def _cmd_scan(args: list[str]) -> int:
@@ -118,6 +193,10 @@ def _cmd_scan(args: list[str]) -> int:
     use_semgrep: bool | None = None
     use_bandit: bool | None = None
     use_gitleaks: bool | None = None
+    tools: list[str] = []
+    verbose = "--verbose" in args
+    summary = "--summary" in args
+    explain = "--explain" in args
 
     # Parse arguments
     i = 0
@@ -150,10 +229,27 @@ def _cmd_scan(args: list[str]) -> int:
         elif a == "--no-gitleaks":
             use_gitleaks = False
             i += 1
-        elif a in ("--json", "--force"):
+        elif a == "--tool" and i + 1 < len(args):
+            tools.append(args[i + 1])
+            i += 2
+        elif a in ("--json", "--force", "--verbose", "--summary", "--explain"):
             i += 1
         else:
-            i += 1
+            # A security tool must not accept a flag and silently ignore it.
+            print(f"ERROR: unknown or incomplete option for 'plugin scan': {a}")
+            print(f"Accepted: {', '.join(_SCAN_OPTIONS)}")
+            return 2
+
+    if tools:
+        unknown = [t for t in tools if t not in _SCAN_TOOLS]
+        if unknown:
+            print(f"ERROR: unsupported tool: {', '.join(unknown)}")
+            print(f"Supported: {', '.join(_SCAN_TOOLS)}")
+            return 2
+        # --tool selects exactly the named external tools
+        use_semgrep = "semgrep" in tools
+        use_bandit = "bandit" in tools
+        use_gitleaks = "gitleaks" in tools
 
     # Resolve categories
     categories: list[str] | None = None
@@ -222,7 +318,12 @@ def _cmd_scan(args: list[str]) -> int:
                 )
             )
         else:
-            _print_scan_results(results, policy_statuses, console)
+            _print_scan_results(
+                results,
+                policy_statuses,
+                console,
+                detail="summary" if summary else "explain" if explain else "verbose" if verbose else "default",
+            )
             statuses = [status["status"] for status in policy_statuses]
             enabled_count = statuses.count("enabled")
             disabled_count = statuses.count("disabled")
@@ -248,9 +349,17 @@ def _cmd_scan(args: list[str]) -> int:
 
 
 def _print_scan_results(
-    results: list[Any], policy_statuses: list[dict[str, Any]], console: Console
+    results: list[Any],
+    policy_statuses: list[dict[str, Any]],
+    console: Console,
+    detail: str = "default",
 ) -> None:
-    """Pretty-print scan results."""
+    """Pretty-print scan results.
+
+    ``detail``: ``summary`` (one line per plugin), ``default`` (first five findings,
+    none for cached results), ``verbose`` (every finding), ``explain`` (every finding
+    with its remediation and the commands that approve or silence it).
+    """
     for r, policy_status in zip(results, policy_statuses, strict=True):
         risk_icon = {
             "none": "✅",
@@ -279,10 +388,11 @@ def _print_scan_results(
             f"{status:<12} ({len(r.findings)} findings){cache_tag}"
         )
 
-        if r.cache_hit:
+        if detail == "summary" or (r.cache_hit and detail == "default"):
             continue
 
-        for f in r.findings[:5]:  # Show first 5 findings
+        shown = r.findings if detail in ("verbose", "explain") else r.findings[:5]
+        for f in shown:
             sev_icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(
                 f.severity.value if hasattr(f.severity, "value") else f.severity, "⚪"
             )
@@ -292,8 +402,17 @@ def _print_scan_results(
                 if hasattr(f, "line") and f.line:
                     location += f":{f.line}"
                 console.print(f"      at {location}")
+            if detail == "explain":
+                if getattr(f, "remediation", ""):
+                    console.print(f"      fix:     {f.remediation}")
+                console.print(
+                    f"      silence: hermes-ops-kit plugin override {r.plugin_name} {f.rule} allow"
+                )
+                console.print(
+                    f"      approve: hermes-ops-kit plugin approve --finding {f.id}"
+                )
 
-        if len(r.findings) > 5:
+        if detail in ("default", "summary") and len(r.findings) > 5:
             console.print(f"   ... and {len(r.findings) - 5} more findings")
 
 
@@ -339,6 +458,13 @@ def _cmd_approve(args: list[str]) -> int:
             i += 1
         else:
             i += 1
+
+    if finding_id and not is_finding_id(finding_id):
+        console.print_error(
+            "Finding ID must look like <plugin>:<category>:<rule>:<hex hash> or <prefix>_* "
+            "(see `plugin scan --explain`)"
+        )
+        return 2
 
     try:
         if finding_id:
@@ -511,6 +637,10 @@ def _cmd_revoke(args: list[str]) -> int:
         else:
             i += 1
 
+    if finding_id and finding_id not in get_policy().get("approved_findings", []):
+        console.print_error(f"Finding is not approved: {finding_id}")
+        return 1
+
     try:
         if finding_id:
             policy = revoke_finding(finding_id)
@@ -586,13 +716,18 @@ def _cmd_enable(args: list[str]) -> int:
     if not plugin_name:
         console.print_error("Specify a plugin name to enable")
         return 1
+    if plugin_name in (".", "..") or any(c in plugin_name for c in ("/", "\\", "\0")):
+        console.print_error("Give the plugin name, not a path")
+        return 1
 
     try:
         policy = enable_plugin(plugin_name)
+        outcome = _enable_in_config(plugin_name)
         if json_mode:
-            console.print_json(ok_envelope("plugin_enable", policy))
+            console.print_json(ok_envelope("plugin_enable", {**policy, **outcome}))
         else:
-            console.print(f"Plugin '{plugin_name}' enabled.")
+            console.print(f"Plugin '{plugin_name}' enabled in the scanner policy.")
+            console.print(f"  {outcome['detail']}")
         return 0
     except Exception as exc:
         if json_mode:
@@ -602,6 +737,60 @@ def _cmd_enable(args: list[str]) -> int:
         else:
             console.print_error(f"Enable failed: {exc}")
         return 1
+
+
+def _enable_in_config(plugin_name: str) -> dict[str, Any]:
+    """Make an enabled plugin load again, if its scan result allows it to run.
+
+    Policy alone only lifts the scanner's disable or block. Hermes loads what is listed in
+    ``plugins.enabled``, and enforcement removes entries but never adds them, so without
+    this a disable/enable round trip would leave the plugin off.
+    """
+    from .enforce import enable_in_config
+
+    # Resolve by name under this profile only. `_resolve_plugin_path` also accepts paths and
+    # tries the current directory first, so a decoy directory of the same name could be
+    # scanned instead of the plugin Hermes will actually load.
+    path = next(
+        (
+            candidate
+            for candidate in (
+                os.path.join(ops_config_io.home(), "plugins", plugin_name),
+                os.path.join(ops_config_io.home(), "skills", plugin_name),
+            )
+            if os.path.isdir(candidate)
+        ),
+        None,
+    )
+    if not path:
+        return {
+            "enabled_in_config": False,
+            "detail": "Not found under plugins/ or skills/; config.yaml unchanged.",
+        }
+    result = scan_plugin(plugin_name=plugin_name, plugin_path=path, profile="startup")
+    status = get_plugin_status(plugin_name, result.risk_level.value)
+    if status["status"] != "enabled":
+        what_next = (
+            "Critical findings block it until they are fixed; approval does not lift that."
+            if status["status"] == "blocked"
+            else f"Review it, then run: hermes-ops-kit plugin approve {plugin_name}"
+        )
+        return {
+            "enabled_in_config": False,
+            "detail": (
+                f"Its scan result is {result.risk_level.value.upper()} "
+                f"({status['status']}); config.yaml unchanged. {what_next}"
+            ),
+        }
+    changed = enable_in_config(plugin_name)
+    return {
+        "enabled_in_config": True,
+        "detail": (
+            "Added to plugins.enabled in config.yaml (restart Hermes to load it)."
+            if changed
+            else "Already listed in plugins.enabled."
+        ),
+    }
 
 
 # ── Block Command ────────────────────────────────────────────────────
@@ -672,7 +861,7 @@ def _cmd_rules(args: list[str]) -> int:
                 "bandit_available": bandit_ok,
                 "custom_rules": _list_custom_rules(),
                 "message": "Custom rules are bundled with the scanner. "
-                "Run `semgrep --config security/plugin_scanner/rules/` to use them.",
+                f"Run `semgrep --config {_rules_dir()}` to use them.",
             }
 
             if json_mode:
@@ -706,9 +895,43 @@ def _cmd_rules(args: list[str]) -> int:
             else:
                 console.print_error(f"Rules update failed: {exc}")
             return 1
+    elif subcmd == "list":
+        files = _rule_file_counts()
+        tools = {
+            "semgrep": _check_semgrep(),
+            "gitleaks": _check_gitleaks(),
+            "bandit": _check_bandit(),
+        }
+        if json_mode:
+            console.print_json(
+                ok_envelope("plugin_rules_list", {"files": files, "tools": tools})
+            )
+        else:
+            console.print("Plugin Scanner Rules")
+            for name, count in files.items():
+                console.print(f"  {name:<28} {count} rules")
+            console.print(f"  Total: {sum(files.values())} rules in {len(files)} files")
+            for tool, ok in tools.items():
+                console.print(f"  {tool + ':':<10} {'available' if ok else 'not installed'}")
+        return 0
     else:
         console.print_error(f"Unknown rules subcommand: {subcmd}")
         return 1
+
+
+def _rules_dir() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules")
+
+
+def _rule_file_counts() -> dict[str, int]:
+    """Bundled Semgrep rule files and how many rules each declares."""
+    rules_dir = _rules_dir()
+    counts: dict[str, int] = {}
+    for name in _list_custom_rules():
+        data = ops_config_io.load_yaml(os.path.join(rules_dir, name))
+        rules = data.get("rules") if isinstance(data, dict) else None
+        counts[name] = len(rules) if isinstance(rules, list) else 0
+    return counts
 
 
 def _check_semgrep() -> bool:
@@ -717,7 +940,11 @@ def _check_semgrep() -> bool:
 
     try:
         r = _sp.run(
-            ["semgrep", "--version"], capture_output=True, text=True, timeout=10
+            ["semgrep", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=minimal_env(),
         )
         return r.returncode == 0
     except Exception:
@@ -729,7 +956,13 @@ def _check_gitleaks() -> bool:
     import subprocess as _sp
 
     try:
-        r = _sp.run(["gitleaks", "version"], capture_output=True, text=True, timeout=10)
+        r = _sp.run(
+            ["gitleaks", "version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=minimal_env(),
+        )
         return r.returncode == 0
     except Exception:
         return False
@@ -740,7 +973,13 @@ def _check_bandit() -> bool:
     import subprocess as _sp
 
     try:
-        r = _sp.run(["bandit", "--version"], capture_output=True, text=True, timeout=10)
+        r = _sp.run(
+            ["bandit", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=minimal_env(),
+        )
         return r.returncode == 0
     except Exception:
         return False
@@ -750,20 +989,127 @@ def _list_custom_rules() -> list[str]:
     """List bundled custom rule files."""
     import os as _os
 
-    rules_dir = _os.path.join(
-        _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-        "rules",
-    )
+    rules_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules")
     if _os.path.isdir(rules_dir):
         return sorted(f for f in _os.listdir(rules_dir) if f.endswith(".yaml"))
     return []
 
 
+# ── Config Command ───────────────────────────────────────────────────
+
+
+def _cmd_config(args: list[str]) -> int:
+    """`plugin config show`: the scan profiles that actually run (read-only)."""
+    json_mode = "--json" in args
+    console = Console(json_mode=json_mode)
+    if not args or args[0] != "show":
+        print("Usage: hermes-ops-kit plugin config show [--json]")
+        return 2
+
+    from .bootstrap import scanner_config_path
+    from .findings import ScanProfile
+
+    config_file = scanner_config_path()
+    result = {
+        "profiles": {
+            name: {
+                "description": p.description,
+                "categories": p.categories,
+                "timeout_seconds": p.timeout_seconds,
+                "parallel": p.parallel,
+                "block_on": p.block_on,
+                "cache_ttl_hours": p.cache_ttl_hours,
+            }
+            for name, p in ScanProfile.profiles().items()
+        },
+        "tools": {
+            "semgrep": _check_semgrep(),
+            "gitleaks": _check_gitleaks(),
+            "bandit": _check_bandit(),
+        },
+        "config_file": str(config_file),
+        "config_file_exists": config_file.exists(),
+        "config_file_is_read": False,
+    }
+    if json_mode:
+        console.print_json(ok_envelope("plugin_config_show", result))
+        return 0
+    console.print("Plugin Scanner Configuration (built-in profiles)")
+    for name, p in result["profiles"].items():
+        console.print(
+            f"  {name:<8} categories={','.join(p['categories'])} timeout={p['timeout_seconds']}s "
+            f"block_on={','.join(p['block_on'])} cache_ttl={p['cache_ttl_hours']}h"
+        )
+    for tool, ok in result["tools"].items():
+        console.print(f"  {tool + ':':<10} {'available' if ok else 'not installed'}")
+    console.print(f"\n  {config_file}")
+    console.print(
+        "  This file is seeded by `install setup` but is not read by the scanner yet;"
+        " editing it changes nothing."
+    )
+    return 0
+
+
 # ── Policy Command ───────────────────────────────────────────────────
+
+
+def _cmd_policy_export_import(args: list[str]) -> int:
+    """`plugin policy export` / `plugin policy import <file> [--apply] [--allow-approvals]`."""
+    from .policy import PolicyImportError, export_policy, import_policy
+
+    json_mode = "--json" in args
+    console = Console(json_mode=json_mode)
+    if args[0] == "export":
+        try:
+            print(json.dumps(export_policy(), indent=2, sort_keys=True))
+            return 0
+        except RuntimeError as exc:
+            console.print_error(f"Policy export failed: {exc}")
+            return 1
+
+    known = {"--apply", "--allow-approvals", "--json"}
+    paths = [a for a in args[1:] if not a.startswith("--")]
+    unknown = [a for a in args[1:] if a.startswith("--") and a not in known]
+    if len(paths) != 1 or unknown:
+        print("Usage: hermes-ops-kit plugin policy import <file> [--apply] [--allow-approvals] [--json]")
+        return 2
+    try:
+        result = import_policy(
+            paths[0], apply="--apply" in args, allow_approvals="--allow-approvals" in args
+        )
+    except (PolicyImportError, RuntimeError, OSError) as exc:
+        if json_mode:
+            console.print_json(
+                error_envelope("plugin_policy_import", [error_item("REFUSED", str(exc))])
+            )
+        else:
+            console.print_error(f"Policy import refused: {exc}")
+        return 1
+    if json_mode:
+        console.print_json(ok_envelope("plugin_policy_import", result))
+        return 0
+    console.print("Plugin policy import" + ("" if result["applied"] else " (dry run)"))
+    for label, group in (("add", result["added"]), ("remove", result["removed"])):
+        for key, items in group.items():
+            for item in items:
+                console.print(f"  {label:<6} {key}: {item}")
+    for item in result["escalations"]:
+        console.print(f"  LOOSENS: {item}")
+    if result.get("ignored_keys"):
+        console.print(f"  ignored unknown keys: {', '.join(result['ignored_keys'])}")
+    if not result["added"] and not result["removed"]:
+        console.print("  no changes")
+    if result["applied"]:
+        console.print("Policy written.")
+    else:
+        console.print("Nothing written. Re-run with --apply to write it.")
+    return 0
 
 
 def _cmd_policy(args: list[str]) -> int:
     """Handle `plugin policy` subcommand."""
+    if args and args[0] in ("export", "import"):
+        return _cmd_policy_export_import(args)
     json_mode = "--json" in args
     console = Console(json_mode=json_mode)
 
@@ -856,6 +1202,34 @@ def _cmd_cache(args: list[str]) -> int:
                 console.print_error(f"Cache clear failed: {exc}")
             return 1
 
+    elif subcmd == "stats":
+        try:
+            stats = cache_stats()
+            try:
+                stats["size_bytes"] = os.path.getsize(stats["db_path"])
+            except OSError:
+                stats["size_bytes"] = 0
+            if json_mode:
+                console.print_json(ok_envelope("plugin_cache_stats", stats))
+            else:
+                console.print("Plugin Scan Cache")
+                console.print(f"  DB path:   {stats['db_path']}")
+                console.print(f"  Size:      {stats['size_bytes']} bytes")
+                console.print(f"  Entries:   {stats['total_entries']}")
+                console.print(f"  Expired:   {stats['expired_entries']}")
+                console.print(f"  Scanner:   {stats['scanner_version']}")
+            return 0
+        except Exception as exc:
+            if json_mode:
+                console.print_json(
+                    error_envelope(
+                        "plugin_cache_stats", [error_item("ERROR", str(exc))]
+                    )
+                )
+            else:
+                console.print_error(f"Cache stats failed: {exc}")
+            return 1
+
     elif subcmd == "show":
         try:
             stats = cache_stats()
@@ -916,8 +1290,8 @@ def _resolve_plugin_path(name_or_path: str) -> str | None:
 
     # Search standard locations
     locations = [
-        os.path.join(ops_config_io.HERMES_HOME, "plugins"),
-        os.path.join(ops_config_io.HERMES_HOME, "skills"),
+        os.path.join(ops_config_io.home(), "plugins"),
+        os.path.join(ops_config_io.home(), "skills"),
     ]
     for loc in locations:
         candidate = os.path.join(loc, name_or_path)

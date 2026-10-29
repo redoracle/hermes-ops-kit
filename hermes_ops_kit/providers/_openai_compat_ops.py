@@ -33,7 +33,7 @@ import time
 import uuid
 from datetime import datetime
 
-from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
+from ..security.redaction import redact, redact_structure  # pyright: ignore[reportMissingImports]
 from ..provider_catalog import first_available_key
 
 
@@ -309,9 +309,8 @@ def run_cli(adapter_cls: type[OpenAICompatAdapter]) -> None:
         if "result" in result and "text" in result["result"]:
             result["result"]["text"] = redact(result["result"]["text"])
         if "result" in result and result["result"].get("structured") is not None:
-            result["result"]["structured"] = json.loads(
-                redact(json.dumps(result["result"]["structured"]))
-            )
+            structured, _ = redact_structure(result["result"]["structured"])
+            result["result"]["structured"] = json.loads(redact(json.dumps(structured)))
 
         print(json.dumps(result, indent=2))
     except Exception as e:

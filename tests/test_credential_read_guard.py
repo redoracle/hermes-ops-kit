@@ -121,3 +121,14 @@ def test_path_outside_hermes_home_env_still_blocked(local_only, tmp_path, monkey
     proj_env.write_text("x")
     with pytest.raises(ValueError):
         local_only.raise_if_read_blocked(str(proj_env))
+
+
+def test_blocks_the_active_profiles_credential_store_even_without_hermes_home(
+    local_only, profiles, monkeypatch
+):
+    """A routed profile's home comes from core, not the HERMES_HOME environment variable."""
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    auth = profiles.use("routed") / "auth.json"
+    auth.write_text("{}")
+    with pytest.raises(ValueError):
+        local_only.raise_if_read_blocked(str(auth))

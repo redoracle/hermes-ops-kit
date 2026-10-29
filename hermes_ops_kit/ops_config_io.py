@@ -15,11 +15,103 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import time
 
+# Deprecated import-time aliases, kept for the compatibility window: external code
+# and tests read (and monkeypatch) these names. Inside the kit use home() and the
+# helpers derived from it, which resolve at call time.
 HERMES_HOME = os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
 HERMES_CONFIG = os.path.join(HERMES_HOME, "config.yaml")
 OPS_KIT_DIR = os.path.join(HERMES_HOME, "ops-kit")
+
+_IMPORT_TIME_HOME = HERMES_HOME
+
+
+def _native_home() -> str | None:
+    """Active Hermes home from core, or None when core is not loaded in this process.
+
+    Core resolves a context-local profile override first, then ``HERMES_HOME``,
+    then the platform default, so routed profiles get their own home. Only an
+    already-imported core is consulted: that is the embedded case, it costs a
+    dict lookup, and a standalone process keeps the ``HERMES_HOME`` contract
+    instead of paying for a failing import on every call.
+    """
+    module = sys.modules.get("hermes_constants")
+    get_home = getattr(module, "get_hermes_home", None)
+    return str(get_home()) if callable(get_home) else None
+
+
+class ScopedEnvironmentUnavailable(RuntimeError):
+    """The process runs inside Hermes but a required profile-scoping API is missing.
+
+    Raised instead of falling back to the launch profile's environment, which
+    could hand one profile's credentials to work done for another.
+    """
+
+
+def core_loaded() -> bool:
+    """True when this process is Hermes core (embedded), not a standalone CLI."""
+    return "hermes_constants" in sys.modules
+
+
+def native(module: str, attr: str):
+    """A callable/class from a core module; refuse if embedded and it is missing."""
+    import importlib
+
+    try:
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+        # (every caller passes a literal name of a Hermes core module)
+        return getattr(importlib.import_module(module), attr)
+    except (ImportError, AttributeError) as exc:
+        raise ScopedEnvironmentUnavailable(
+            f"Hermes core is loaded but {module}.{attr} is not available "
+            f"({exc}); refusing to use the launch profile's environment. "
+            "Run this command from a terminal, or update Hermes."
+        ) from exc
+
+
+def home() -> str:
+    """The active Hermes home, resolved at call time.
+
+    Order: (1) an explicit override, i.e. ``HERMES_HOME`` rebound on this module
+    (the documented test/embedder contract); (2) core ``get_hermes_home()`` when
+    importable; (3) the ``HERMES_HOME`` environment variable read now, then
+    ``~/.hermes``.
+    """
+    if HERMES_HOME != _IMPORT_TIME_HOME:
+        return HERMES_HOME
+    native = _native_home()
+    if native:
+        return native
+    return os.path.expanduser(os.environ.get("HERMES_HOME", "~/.hermes"))
+
+
+READ_ONLY_ENV = "HERMES_OPS_KIT_READ_ONLY"
+
+
+def read_only() -> bool:
+    """True in a process that must not change anything or start third-party code.
+
+    Set only by the chat (`/ops-kit`) child. In this mode defaults are not seeded
+    into the profile and MCP servers are not launched or contacted.
+    """
+    return os.environ.get(READ_ONLY_ENV) == "1"
+
+
+def default_home() -> str:
+    """The platform default Hermes root (``~/.hermes``), independent of the active profile.
+
+    The single place that spells this path; profile homes live below or beside it.
+    Used where the shared install (core source, install state) is needed rather than
+    the active profile.
+    """
+    return os.path.expanduser("~/.hermes")
+
+
+def config_path() -> str:
+    """Path to the active profile's ``config.yaml``."""
+    return os.path.join(home(), "config.yaml")
 
 
 def hermes_config() -> str:
@@ -29,7 +121,7 @@ def hermes_config() -> str:
     it re-derives from HERMES_HOME at call time, so tests (and embedders)
     that monkeypatch ``ops_config_io.HERMES_HOME`` fully control the path.
     """
-    return os.path.join(HERMES_HOME, "config.yaml")
+    return config_path()
 
 
 def ops_kit_dir() -> str:
@@ -38,7 +130,7 @@ def ops_kit_dir() -> str:
     Derives from HERMES_HOME at call time so tests and embedders that
     monkeypatch ``ops_config_io.HERMES_HOME`` redirect ops-kit directories.
     """
-    return os.path.join(HERMES_HOME, "ops-kit")
+    return os.path.join(home(), "ops-kit")
 
 
 def expand_home(path: str) -> str:
@@ -51,9 +143,9 @@ def expand_home(path: str) -> str:
     p = os.path.expanduser(str(path))
     real = os.path.expanduser("~/.hermes")
     if p == real:
-        return HERMES_HOME
+        return home()
     if p.startswith(real + "/"):
-        return os.path.join(HERMES_HOME, p[len(real) + 1:])
+        return os.path.join(home(), p[len(real) + 1 :])
     return p
 
 
@@ -133,8 +225,10 @@ def load_yaml_strict(path: str) -> dict:
                 data = parser.load(source)
             else:
                 import yaml
+
                 class UniqueLoader(yaml.SafeLoader):
                     pass
+
                 def mapping(loader, node):
                     result = {}
                     for key_node, value_node in node.value:
@@ -143,8 +237,9 @@ def load_yaml_strict(path: str) -> dict:
                             raise ValueError("duplicate mapping key")
                         result[key] = loader.construct_object(value_node)
                     return result
+
                 UniqueLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
-                data = yaml.load(source, Loader=UniqueLoader)
+                data = yaml.load(source, Loader=UniqueLoader)  # noqa: S506 - SafeLoader subclass
     except Exception as exc:
         raise ConfigError(f"unparseable configuration: {path}") from exc
     if not isinstance(data, dict) or not data:
@@ -222,14 +317,14 @@ def deployed_or_bundled(name: str, *, seed: bool = False) -> str:
     # Derive from HERMES_HOME at call time (not the import-frozen constant)
     # so the documented monkeypatch contract holds — a patched test must
     # never seed into the real ~/.hermes/ops-kit.
-    deployed = os.path.join(HERMES_HOME, "ops-kit", name)
+    deployed = os.path.join(ops_kit_dir(), name)
     if os.path.exists(deployed):
         return deployed
     bundled = bundled_path(name)
-    if seed and os.path.exists(bundled) and not os.path.exists(deployed):
+    if seed and not read_only() and os.path.exists(bundled) and not os.path.exists(deployed):
         import tempfile
 
-        ops_dir = os.path.join(HERMES_HOME, "ops-kit")
+        ops_dir = ops_kit_dir()
         os.makedirs(ops_dir, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=ops_dir, prefix=f".{name}.", text=True)
         os.close(fd)

@@ -30,13 +30,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import ops_config_io
 from ..ops_config_io import ops_kit_dir
 from .cli import run_install_doctor
 from .installer_adapter import run_install
 from .repair import LOCK_NAME, _repair_locked, _snapshot
-from .state import HealthReport, HealthStatus, InstallationMode
+from .state import mutation_refusal, HealthReport, HealthStatus, InstallationMode
 from ..security.lockfile import LockTimeoutError, provider_lock
+from .._subprocess import child_env
 
 
 def update_log_path() -> str:
@@ -44,7 +44,8 @@ def update_log_path() -> str:
     return os.path.join(ops_kit_dir(), "update_log.jsonl")
 
 
-UPDATE_LOG = os.path.join(ops_config_io.HERMES_HOME, "ops-kit", "update_log.jsonl")
+# Deprecated import-time alias (compatibility window); the kit uses update_log_path().
+UPDATE_LOG = update_log_path()
 
 
 @dataclass
@@ -82,6 +83,7 @@ def _git(source: str, *args: str, timeout: int = 120) -> subprocess.CompletedPro
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=child_env(credentials=False),
     )
 
 
@@ -130,6 +132,15 @@ def perform_update(
     outcome.report = before
     outcome.previous = _snapshot(before)
     outcome.head_before = outcome.previous.get("git_sha", _head(src))
+
+    refusal = mutation_refusal(
+        before.runtime.runtime_role, before.runtime.ownership_reason
+    )
+    if refusal:  # before any fetch, pull, checkout or install
+        outcome.stopped_at = "ownership"
+        outcome.reason = refusal
+        _record(outcome.to_dict())
+        return outcome
 
     if not Path(src, ".git").exists():
         outcome.stopped_at = "source"

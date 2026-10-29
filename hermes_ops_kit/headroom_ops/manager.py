@@ -33,7 +33,7 @@ from typing import Any
 
 from ..headroom_ops import daemon, reconcile as rec  # noqa: E402
 from ..headroom_ops.settings import (  # noqa: E402
-    DEPLOYED_CONFIG,
+    deployed_config,
     FORBIDDEN_FLAGS,
     load_settings,
     proxy_root,
@@ -78,7 +78,7 @@ def _public_state(state: dict[str, Any]) -> dict[str, Any]:
         "apply": s.get("apply"),
         "daemon": state["daemon"],
         "collisions": state["collisions"],
-        "config_path": DEPLOYED_CONFIG,
+        "config_path": deployed_config(),
     }
 
 

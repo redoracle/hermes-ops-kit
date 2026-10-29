@@ -41,11 +41,12 @@ from typing import List
 from . import ops_config_io  # noqa: E402
 from .provider_catalog import (  # noqa: E402
     provider_base_url,
-    first_available_key,
     has_credential,
+    provider_key,
     PROVIDER_ALIASES,
 )
 from .security.redaction import redact  # noqa: E402
+from ._subprocess import child_env, minimal_env
 
 # ─── Provider registry (single source of truth) ──────────────────
 # Every "which providers exist" decision derives from here so a new provider
@@ -264,7 +265,7 @@ def _fetch_openai_models(key: str):
 
 
 def check_openai(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get(first_available_key("openai") or "", "")
+    key = api_key or (provider_key("openai") or "")
     if not key:
         return {
             "provider": "openai",
@@ -334,7 +335,7 @@ def check_openai(api_key: str | None = None) -> dict:
 
 
 def check_anthropic(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get(first_available_key("anthropic") or "", "")
+    key = api_key or (provider_key("anthropic") or "")
     if not key:
         return {
             "provider": "anthropic",
@@ -518,7 +519,7 @@ def check_github() -> dict:
 
 
 def check_gemini(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get(first_available_key("gemini") or "", "")
+    key = api_key or (provider_key("gemini") or "")
     if not key:
         return {
             "provider": "gemini",
@@ -609,7 +610,7 @@ def _fetch_deepseek_balance(key: str) -> dict:
 
 
 def check_deepseek(api_key: str | None = None) -> dict:
-    key = api_key or os.environ.get(first_available_key("deepseek") or "", "")
+    key = api_key or (provider_key("deepseek") or "")
     if not key:
         return {
             "provider": "deepseek",
@@ -674,7 +675,7 @@ def check_nvidia(api_key: str | None = None) -> dict:
     Rate limit headers (x-ratelimit-*) are captured from the /v1/models
     response when available.
     """
-    key = api_key or os.environ.get(first_available_key("nvidia") or "", "")
+    key = api_key or (provider_key("nvidia") or "")
     if not key:
         return {
             "provider": "nvidia",
@@ -801,7 +802,7 @@ def check_fireworks(api_key: str | None = None) -> dict:
     Fireworks exposes no dedicated billing endpoint; pricing is read from
     /models metadata and models.dev by Hermes core, so has_cost_api=False here.
     """
-    key = api_key or os.environ.get(first_available_key("fireworks") or "", "")
+    key = api_key or (provider_key("fireworks") or "")
     if not key:
         return {
             "provider": "fireworks",
@@ -856,7 +857,7 @@ def check_deepinfra(api_key: str | None = None) -> dict:
     DeepInfra exposes no separate billing endpoint; pricing is embedded in the
     catalog metadata.pricing, so has_cost_api=False here.
     """
-    key = api_key or os.environ.get(first_available_key("deepinfra") or "", "")
+    key = api_key or (provider_key("deepinfra") or "")
     if not key:
         return {
             "provider": "deepinfra",
@@ -927,7 +928,7 @@ def check_bridge_health() -> dict:
     def _cli_version(item):
         name, cmd = item
         try:
-            r = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=5)
+            r = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=5, env=child_env(credentials=False))
             if r.returncode != 0:
                 return name, "error"
             first_line = r.stdout.strip().split("\n")[0]
@@ -1017,6 +1018,7 @@ def _gateway_candidates() -> list[str]:
             capture_output=True,
             text=True,
             timeout=5,
+            env=minimal_env(),
         )
         if ts.returncode == 0:
             ts_ip = ts.stdout.strip()
@@ -1058,7 +1060,7 @@ def _gateway_candidates() -> list[str]:
 
 
 def check_hermes_status() -> dict:
-    hd = ops_config_io.HERMES_HOME
+    hd = ops_config_io.home()
     gw = False
     port = _resolve_gateway_port()
 
@@ -1124,15 +1126,18 @@ def check_assistant(aid: str, timeout: float | None = None) -> dict:
             "reason": "test mode (no network healthcheck)",
         }
 
-    # Load env vars (they may be set by load_env_file or .env.generated)
-    for env_var, env_key in [
-        ("ASSISTANT_API_BASE", config.base_url_env),
-        ("ASSISTANT_API_KEY", config.api_key_env),
-        ("ASSISTANT_MODEL", config.model_env),
-    ]:
-        val = os.environ.get(env_var)
-        if val and not os.environ.get(env_key):
-            os.environ[env_key] = val
+    # Map the generic ASSISTANT_* variables onto this assistant's names. CLI only:
+    # this module runs as its own process, so the write stays local. Inside Hermes
+    # the process environment is shared across profiles, so it is never written.
+    if not ops_config_io.core_loaded():
+        for env_var, env_key in [
+            ("ASSISTANT_API_BASE", config.base_url_env),
+            ("ASSISTANT_API_KEY", config.api_key_env),
+            ("ASSISTANT_MODEL", config.model_env),
+        ]:
+            val = os.environ.get(env_var)
+            if val and not os.environ.get(env_key):
+                os.environ[env_key] = val
 
     client = AssistantClient(config)
     return client.healthcheck(timeout=timeout)

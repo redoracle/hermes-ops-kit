@@ -38,7 +38,13 @@ from ...security.plugin_scanner.findings import RiskLevel  # pyright: ignore[rep
 from ... import ops_config_io  # noqa: E402
 
 
-HERMES_CONFIG_PATH = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+def hermes_config_path() -> str:
+    """config.yaml of the active profile, resolved at call time."""
+    return ops_config_io.config_path()
+
+
+# Deprecated import-time alias (compatibility window); the kit uses hermes_config_path().
+HERMES_CONFIG_PATH = hermes_config_path()
 
 
 # ── Config read/write ────────────────────────────────────────────────────
@@ -73,12 +79,13 @@ def _parse_hermes_config(path: str) -> dict[str, Any]:
 
 def _load_hermes_config() -> dict[str, Any]:
     """Load ~/.hermes/config.yaml, failing closed on malformed content."""
-    return _parse_hermes_config(HERMES_CONFIG_PATH)
+    return _parse_hermes_config(hermes_config_path())
 
 
 def _save_hermes_config(config: dict[str, Any]) -> None:
     """Durably and atomically write ~/.hermes/config.yaml with mode 0600."""
-    config_dir = os.path.dirname(HERMES_CONFIG_PATH)
+    config_path = hermes_config_path()
+    config_dir = os.path.dirname(config_path)
     os.makedirs(config_dir, mode=0o700, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".config-", suffix=".yaml", dir=config_dir)
     try:
@@ -96,8 +103,8 @@ def _save_hermes_config(config: dict[str, Any]) -> None:
                 yaml.safe_dump(config, f, default_flow_style=False)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, HERMES_CONFIG_PATH)
-        os.chmod(HERMES_CONFIG_PATH, 0o600)
+        os.replace(tmp, config_path)
+        os.chmod(config_path, 0o600)
     finally:
         try:
             os.unlink(tmp)
@@ -107,10 +114,11 @@ def _save_hermes_config(config: dict[str, Any]) -> None:
 
 def _backup_hermes_config() -> str | None:
     """Create a rollback backup of the current Hermes config if present."""
-    if not os.path.exists(HERMES_CONFIG_PATH):
+    config_path = hermes_config_path()
+    if not os.path.exists(config_path):
         return None
-    backup_path = f"{HERMES_CONFIG_PATH}.bak"
-    shutil.copy2(HERMES_CONFIG_PATH, backup_path)
+    backup_path = f"{config_path}.bak"
+    shutil.copy2(config_path, backup_path)
     try:
         os.chmod(backup_path, 0o600)
     except OSError:
@@ -118,10 +126,42 @@ def _backup_hermes_config() -> str | None:
     return backup_path
 
 
+def enable_in_config(plugin_name: str) -> bool:
+    """Add ``plugin_name`` to ``plugins.enabled`` (and drop it from ``plugins.disabled``).
+
+    This is the operator's explicit choice, so it is the one place the kit adds to the
+    list; enforcement itself never auto-enables a plugin. Returns True if the file changed.
+    The config is backed up first and written atomically.
+    """
+    config = _load_hermes_config()
+    plugins_cfg = config.setdefault("plugins", {})
+    if not isinstance(plugins_cfg, dict):
+        raise RuntimeError("Hermes config 'plugins' must be a mapping")
+    enabled = list(plugins_cfg.get("enabled") or [])
+    disabled = list(plugins_cfg.get("disabled") or [])
+    if not all(isinstance(item, str) for item in enabled + disabled):
+        raise RuntimeError("Hermes config plugin lists must contain strings")
+    changed = False
+    if plugin_name not in enabled:
+        enabled.append(plugin_name)
+        changed = True
+    if plugin_name in disabled:
+        disabled.remove(plugin_name)
+        changed = True
+    if not changed:
+        return False
+    plugins_cfg["enabled"] = enabled
+    plugins_cfg["disabled"] = disabled
+    _backup_hermes_config()
+    _save_hermes_config(config)
+    return True
+
+
 def _restore_hermes_config(backup_path: str) -> None:
     """Atomically restore the Hermes config from a backup file."""
     _parse_hermes_config(backup_path)
-    config_dir = os.path.dirname(HERMES_CONFIG_PATH)
+    config_path = hermes_config_path()
+    config_dir = os.path.dirname(config_path)
     os.makedirs(config_dir, mode=0o700, exist_ok=True)
     fd, tmp = tempfile.mkstemp(
         prefix=".config-restore-", suffix=".yaml", dir=config_dir
@@ -132,8 +172,8 @@ def _restore_hermes_config(backup_path: str) -> None:
             shutil.copyfileobj(source, target)
             target.flush()
             os.fsync(target.fileno())
-        os.replace(tmp, HERMES_CONFIG_PATH)
-        os.chmod(HERMES_CONFIG_PATH, 0o600)
+        os.replace(tmp, config_path)
+        os.chmod(config_path, 0o600)
     finally:
         try:
             os.unlink(tmp)

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import json
+import unicodedata
 
 from ..security.secret_scanner import scan_for_secrets
 
@@ -25,7 +26,7 @@ FORBIDDEN_PATTERNS: list[tuple[str, str]] = [
     (r"gh[pou]_[A-Za-z0-9]{36,}", "GitHub token"),
     (r"gh[sr]_[A-Za-z0-9_-]{36,}", "GitHub App token"),
     (r"Authorization:\s*\S", "Authorization header"),
-    (r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----", "Private key"),
+    (r"-----BEGIN\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY-----", "Private key"),
     (r"BW_SESSION=", "Bitwarden session"),
     (r"VAULTWARDEN_PASSWORD=", "Vaultwarden password"),
     (r"\.env", ".env reference"),  # weak signal — flag for review
@@ -70,7 +71,11 @@ _RELAX_MESSAGES = {
 
 
 def _normalize_key(key: object) -> str:
-    return str(key).strip().lower().replace("-", "_").replace(" ", "_")
+    """Fold case, width, separators and invisible characters, so lookalike spellings
+    of a reserved name (``No_Shell_Execution``, ``no\u200b_shell_execution``) are caught."""
+    text = unicodedata.normalize("NFKC", str(key))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return text.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def effective_constraints(
@@ -125,18 +130,25 @@ def effective_constraints(
 def serialize_task(task: AssistantTask, config: AssistantConfig) -> str:
     """One canonical envelope for policy evaluation and transmission."""
     constraints, _ = effective_constraints(task, config)
-    return json.dumps({
-        "task_id": task.task_id, "assistant": config.id,
-        "capability": task.capability, "priority": "normal", "task": task.task,
-        "context": task.context or {"caller": config.orchestrator_name.lower()},
-        "constraints": constraints,
-    }, indent=2)
+    return json.dumps(
+        {
+            "task_id": task.task_id,
+            "assistant": config.id,
+            "capability": task.capability,
+            "priority": "normal",
+            "task": task.task,
+            "context": task.context or {"caller": config.orchestrator_name.lower()},
+            "constraints": constraints,
+        },
+        indent=2,
+    )
 
 
 def check_task(
     task: AssistantTask,
     config: AssistantConfig,
-    *, envelope: str | None = None,
+    *,
+    envelope: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Run all policy checks against a task.
 
@@ -182,7 +194,9 @@ def check_task(
     return len(violations) == 0, violations
 
 
-def assert_allowed(task: AssistantTask, config: AssistantConfig, *, envelope: str | None = None) -> None:
+def assert_allowed(
+    task: AssistantTask, config: AssistantConfig, *, envelope: str | None = None
+) -> None:
     """Raise PolicyViolation if the task is not allowed."""
     allowed, violations = check_task(task, config, envelope=envelope)
     if not allowed:

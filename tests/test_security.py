@@ -417,3 +417,57 @@ def test_error_hierarchy():
     assert issubclass(VaultwardenAuthError, SecretBackendError)
     assert issubclass(UnsafeSecretWriteError, HermesKeyRotateError)
     assert not issubclass(UnsafeSecretWriteError, SecretBackendError)
+
+
+# --- review follow-ups: PEM types, URL credentials, word boundary ------------------------------
+
+
+@pytest.mark.parametrize(
+    "kind", ["EC", "DSA", "OPENSSH", "ENCRYPTED", "RSA", ""], ids=lambda k: k or "plain"
+)
+def test_every_pem_private_key_flavour_is_redacted(kind):
+    label = f"{kind} PRIVATE KEY".strip()
+    pem = f"-----BEGIN {label}-----\nProc-Type: 4,ENCRYPTED\nMHcCAQEEIabc\n-----END {label}-----"
+    assert redact(f"before {pem} after") == "before <PRIVATE_KEY_REDACTED> after"
+    assert not scan_for_secrets(pem)[0]
+    assert not scan_for_forbidden_blocks(pem)[0]
+
+
+@pytest.mark.parametrize(
+    "url,secret",
+    [
+        ("redis://:pw123@cache:6379/0", "pw123"),
+        ("https://u:p@ss@host/x", "p@ss"),
+        ("postgres://user:hunter2@db.example/app", "hunter2"),
+    ],
+)
+def test_url_credentials_are_redacted_including_empty_user_and_at_signs(url, secret):
+    assert secret not in redact(url)
+    assert "<USERINFO_REDACTED>@" in redact(url)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "http://host:8080/path@x",
+        "disk-encryption-configuration-name",
+        "task-description-with-a-long-name-here",
+        "risk-assessment-framework-document",
+        "mailto:me@example.com",
+    ],
+)
+def test_harmless_text_with_secret_lookalikes_is_unchanged(text):
+    assert redact(text) == text
+
+
+def test_a_real_openai_style_key_is_still_redacted_after_a_word_boundary():
+    assert redact("key sk-" + "a" * 30) == "key <OPENAI_KEY_REDACTED>"
+    assert redact('"sk-' + "b" * 30 + '"') == '"<OPENAI_KEY_REDACTED>"'
+    assert redact("sk-" + "c" * 30) == "<OPENAI_KEY_REDACTED>"
+
+
+def test_redact_json_covers_structures_and_text_in_one_pass():
+    from hermes_ops_kit.security.redaction import redact_json
+
+    out = redact_json({"a": "GH_TOKEN=abc123xyz789", "Cookie": "sid=1", "n": 5})
+    assert "abc123xyz789" not in out and "sid=1" not in out and '"n": 5' in out

@@ -9,14 +9,13 @@ Requires: FAL_KEY environment variable
 from __future__ import annotations
 
 import json
-import os
 import urllib.request
 
 
-from ...provider_catalog import first_available_key, has_credential, key_envs_for  # noqa: E402
+from ...provider_catalog import has_credential, key_envs_for, provider_key  # noqa: E402
 from ...image_routes.adapters.base import (
+    download_image,
     BaseImageAdapter,
-    load_dotenv,
     ensure_cache_dir,
     make_output_path,
     build_envelope,
@@ -30,7 +29,6 @@ class FALImageAdapter(BaseImageAdapter):
 
     def is_available(self) -> bool:
         """Check FAL_KEY is set and FAL API is reachable."""
-        load_dotenv()
         return has_credential("fal")
 
     def generate(
@@ -51,8 +49,7 @@ class FALImageAdapter(BaseImageAdapter):
                 "Use the Gemini or OpenAI adapter for image modification.",
                 error_type="UnsupportedFeature",
             )
-        load_dotenv()
-        api_key = os.environ.get(first_available_key("fal") or "")
+        api_key = provider_key("fal")
         if not api_key:
             return build_envelope(
                 False,
@@ -180,10 +177,13 @@ class FALImageAdapter(BaseImageAdapter):
         )
 
     @staticmethod
-    def _download_image(url: str, path: str) -> None:
-        """Download an image from a URL to a local path."""
-        req = urllib.request.Request(url, headers={"User-Agent": "Hermes-OpsKit/0.1"})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            with open(path, "wb") as f:
-                f.write(resp.read())
-        os.chmod(path, 0o644)
+    def _download_image(
+        url: str,
+        path: str,
+        max_bytes: int = 25 * 1024 * 1024,
+        allow_origins: tuple[tuple[str, int] | None, ...] = (),
+    ) -> None:
+        """Download a provider-returned image URL (http(s) only, size-capped)."""
+        download_image(
+            url, path, timeout=120, max_bytes=max_bytes, allow_origins=allow_origins
+        )

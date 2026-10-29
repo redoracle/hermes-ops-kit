@@ -14,8 +14,8 @@ import os
 from typing import Any
 
 from ..ops_config_io import deployed_or_bundled, load_yaml
- 
- 
+
+
 def _load_config() -> dict:
     """Load image_routes.yaml from deployed path, falling back to bundled."""
     path = deployed_or_bundled("image_routes.yaml")
@@ -27,7 +27,9 @@ def _expand_path(path: str) -> str:
     return os.path.expanduser(os.path.expandvars(path))
 
 
-def resolve_route(route_name: str | None = None, *, config: dict | None = None) -> tuple[str, dict]:
+def resolve_route(
+    route_name: str | None = None, *, config: dict | None = None
+) -> tuple[str, dict]:
     """Resolve the image generation route.
 
     Args:
@@ -177,15 +179,26 @@ def generate(
     if image_path:
         from .adapters.base import build_envelope
         from ..security.credential_read_guard import raise_if_read_blocked
+
         try:
-            if not isinstance(image_path, str) or "://" in image_path or image_path.startswith("data:"):
+            if (
+                not isinstance(image_path, str)
+                or "://" in image_path
+                or image_path.startswith("data:")
+            ):
                 raise ValueError("Only local reference image paths are supported")
             image_path = os.path.expanduser(image_path)
             raise_if_read_blocked(image_path)
             if not os.path.isfile(image_path):
                 raise ValueError("Reference image does not exist")
         except ValueError as exc:
-            return build_envelope(False, provider="ops-kit-router", model="", error=str(exc), error_type="ConfigError")
+            return build_envelope(
+                False,
+                provider="ops-kit-router",
+                model="",
+                error=str(exc),
+                error_type="ConfigError",
+            )
     config = _load_config()
     policies = config.get("policies", {})
 
@@ -194,7 +207,9 @@ def generate(
         if provider_name and not route_name:
             route_name = route_for_provider(provider_name, config=config)
             if route_name is None:
-                raise ValueError(f"No image route configured for provider: {provider_name}")
+                raise ValueError(
+                    f"No image route configured for provider: {provider_name}"
+                )
         key, route_cfg = resolve_route(route_name, config=config)
         if provider_name and route_cfg.get("provider") != provider_name:
             raise ValueError("Requested image route and provider disagree")
@@ -214,6 +229,10 @@ def generate(
     provider = route_cfg.get("provider", "")
     model = route_cfg.get("model", "")
     model_override = kwargs.get("model")
+    # A caller-supplied model names a model of the route the caller selected. It
+    # is honored only while dispatching that route, never for a local-first
+    # substitute or any fallback (even one using the same provider).
+    selected_key = key
     edit_mode = kwargs.get("edit_mode", "generate")
     preserve_subject = bool(kwargs.get("preserve_subject", False))
     prefer_local = policies.get("prefer_local", True)
@@ -260,9 +279,14 @@ def generate(
 
         if image_path and provider != "gemini":
             from .adapters.base import build_envelope
-            return build_envelope(False, provider=provider, model=model,
-                                  error="Selected route does not support image editing",
-                                  error_type="UnsupportedFeature")
+
+            return build_envelope(
+                False,
+                provider=provider,
+                model=model,
+                error="Selected route does not support image editing",
+                error_type="UnsupportedFeature",
+            )
 
         try:
             adapter = _get_adapter(provider, route_cfg)
@@ -314,7 +338,7 @@ def generate(
         # Generate
         result = adapter.generate(
             prompt=prompt,
-            model=model_override or model,
+            model=(model_override or model) if key == selected_key else model,
             aspect_ratio=aspect_ratio,
             num_images=num_images,
             image_path=image_path,

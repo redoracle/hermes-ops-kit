@@ -102,14 +102,15 @@ def register(ctx):
             # Older Hermes: register_cli_command(name, handler)
             ctx.register_cli_command("ops-kit", handle_ops_kit_command)
 
-        def _ops_kit_slash_handler(raw_args) -> str | None:
-            """Slash-command adapter: core passes a raw string, ops-kit wants a list."""
-            if isinstance(raw_args, str):
-                rest = raw_args.split()
-            else:
-                rest = list(raw_args or [])
-            handle_ops_kit_command(rest)
-            return None
+        def _ops_kit_slash_handler(raw_args) -> str:
+            """Slash-command adapter: a bounded, read-only reply string (see slash.py)."""
+            from .slash import run_slash
+
+            if not isinstance(raw_args, str):
+                import shlex
+
+                raw_args = " ".join(shlex.quote(str(arg)) for arg in (raw_args or []))
+            return run_slash(raw_args)
 
         ctx.register_command(
             "ops-kit",

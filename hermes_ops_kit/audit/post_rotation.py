@@ -28,7 +28,7 @@ def run_post_rotation_checks(
     If *provider* is given, only that provider's result is inspected.
     Returns a dict with ok, provider_status, warnings, duration_ms.
     """
-    env_path = env_file or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+    env_path = env_file or os.path.join(ops_config_io.home(), ".env.generated")
 
     if not os.path.exists(env_path):
         return {

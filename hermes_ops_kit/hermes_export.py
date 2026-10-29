@@ -32,13 +32,16 @@ from datetime import datetime, timedelta
 from ._subprocess import run_module
 from . import ops_config_io  # noqa: E402
 
-EXPORT_DIR = os.path.join(ops_config_io.HERMES_HOME, "cache/documents")
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def export_dir() -> str:
-    """Dynamic path to ~/.hermes/cache/documents."""
-    return os.path.join(ops_config_io.HERMES_HOME, "cache", "documents")
+    """Exports directory of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "cache", "documents")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses export_dir().
+EXPORT_DIR = export_dir()
 
 
 def _ensure_dir() -> str:
@@ -253,16 +256,17 @@ def export_audit(since_days: int = 7, fmt: str = "json") -> str:
 
 def cmd_list() -> None:
     """List previously generated exports."""
-    if not os.path.exists(EXPORT_DIR):
+    directory = export_dir()
+    if not os.path.exists(directory):
         print("No exports yet")
         return
-    files = sorted(os.listdir(EXPORT_DIR), reverse=True)
+    files = sorted(os.listdir(directory), reverse=True)
     if not files:
         print("No exports yet")
         return
-    print(f"EXPORTS · {EXPORT_DIR}\n")
+    print(f"EXPORTS · {directory}\n")
     for f in files[:20]:
-        path = os.path.join(EXPORT_DIR, f)
+        path = os.path.join(directory, f)
         size = os.path.getsize(path)
         print(f"  {f:<50s} {size:>6d} bytes")
 

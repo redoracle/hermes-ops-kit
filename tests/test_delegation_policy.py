@@ -174,7 +174,10 @@ def test_alias_spellings_of_reserved_flags_are_rejected_and_dropped(alias):
 
 
 def test_non_reserved_constraints_pass_through():
-    cfg, source = config(), task(constraints={"timeout_seconds": 10, "patch_only": True})
+    cfg, source = (
+        config(),
+        task(constraints={"timeout_seconds": 10, "patch_only": True}),
+    )
     assert check_task(source, cfg)[0]
     sent = transmitted(source, cfg)
     assert sent["timeout_seconds"] == 10 and sent["patch_only"] is True
@@ -196,7 +199,9 @@ def test_evaluated_constraints_equal_transmitted_constraints(constraints):
     evaluated, violations = effective_constraints(source, cfg)
     assert not violations
     assert transmitted(source, cfg) == evaluated
-    assert AssistantClient(cfg)._build_task_envelope(source) == serialize_task(source, cfg)
+    assert AssistantClient(cfg)._build_task_envelope(source) == serialize_task(
+        source, cfg
+    )
 
 
 def test_rejected_task_never_reaches_transport(monkeypatch):
@@ -206,3 +211,19 @@ def test_rejected_task_never_reaches_transport(monkeypatch):
     with pytest.raises(PolicyViolation):
         client.delegate(task(constraints={"no_shell_execution": 0}))
     transport.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "no\u200b_shell_execution",  # zero-width space
+        "no_shell_execution\u200d",  # zero-width joiner
+        "\uff4e\uff4f_shell_execution",  # fullwidth "no"
+        "NO_SHELL_EXECUTION",
+    ],
+)
+def test_lookalike_spellings_of_reserved_flags_are_rejected(alias):
+    cfg, source = config(), task(constraints={alias: False})
+    allowed, reasons = check_task(source, cfg)
+    assert not allowed and any("canonical name" in r for r in reasons)
+    assert alias not in transmitted(source, cfg)

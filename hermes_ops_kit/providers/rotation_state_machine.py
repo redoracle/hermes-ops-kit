@@ -18,7 +18,13 @@ from .. import ops_config_io  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-CHECKPOINT_DIR = os.path.join(ops_config_io.HERMES_HOME, "rotation_checkpoints")
+def checkpoint_dir() -> str:
+    """Rotation checkpoint directory of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "rotation_checkpoints")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses checkpoint_dir().
+CHECKPOINT_DIR = checkpoint_dir()
 
 
 class RotationPhase(str, Enum):
@@ -125,8 +131,9 @@ class RotationState:
         self.warnings.append(warning)
 
     def _checkpoint_path(self) -> str:
-        os.makedirs(CHECKPOINT_DIR, mode=0o700, exist_ok=True)
-        return os.path.join(CHECKPOINT_DIR, f"{self.provider}.json")
+        directory = checkpoint_dir()
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        return os.path.join(directory, f"{self.provider}.json")
 
     def _save_checkpoint(self) -> None:
         """Persist current state to a checkpoint file (fingerprints only)."""
@@ -172,7 +179,7 @@ class RotationState:
     @staticmethod
     def load_checkpoint(provider: str) -> RotationState | None:
         """Load a saved checkpoint, or None if no checkpoint exists."""
-        path = os.path.join(CHECKPOINT_DIR, f"{provider}.json")
+        path = os.path.join(checkpoint_dir(), f"{provider}.json")
         try:
             with open(path) as f:
                 data = json.load(f)

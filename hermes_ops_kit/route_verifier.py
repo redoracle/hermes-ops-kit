@@ -133,7 +133,7 @@ def extract_route_evidence(
         List of evidence dicts with keys: ts, task, provider, model, mode, raw
     """
     if log_path is None:
-        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs", "agent.log")
+        log_path = os.path.join(ops_config_io.home(), "logs", "agent.log")
     if since is None:
         since = _config_mtime(ops_config_io.hermes_config())
 
@@ -259,7 +259,7 @@ def verify_all_routes(
     if hermes_config_path is None:
         hermes_config_path = ops_config_io.hermes_config()
     if log_path is None:
-        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs", "agent.log")
+        log_path = os.path.join(ops_config_io.home(), "logs", "agent.log")
 
     config_mtime = _config_mtime(hermes_config_path)
     cfg = _load_yaml(hermes_config_path)

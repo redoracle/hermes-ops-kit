@@ -380,6 +380,7 @@ def main():
             "block",
             "cache",
             "rules",
+            "config",
         ],
     )
     pl.add_argument("plugin_args", nargs=argparse.REMAINDER, default=[])

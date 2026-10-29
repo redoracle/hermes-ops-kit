@@ -603,7 +603,7 @@ def verify_fallback_chain(
         }
     """
     if hermes_cfg is None:
-        cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+        cfg_path = os.path.join(ops_config_io.home(), "config.yaml")
         hermes_cfg = _load_yaml_text(cfg_path) if os.path.exists(cfg_path) else {}
 
     model_cfg = hermes_cfg.get("model", {})

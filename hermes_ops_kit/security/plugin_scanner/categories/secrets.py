@@ -13,7 +13,9 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from typing import Any
 
@@ -25,6 +27,7 @@ from ....security.plugin_scanner.findings import (  # pyright: ignore[reportMiss
     Severity,
     ScanCategory,
 )
+from ...._subprocess import minimal_env
 
 
 # ── File Classification & Entropy Utilities ───────────────────────────
@@ -379,44 +382,117 @@ def _gitleaks_available() -> bool:
             capture_output=True,
             text=True,
             timeout=5,
+            env=minimal_env(),
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
 
 
+# Files gitleaks reads from the directory it scans, which a plugin could use to switch the
+# scan off. Flags cannot override the ignore file, so the scan runs on a staged copy
+# without them.
+_GITLEAKS_CONTROL_FILES = frozenset({".gitleaks.toml", "gitleaks.toml", ".gitleaksignore"})
+_GITLEAKS_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".venv", "venv"})
+_GITLEAKS_STAGE_LIMIT = 50 * 1024 * 1024
+
+
+def _stage_for_gitleaks(src: str, dst: str) -> None:
+    """Copy ``src`` to ``dst`` minus gitleaks' control files, links and cache dirs."""
+    total = 0
+    for root, dirs, files in os.walk(src, followlinks=False):
+        dirs[:] = [d for d in dirs if d not in _GITLEAKS_SKIP_DIRS]
+        for name in files:
+            path = os.path.join(root, name)
+            if name in _GITLEAKS_CONTROL_FILES or os.path.islink(path):
+                continue
+            total += os.path.getsize(path)
+            if total > _GITLEAKS_STAGE_LIMIT:
+                raise GitleaksError("plugin is too large to stage for scanning")
+            target = os.path.join(dst, os.path.relpath(path, src))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copyfile(path, target)
+
+
+class GitleaksError(RuntimeError):
+    """gitleaks ran but did not produce a usable result (so "no findings" is unknown)."""
+
+
 def _run_gitleaks(plugin_path: str) -> list[dict[str, Any]]:
-    """Run gitleaks detect on a plugin path. Returns list of finding dicts."""
+    """Run gitleaks on a plugin path and return its findings.
+
+    Raises ``GitleaksError`` if gitleaks fails, times out or yields an unreadable
+    report: an empty list must always mean "scanned, nothing found".
+    """
     # Validate path before passing to subprocess
     if not plugin_path or not os.path.isdir(os.path.expanduser(plugin_path)):
         return []
     plugin_path = os.path.abspath(os.path.realpath(os.path.expanduser(plugin_path)))
 
-    try:
-        result = subprocess.run(
-            [
-                "gitleaks",
-                "detect",
-                "--source",
-                plugin_path,
-                "--no-git",
-                "--format=json",
-                "--verbose",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+    with tempfile.TemporaryDirectory(prefix="ops-kit-gitleaks-") as tmp:
+        report = os.path.join(tmp, "report.json")
+        # The scanned plugin is untrusted: gitleaks would otherwise read its own
+        # `.gitleaks.toml` (an allowlist for every path switches the scan off), its
+        # `.gitleaksignore`, and honour inline `gitleaks:allow` comments. Pin all three.
+        config = os.path.join(tmp, "gitleaks.toml")
+        ignore = os.path.join(tmp, "gitleaksignore")
+        with open(config, "w", encoding="utf-8") as f:
+            f.write('title = "hermes-ops-kit"\n\n[extend]\nuseDefault = true\n')
+        open(ignore, "w", encoding="utf-8").close()
+        staged = os.path.join(tmp, "plugin")
+        os.makedirs(staged)
+        try:
+            _stage_for_gitleaks(plugin_path, staged)
+        except OSError as exc:
+            raise GitleaksError(f"could not stage the plugin: {exc}") from exc
+        try:
+            result = subprocess.run(
+                [
+                    "gitleaks",
+                    "detect",
+                    "--source",
+                    staged,
+                    "--no-git",
+                    "--no-banner",
+                    "--redact",
+                    "--config",
+                    config,
+                    "--gitleaks-ignore-path",
+                    ignore,
+                    "--ignore-gitleaks-allow",
+                    "--report-format",
+                    "json",
+                    "--report-path",
+                    report,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=minimal_env(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitleaksError("timed out after 30s") from exc
+        except OSError as exc:
+            raise GitleaksError(f"could not run: {exc}") from exc
+
         if result.returncode == 0:
             return []
-        # gitleaks exits 1 when leaks found
+        if result.returncode != 1:  # 1 means leaks were found
+            raise GitleaksError(
+                f"exited {result.returncode}: {redact(result.stderr.strip())[:200]}"
+            )
         try:
-            findings = json.loads(result.stdout)
-            return findings if isinstance(findings, list) else []
-        except (json.JSONDecodeError, ValueError):
-            return []
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return []
+            with open(report, encoding="utf-8") as f:
+                findings = json.load(f)
+        except (OSError, ValueError) as exc:
+            raise GitleaksError(f"unreadable report: {exc}") from exc
+        if not isinstance(findings, list):
+            raise GitleaksError("unexpected report format")
+        for finding in findings:
+            # report paths relative to the plugin, not to the temporary staged copy
+            if isinstance(finding, dict) and isinstance(finding.get("File"), str):
+                finding["File"] = os.path.relpath(finding["File"], staged)
+        return findings
 
 
 def _scan_file_regex(file_path: str, rel_path: str, plugin_name: str) -> list[Finding]:
@@ -655,7 +731,25 @@ def run(
 
     # ── Optional gitleaks ───────────────────────────────────────
     if use_gitleaks and _gitleaks_available():
-        gl_findings = _run_gitleaks(plugin_path)
+        try:
+            gl_findings = _run_gitleaks(plugin_path)
+        except GitleaksError as exc:
+            gl_findings = []
+            findings.append(
+                Finding(
+                    id="",
+                    plugin_name=plugin_name,
+                    category=ScanCategory.SECRETS.value,
+                    rule="gitleaks:scanner-error",
+                    severity=Severity.WARNING,
+                    risk_level=RiskLevel.LOW,
+                    message=(
+                        f"gitleaks did not complete ({redact(str(exc))}); "
+                        "secrets were checked by the built-in patterns only"
+                    ),
+                    remediation="Fix or update gitleaks, then rescan with --force.",
+                )
+            )
         for gl in gl_findings:
             findings.append(
                 Finding(

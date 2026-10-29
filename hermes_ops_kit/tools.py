@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from .security.redaction import redact  # pyright: ignore[reportMissingImports]
+from .security.redaction import redact, redact_json  # pyright: ignore[reportMissingImports]
 from ._subprocess import run_module
 
 
@@ -73,7 +73,7 @@ def ai_image_generate(args: dict, **kwargs) -> str:
             edit_mode=args.get("edit_mode", "generate"),
             preserve_subject=args.get("preserve_subject", False),
         )
-        return redact(json.dumps(result, ensure_ascii=False))
+        return redact_json(result)
     except Exception as exc:
         return json.dumps(
             {
@@ -97,7 +97,7 @@ def ai_assistant_delegate(args: dict, **kwargs) -> str:
             context=args.get("context"),
             constraints=args.get("constraints"),
         )
-        return redact(json.dumps(result, ensure_ascii=False))
+        return redact_json(result)
     except Exception as exc:
         return json.dumps(
             {

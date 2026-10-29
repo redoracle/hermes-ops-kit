@@ -30,7 +30,13 @@ from ..env.atomic_write import atomic_append  # pyright: ignore[reportMissingImp
 from .. import ops_config_io  # noqa: E402
 
 
-AUDIT_PATH = os.path.join(ops_config_io.HERMES_HOME, "assistants/audit.jsonl")
+def audit_path() -> str:
+    """Assistant audit file of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "assistants/audit.jsonl")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses audit_path().
+AUDIT_PATH = audit_path()
 
 
 def write_audit(
@@ -45,7 +51,8 @@ def write_audit(
     secrets_detected: bool = False,
 ) -> None:
     """Append a sanitized assistant audit event."""
-    os.makedirs(os.path.dirname(AUDIT_PATH), exist_ok=True)
+    path = audit_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
     event = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -62,4 +69,4 @@ def write_audit(
         "secrets_detected": secrets_detected,
     }
 
-    atomic_append(AUDIT_PATH, json.dumps(event))
+    atomic_append(path, json.dumps(event))

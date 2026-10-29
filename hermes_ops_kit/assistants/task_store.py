@@ -16,13 +16,20 @@ import time
 from .. import ops_config_io  # noqa: E402
 
 
-DB_PATH = os.path.join(ops_config_io.HERMES_HOME, "assistants/tasks.sqlite")
+def db_path() -> str:
+    """Task database of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "assistants/tasks.sqlite")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses db_path().
+DB_PATH = db_path()
 
 
 def _ensure_db() -> sqlite3.Connection:
     """Ensure the tasks database and table exist."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    path = db_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS assistant_tasks (
             task_id TEXT PRIMARY KEY,

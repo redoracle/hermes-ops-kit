@@ -36,7 +36,7 @@ import time
 # Add parent directory for shared Hermes security module
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
-from ..provider_catalog import first_available_key, key_envs_for  # noqa: E402
+from ..provider_catalog import provider_key, key_envs_for  # noqa: E402
 from datetime import datetime
 
 # ─── NVIDIA NIM API config ────────────────────────────────────────
@@ -83,7 +83,7 @@ def _client():
 
     timeout = int(os.environ.get("NVIDIA_TIMEOUT", "60"))
     return openai.OpenAI(
-        api_key=os.environ.get(first_available_key("nvidia") or ""),
+        api_key=provider_key("nvidia"),
         base_url=_cf_base_url("nvidia"),
         timeout=timeout,
     )
@@ -291,7 +291,7 @@ def main():
     args = parser.parse_args()
 
     # Validate API key presence
-    api_key = os.environ.get(first_available_key("nvidia") or "")
+    api_key = provider_key("nvidia")
     if not api_key and args.operation != "models":
         print(
             json.dumps(

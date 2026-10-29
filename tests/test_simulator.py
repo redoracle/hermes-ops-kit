@@ -4,17 +4,19 @@ Simulates operational scenarios without calling real providers.
 Answers: "What happens when X fails?" — without actually breaking anything.
 
 Usage:
-    python3 tests/test_simulator.py --profile cheap
-    python3 tests/test_simulator.py --provider-failure openai
-    python3 tests/test_simulator.py --assistant-timeout <assistant-id>
-    python3 tests/test_simulator.py --secret-leak
-    python3 tests/test_simulator.py --cost-spike
+    python3 tests/test_simulator.py --all
+    python3 tests/test_simulator.py --scenario provider-offline --provider openai
+    python3 tests/test_simulator.py --scenario cost-spike --provider openai
+
+It runs against a temporary Hermes home seeded from the built-in "balanced" route profile,
+so the result never depends on, or touches, the operator's real configuration.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import tempfile
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
@@ -299,6 +301,20 @@ def run_simulator(scenario: str, **kwargs) -> int:
 # ─── CLI ───────────────────────────────────────────────────────────────
 
 
+def _use_temporary_home() -> str:
+    """Point the kit at a throwaway home seeded from the built-in "balanced" profile."""
+    import argparse
+
+    home = tempfile.mkdtemp(prefix="ops-kit-simulator-")
+    os.environ["HERMES_HOME"] = home
+    from hermes_ops_kit import hermes_route_manager
+
+    hermes_route_manager.cmd_apply_profile(
+        argparse.Namespace(profile_name="balanced", effort=None)
+    )
+    return home
+
+
 def main() -> None:
     import argparse
 
@@ -313,6 +329,8 @@ def main() -> None:
     )
     parser.add_argument("--all", action="store_true", help="Run all scenarios")
     args = parser.parse_args()
+    if args.all or args.scenario:
+        _use_temporary_home()
 
     if args.all:
         failed = 0

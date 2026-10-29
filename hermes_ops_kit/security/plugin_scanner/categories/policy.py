@@ -25,6 +25,7 @@ from ....security.plugin_scanner.findings import (  # pyright: ignore[reportMiss
     Severity,
     ScanCategory,
 )
+from ...._subprocess import minimal_env
 
 
 # ── Constants ────────────────────────────────────────────────────────
@@ -550,6 +551,7 @@ def _semgrep_available() -> bool:
             capture_output=True,
             text=True,
             timeout=10,
+            env=minimal_env(),
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -597,6 +599,7 @@ def _run_semgrep(plugin_path: str, rules_paths: list[str]) -> list[dict[str, Any
             capture_output=True,
             text=True,
             timeout=60,
+            env=minimal_env(),
         )
         if result.returncode not in (0, 1):
             return []
@@ -679,6 +682,7 @@ def _bandit_available() -> bool:
             capture_output=True,
             text=True,
             timeout=10,
+            env=minimal_env(),
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -708,6 +712,7 @@ def _run_bandit(plugin_path: str) -> list[dict[str, Any]]:
             capture_output=True,
             text=True,
             timeout=30,
+            env=minimal_env(),
         )
         if result.returncode not in (0, 1):
             return []

@@ -16,11 +16,18 @@ import sqlite3
 import time
 from typing import Any
 from ... import ops_config_io  # noqa: E402
+from ..._subprocess import minimal_env
 
 
 # ── Constants ────────────────────────────────────────────────────────
 
-CACHE_DB_PATH = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/plugin_scanner_cache.db")
+def cache_db_path() -> str:
+    """Scanner cache database of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "ops-kit/plugin_scanner_cache.db")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses cache_db_path().
+CACHE_DB_PATH = cache_db_path()
 SCANNER_VERSION = "0.2.2"
 DEFAULT_TTL_HOURS = 168  # 7 days
 
@@ -42,6 +49,7 @@ def compute_git_commit_hash(plugin_path: str) -> str:
             capture_output=True,
             text=True,
             timeout=10,
+            env=minimal_env(),
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -99,8 +107,9 @@ def compute_cache_key(plugin_path: str) -> tuple[str, str]:
 # ── Database ─────────────────────────────────────────────────────────
 
 
-def _ensure_db(db_path: str = CACHE_DB_PATH) -> sqlite3.Connection:
+def _ensure_db(db_path: str | None = None) -> sqlite3.Connection:
     """Open (or create) the cache database and ensure schema exists."""
+    db_path = db_path or cache_db_path()
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
@@ -329,7 +338,7 @@ def cache_stats() -> dict[str, Any]:
             "SELECT COUNT(*) as c FROM plugin_scans WHERE expires_at < datetime('now')"
         ).fetchone()
         return {
-            "db_path": CACHE_DB_PATH,
+            "db_path": cache_db_path(),
             "total_entries": total["c"] if total else 0,
             "expired_entries": expired["c"] if expired else 0,
             "scanner_version": SCANNER_VERSION,

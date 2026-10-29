@@ -29,6 +29,7 @@ from ..security.secret_backend import (  # pyright: ignore[reportMissingImports]
     ValidationReason,
     ValidationResult,
 )
+from .._subprocess import child_env
 
 GITHUB_TOKEN_REF = "hermes/github/token"
 GITHUB_APP_ID_REF = "hermes/github/app_id"
@@ -153,6 +154,7 @@ class GitHubRotator(BaseRotator):
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=child_env(credentials=False),
             )
         except subprocess.TimeoutExpired as e:
             return ValidationResult(
@@ -243,6 +245,7 @@ class GitHubRotator(BaseRotator):
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=child_env(),
             )
             return result.returncode == 0
         except Exception:

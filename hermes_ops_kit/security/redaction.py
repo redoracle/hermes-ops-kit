@@ -46,8 +46,9 @@ _HEADER_VALUE = r"[^\s\"',;\\]+"
 SECRET_PATTERNS: list[tuple[str, str]] = [
     # ── Provider API Keys ──
     (r"nvapi-[A-Za-z0-9_-]{40,}", "<NVIDIA_KEY_REDACTED>"),
-    (r"sk-ant-[A-Za-z0-9-_]{20,}", "<ANTHROPIC_KEY_REDACTED>"),
-    (r"sk-[A-Za-z0-9-_]{20,}", "<OPENAI_KEY_REDACTED>"),
+    # ``sk-`` needs a left boundary, or it matches inside words ("disk-encryption-…").
+    (r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9-_]{20,}", "<ANTHROPIC_KEY_REDACTED>"),
+    (r"(?<![A-Za-z0-9])sk-[A-Za-z0-9-_]{20,}", "<OPENAI_KEY_REDACTED>"),
     (r"AIza[0-9A-Za-z_-]{35}", "<GEMINI_KEY_REDACTED>"),
     # Open-ended lengths: GitHub App installation tokens (ghs_) move to a longer
     # stateless format (~520 chars), so fixed-length patterns would leak the tail.
@@ -80,8 +81,11 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
         "hermes-assistant-token: <REDACTED>",
     ),
     # ── Service Account / Private Key Patterns ──
+    # Any PEM private key (RSA, EC, DSA, OPENSSH, ENCRYPTED, …). Lazy body: encrypted
+    # keys carry "Proc-Type:" headers, so the body may contain dashes.
     (
-        r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----[^-]*-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----",
+        r"-----BEGIN\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY-----[\s\S]*?"
+        r"-----END\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY-----",
         "<PRIVATE_KEY_REDACTED>",
     ),
     (r'"private_key"\s*:\s*"[^"]*"', '"private_key":"<PRIVATE_KEY_REDACTED>"'),
@@ -97,7 +101,9 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     # the credential. The scheme group is possessive: a placeholder after it must
     # not backtrack into treating the scheme word itself as the credential.
     (
-        r"(?i)(" + _WB + r"authorization\s*[:=]\s*+(?:(?:bearer|basic|digest|token|negotiate)\s+)?+)"
+        r"(?i)("
+        + _WB
+        + r"authorization\s*[:=]\s*+(?:(?:bearer|basic|digest|token|negotiate)\s+)?+)"
         + _NOT_PLACEHOLDER
         + _HEADER_VALUE,
         r"\1<TOKEN_REDACTED>",
@@ -111,11 +117,16 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
         r"\1<KEY_REDACTED>",
     ),
     (
-        r"(?i)(" + _WB + r"(?:set-)?cookie\s*:\s*+)" + _NOT_PLACEHOLDER + r"[^\r\n\"\\]+",
+        r"(?i)("
+        + _WB
+        + r"(?:set-)?cookie\s*:\s*+)"
+        + _NOT_PLACEHOLDER
+        + r"[^\r\n\"\\]+",
         r"\1<COOKIE_REDACTED>",
     ),
     (
-        r"(\b[A-Za-z][A-Za-z0-9+.\-]*://)(?!<)[^\s/@:\"'\\]+:[^\s/@\"'\\]+@",
+        # user may be empty (redis://:pw@host); the password may contain "@"
+        r"(\b[A-Za-z][A-Za-z0-9+.\-]*://)(?!<)[^\s/@:\"'\\]*:[^\s/\"'\\]+@",
         r"\1<USERINFO_REDACTED>@",
     ),
     # ── .env / Shell Assignment Patterns ──
@@ -174,3 +185,51 @@ def redact(text: str) -> str:
     for pattern, replacement in SECRET_PATTERNS:
         text = re.sub(pattern, replacement, text)
     return text
+
+
+# JSON/dict keys whose string values are credentials. Names are matched whole, so
+# ``token_count`` or ``keyboard`` are untouched.
+_SENSITIVE_KEY = re.compile(
+    r"(?i)^(?:api[_-]?key|apikey|x-api-key|access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"token|secret|client[_-]?secret|password|passwd|pwd|authorization|proxy-authorization|"
+    r"cookie|set-cookie|private[_-]?key|bw[_-]?session|bw[_-]?clientsecret|"
+    r"vaultwarden[_-]?password|assistant[_-]?api[_-]?key|[a-z][a-z0-9_]*_(?:api_key|token|password|secret))$"
+)
+_PLACEHOLDER = "<REDACTED>"
+
+
+def redact_structure(value: object) -> tuple[object, bool]:
+    """Redact a nested ``dict``/``list`` result; returns ``(new_value, changed)``.
+
+    Serializing first and redacting the JSON text misses secrets that sit at the
+    start of a string value (``"OPENAI_API_KEY=…"``, where a line-anchored pattern
+    cannot see a line start) and secrets held under a sensitive key (``Cookie``).
+    So every string leaf is redacted on its own, and string values under a
+    sensitive key name are replaced outright.
+    """
+    if isinstance(value, str):
+        new = redact(value)
+        return new, new != value
+    if isinstance(value, dict):
+        out: dict = {}
+        changed = False
+        for key, item in value.items():
+            if isinstance(key, str) and isinstance(item, str) and item and _SENSITIVE_KEY.match(key):
+                new_item, item_changed = _PLACEHOLDER, item != _PLACEHOLDER
+            else:
+                new_item, item_changed = redact_structure(item)
+            out[key] = new_item
+            changed = changed or item_changed
+        return out, changed
+    if isinstance(value, (list, tuple)):
+        items = [redact_structure(item) for item in value]
+        return [new for new, _ in items], any(c for _, c in items)
+    return value, False
+
+
+def redact_json(value: object) -> str:
+    """JSON text of *value* with credentials removed (structural pass, then text pass)."""
+    import json
+
+    redacted, _ = redact_structure(value)
+    return redact(json.dumps(redacted, ensure_ascii=False))

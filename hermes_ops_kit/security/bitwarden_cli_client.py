@@ -37,7 +37,7 @@ FORBIDDEN_COMMANDS: set[str] = {
     "send",
 }
 
-FORBIDDEN_SERVE_HOSTS: set[str] = {"0.0.0.0", "::", "*"}
+FORBIDDEN_SERVE_HOSTS: set[str] = {"0.0.0.0", "::", "*"}  # noqa: S104 - hosts we refuse to bind
 
 # Commands that must never have their full output logged
 SENSITIVE_COMMANDS: set[str] = {
@@ -136,7 +136,7 @@ class BitwardenCLIClient:
         # Prefer cross-platform `filelock.FileLock` when available;
         # fall back to fcntl on Unix, or no-op on platforms where
         # neither is available (bw typically not used natively on Windows).
-        lock_dir = os.path.join(ops_config_io.HERMES_HOME, "locks")
+        lock_dir = os.path.join(ops_config_io.home(), "locks")
         os.makedirs(lock_dir, exist_ok=True)
         lock_path = os.path.join(lock_dir, "bw_cli.lock")
 

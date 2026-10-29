@@ -32,9 +32,6 @@ def test_candidate_is_not_published_by_another_operation(
     monkeypatch.setattr(
         "hermes_ops_kit.audit.audit_log.audit_rotation_attempt", lambda **kwargs: None
     )
-    monkeypatch.setattr(
-        "hermes_ops_kit.security.lockfile.LOCK_DIR", str(tmp_path / "locks")
-    )
     monkeypatch.setattr("hermes_ops_kit.ops_config_io.HERMES_HOME", str(tmp_path))
     staged, release, validated_b = Event(), Event(), Event()
     a, b = FireworksRotator(backend), DeepInfraRotator(backend)
@@ -82,7 +79,7 @@ def test_candidate_is_not_published_by_another_operation(
 
 
 def test_parallel_cli_does_not_reacquire_provider_lock(tmp_path, monkeypatch):
-    monkeypatch.setattr("hermes_ops_kit.security.lockfile.LOCK_DIR", str(tmp_path))
+    monkeypatch.setattr("hermes_ops_kit.security.lockfile.lock_dir", lambda: str(tmp_path))
     monkeypatch.setattr(cli, "PROVIDER_ROTATORS", {"a": object(), "b": object()})
     rotator = Mock()
     rotator.rotate.return_value = {"ok": True}
@@ -106,7 +103,7 @@ def test_rollback_preserves_intervening_administrative_commit(tmp_path, monkeypa
         value=previous.value
     )
     rotator = FireworksRotator(backend)
-    monkeypatch.setattr("hermes_ops_kit.security.lockfile.LOCK_DIR", str(tmp_path))
+    monkeypatch.setattr("hermes_ops_kit.security.lockfile.lock_dir", lambda: str(tmp_path))
     monkeypatch.setattr(
         "hermes_ops_kit.audit.audit_log.audit_rotation_attempt", lambda **kwargs: None
     )
@@ -135,7 +132,9 @@ def test_cli_forwards_max_parallel(monkeypatch):
             "2",
         ],
     )
-    monkeypatch.setattr(cli, "load_hermes_env", lambda: {})
+    monkeypatch.setattr(
+        cli, "load_hermes_env", lambda: {"VAULTWARDEN_SERVER_URL": "https://vault.test"}
+    )
     monkeypatch.setattr(cli, "VaultwardenSecretBackend", lambda **kwargs: Mock())
     rotate = Mock(return_value={"ok": True})
     monkeypatch.setattr(cli, "cmd_rotate_all_parallel", rotate)

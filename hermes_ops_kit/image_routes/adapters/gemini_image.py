@@ -11,19 +11,39 @@ Free tier: available via AI Studio/Gemini API
 from __future__ import annotations
 
 import base64
+import contextlib
+import logging
 import os
 
 # Allow importing from parent package
 
-from ...provider_catalog import first_available_key, has_credential, key_envs_for  # noqa: E402
+from ...provider_catalog import has_credential, key_envs_for, provider_key  # noqa: E402
 
 from ...image_routes.adapters.base import (
     BaseImageAdapter,
-    load_dotenv,
     make_output_path,
     build_envelope,
     ASPECT_RATIO_MAP,
 )
+
+
+@contextlib.contextmanager
+def _quiet_dual_key_notice():
+    """Drop the SDK's "Both GOOGLE_API_KEY and GEMINI_API_KEY are set" log line."""
+
+    class _Filter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "Both GOOGLE_API_KEY and GEMINI_API_KEY" not in record.getMessage()
+
+    notice_filter = _Filter()
+    targets = [logging.getLogger("google_genai"), logging.getLogger()]
+    for target in targets:
+        target.addFilter(notice_filter)
+    try:
+        yield
+    finally:
+        for target in targets:
+            target.removeFilter(notice_filter)
 
 
 class GeminiImageAdapter(BaseImageAdapter):
@@ -36,7 +56,6 @@ class GeminiImageAdapter(BaseImageAdapter):
         Key validity is verified at generation time; a bad key surfaces
         as a generation error rather than a misleading "READY" status.
         """
-        load_dotenv()
         return has_credential("gemini")
 
     def generate(
@@ -51,8 +70,7 @@ class GeminiImageAdapter(BaseImageAdapter):
         from google import genai  # pyright: ignore[reportAttributeAccessIssue]
         from google.genai import types  # pyright: ignore[reportMissingImports]
 
-        load_dotenv()
-        api_key = os.environ.get(first_available_key("gemini") or "")
+        api_key = provider_key("gemini")
         if not api_key:
             return build_envelope(
                 False,
@@ -62,26 +80,15 @@ class GeminiImageAdapter(BaseImageAdapter):
                 error_type="MissingAPIKey",
             )
 
-        # The Google genai SDK auto-reads GOOGLE_API_KEY from the
-        # environment. When it coexists with GEMINI_API_KEY the SDK
-        # emits a noisy warning and may ignore the explicitly-passed
-        # key. Since ops-kit standardises on GEMINI_API_KEY, suppress
-        # GOOGLE_API_KEY while the client is alive so there is exactly
-        # one key source and no warning.
-        from ...provider_catalog import PROVIDER_ENV_KEYS
+        model_id = model or self.default_model
+        ratio = ASPECT_RATIO_MAP.get(aspect_ratio, "16:9")
 
-        alias_keys = PROVIDER_ENV_KEYS["gemini"][1:]  # non-primary aliases
-        saved = {k: os.environ.pop(k, None) for k in alias_keys}
-        try:
-            model_id = model or self.default_model
-            ratio = ASPECT_RATIO_MAP.get(aspect_ratio, "16:9")
-
+        # The explicit api_key always wins in the SDK; with both GOOGLE_API_KEY and
+        # GEMINI_API_KEY in the process environment it only logs a misleading
+        # "Using GOOGLE_API_KEY" notice. Filter that notice instead of mutating
+        # os.environ, which is shared by every profile in the process.
+        with _quiet_dual_key_notice():
             client = genai.Client(api_key=api_key)
-
-        finally:
-            for k, v in saved.items():
-                if v is not None:
-                    os.environ[k] = v
 
         start = self._start_timer()
         image_paths = []

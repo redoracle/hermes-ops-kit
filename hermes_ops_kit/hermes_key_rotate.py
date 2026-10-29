@@ -59,7 +59,6 @@ def _finish_and_exit(result: dict) -> None:
     sys.exit(0)
 
 
-
 def _compute_status(backend: VaultwardenSecretBackend) -> dict:
     """Return a fingerprint/age report for all known provider secrets."""
     from .security.vaultwarden_backend import _classify_ref
@@ -137,6 +136,10 @@ def cmd_doctor_secrets(backend: VaultwardenSecretBackend) -> dict:
 
     # Backend health
     hc = backend.healthcheck()
+    try:
+        ref_count = len(backend.list_secret_refs()) if hc.get("ok") else None
+    except Exception:
+        ref_count = None
     result["SECRET BACKEND"] = {
         "type": "vaultwarden",
         "mode": backend.mode,
@@ -144,7 +147,7 @@ def cmd_doctor_secrets(backend: VaultwardenSecretBackend) -> dict:
         "tls": "verified" if hc.get("tls_configured") else "failed",
         "auth": "configured" if hc.get("authenticated") else "missing",
         "vault": "unlocked" if hc.get("unlocked") else "locked",
-        "refs": hc.get("ref_count", 0),
+        "refs": ref_count,
     }
 
     if hc.get("ok"):
@@ -166,7 +169,7 @@ def cmd_doctor_secrets(backend: VaultwardenSecretBackend) -> dict:
         result["SECRET BACKEND"]["status"] = "blocked"
 
     # Env file permissions
-    env_path = os.path.join(ops_config_io.HERMES_HOME, ".env")
+    env_path = os.path.join(ops_config_io.home(), ".env")
     env_check = check_env_file(env_path)
     result["ENV FILES"][".env"] = env_check
     if not env_check.get("safe"):
@@ -229,7 +232,7 @@ def _merge_generated_into_env(generated_path: str) -> dict:
     - Keys in BOTH but with different values → updated in-place.
     - Keys only in .env → left untouched (bootstrap / user-managed).
     """
-    env_path = os.path.join(ops_config_io.HERMES_HOME, ".env")
+    env_path = os.path.join(ops_config_io.home(), ".env")
 
     # Parse existing .env into {key: (line_number, full_line)}
     existing: dict[str, tuple[int, str]] = {}
@@ -343,6 +346,8 @@ def _get_rotator(provider: str, backend: VaultwardenSecretBackend):
     if not fqdn:
         raise ValueError(f"Unknown provider: {provider}")
     mod_path, _, cls_name = fqdn.rpartition(".")
+    # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+    # (mod_path comes from the fixed PROVIDER_ROTATORS table, relative to this package)
     mod = importlib.import_module("." + mod_path, package=__package__)
     cls = getattr(mod, cls_name)
     return cls(backend)
@@ -433,6 +438,7 @@ def cmd_emergency_compromise(
     replacement — the service will be down until a new key is provisioned.
     """
     from .security.lockfile import credential_commit_lock, provider_lock
+
     with provider_lock(provider), credential_commit_lock():
         from .security.fingerprints import secret_fingerprint  # pyright: ignore[reportMissingImports]
 
@@ -518,7 +524,6 @@ def cmd_emergency_compromise(
             env_path = cmd_render_env(backend, dry_run=False)["output"]
         except Exception as e:
             return {"ok": False, "error": f"Emergency env render failed: {e}"}
-
 
         from .audit.audit_log import audit_rotation_attempt  # pyright: ignore[reportMissingImports]
 
@@ -650,17 +655,19 @@ def _validate_admin_key(provider: str, admin_key: str):
 
 def _verify_rendered_env(env_path: str) -> dict:
     """Run usage_metrics_v2 against the rendered .env.generated."""
-    import subprocess as _sp
+    from ._subprocess import run_module
 
     if not env_path or not os.path.exists(env_path):
         return {"ok": False, "error": f"Env file not found: {env_path}"}
     try:
-        result = _sp.run(
-            ["python3", "-m", "usage_metrics_v2", "--json"],
+        # A package module run with the profile environment; the old flat
+        # `python3 -m usage_metrics_v2` no longer exists since the repackage.
+        result = run_module(
+            "usage_metrics_v2",
+            ["--json", "--env-file", env_path],
             capture_output=True,
             text=True,
             timeout=120,
-            env={**os.environ, "HERMES_ENV_FILE": env_path},
         )
         if result.returncode != 0:
             return {"ok": False, "error": result.stderr[:500]}
@@ -717,7 +724,7 @@ def cmd_backup_vault(
     from .env.atomic_write import atomic_write_json
 
     path = output_path or os.path.join(
-        ops_config_io.HERMES_HOME, "ops-kit/vault-backup.json"
+        ops_config_io.home(), "ops-kit/vault-backup.json"
     )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     # Atomic: a crash mid-write must never truncate the incident-restore file.
@@ -778,11 +785,11 @@ def cmd_diff_vault(
     vault_refs = set(backend.list_secret_refs())
 
     # .env state
-    dotenv_path = env_path or os.path.join(ops_config_io.HERMES_HOME, ".env")
+    dotenv_path = env_path or os.path.join(ops_config_io.home(), ".env")
     dotenv = _parse_env_file(dotenv_path) if os.path.exists(dotenv_path) else {}
 
     # .env.generated state
-    gen_path = generated_path or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+    gen_path = generated_path or os.path.join(ops_config_io.home(), ".env.generated")
     gen_env = _parse_env_file(gen_path) if os.path.exists(gen_path) else {}
 
     # Load projection to map env vars → refs
@@ -833,7 +840,7 @@ def cmd_migrate(backend: VaultwardenSecretBackend) -> dict:
     """Interactive migration wizard: .env → Vaultwarden."""
     import os as _os
 
-    dotenv_path = _os.path.join(ops_config_io.HERMES_HOME, ".env")
+    dotenv_path = _os.path.join(ops_config_io.home(), ".env")
     if not _os.path.exists(dotenv_path):
         return {"ok": False, "error": f"{dotenv_path} not found"}
 
@@ -895,7 +902,7 @@ def cmd_seed_from_env(
     from .security.secret_backend import ValidationReason  # pyright: ignore[reportMissingImports]
     import os as _os
 
-    env_path = _os.path.join(ops_config_io.HERMES_HOME, ".env")
+    env_path = _os.path.join(ops_config_io.home(), ".env")
     if not _os.path.exists(env_path):
         return {"ok": False, "error": f"{env_path} not found"}
 
@@ -1280,8 +1287,11 @@ def main() -> None:
     diff_p.add_argument("--env", help="Path to .env (default: ~/.hermes/.env)")
     diff_p.add_argument("--generated", help="Path to .env.generated")
 
-    # migrate subcommand is a WIP — parser registered but not yet wired
-    sub.add_parser("migrate", help="Interactive migration wizard: .env → Vaultwarden")
+    # migrate: scan -> seed missing keys -> render (see cmd_migrate); no prompts, no verify step
+    sub.add_parser(
+        "migrate",
+        help="One-shot, non-interactive: seed keys missing from the vault out of .env, then render .env.generated",
+    )
 
     args = parser.parse_args()
     if args.subcommand == "resume":
@@ -1294,9 +1304,21 @@ def main() -> None:
     env = load_hermes_env()
 
     # Init backend
+    server_url = (env.get("VAULTWARDEN_SERVER_URL") or "").strip()
+    if not server_url:
+        _print_json(
+            {
+                "ok": False,
+                "error_type": "SecretBackendNotConfigured",
+                "error": "VAULTWARDEN_SERVER_URL is not set. Add the vault settings to "
+                f"{os.path.join(ops_config_io.home(), '.env')} "
+                "(see 'Secret backend' in the README).",
+            }
+        )
+        sys.exit(1)
     try:
         backend = VaultwardenSecretBackend(
-            server_url=env.get("VAULTWARDEN_SERVER_URL", "<vaultwarden-url>"),
+            server_url=server_url,
             mode=env.get("HERMES_AUTH_MODE", "bitwarden_cli_password"),
             appdata_dir=env.get("BITWARDENCLI_APPDATA_DIR"),
             user=env.get("VAULTWARDEN_USER"),
@@ -1315,8 +1337,19 @@ def main() -> None:
     try:
         # ── Subcommand dispatch (new structured interface) ──
         if args.subcommand == "rotate":
-            if args.provider == "all" and args.parallel:
-                _finish_and_exit(cmd_rotate_all_parallel(backend, dry_run=args.dry_run, max_parallel=args.max_parallel))
+            if args.provider == "all" and args.manual_new_key_stdin:
+                _finish_and_exit({
+                    "ok": False,
+                    "error": "--manual-new-key-stdin supplies one key; use it with a single --provider",
+                })
+            if args.provider == "all":
+                # `all` is "every provider": concurrently with --parallel, otherwise one at a
+                # time (a concurrency of 1). It is not a provider name cmd_rotate understands.
+                _finish_and_exit(cmd_rotate_all_parallel(
+                    backend,
+                    dry_run=args.dry_run,
+                    max_parallel=args.max_parallel if args.parallel else 1,
+                ))
             elif args.provider:
                 result = cmd_rotate(
                     backend,
@@ -1506,7 +1539,7 @@ def main() -> None:
         else:
             # No command given — show help-like output
             hc = backend.healthcheck()
-            env_check = check_env_file(os.path.join(ops_config_io.HERMES_HOME, ".env"))
+            env_check = check_env_file(os.path.join(ops_config_io.home(), ".env"))
             _print_json(
                 {
                     "ok": hc.get("ok", False),

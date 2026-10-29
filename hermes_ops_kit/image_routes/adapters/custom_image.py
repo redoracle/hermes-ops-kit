@@ -14,7 +14,15 @@ from __future__ import annotations
 import base64
 import os
 
-from .base import BaseImageAdapter, build_envelope, ensure_cache_dir, load_dotenv, make_output_path
+from ...env.loader import get_secret
+from ...security.url_policy import origin_of
+from .base import (
+    BaseImageAdapter,
+    build_envelope,
+    download_image,
+    ensure_cache_dir,
+    make_output_path,
+)
 
 # Size mapping — OpenAI-compatible image generation standard
 _SIZE_MAP = {
@@ -47,8 +55,7 @@ class CustomImageAdapter(BaseImageAdapter):
 
     def is_available(self) -> bool:
         """Check that the API key is set and base_url is configured."""
-        load_dotenv()
-        key = os.environ.get(self._key_env, "").strip()
+        key = (get_secret(self._key_env, "") or "").strip()
         return bool(key) and bool(self._base_url)
 
     def generate(
@@ -60,9 +67,7 @@ class CustomImageAdapter(BaseImageAdapter):
         image_path: str | None = None,
         **kwargs,
     ) -> dict:
-        load_dotenv()
-
-        api_key = os.environ.get(self._key_env, "").strip()
+        api_key = (get_secret(self._key_env, "") or "").strip()
         if not api_key:
             return build_envelope(
                 False,
@@ -119,7 +124,9 @@ class CustomImageAdapter(BaseImageAdapter):
                     image_paths.append(path)
                 elif url:
                     path = make_output_path(self.provider_name, "png")
-                    self._download_image(url, path)
+                    self._download_image(
+                        url, path, allow_origins=(origin_of(self._base_url),)
+                    )
                     image_paths.append(path)
 
         except Exception as e:
@@ -161,27 +168,13 @@ class CustomImageAdapter(BaseImageAdapter):
         )
 
     @staticmethod
-    def _download_image(url: str, path: str, max_bytes: int = 25 * 1024 * 1024) -> None:
-        """Download an image from a URL to a local path."""
-        import urllib.request
-
-        req = urllib.request.Request(url, headers={"User-Agent": "Hermes-OpsKit/0.1"})
-        tmp = path + ".download"
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                with open(tmp, "wb") as f:
-                    received = 0
-                    while True:
-                        chunk = resp.read(8192)
-                        if not chunk:
-                            break
-                        received += len(chunk)
-                        if received > max_bytes:
-                            raise ValueError(f"Image exceeds {max_bytes // (1024 * 1024)}MB cap")
-                        f.write(chunk)
-            os.chmod(tmp, 0o644)
-            os.replace(tmp, path)
-        except Exception:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+    def _download_image(
+        url: str,
+        path: str,
+        max_bytes: int = 25 * 1024 * 1024,
+        allow_origins: tuple[tuple[str, int] | None, ...] = (),
+    ) -> None:
+        """Download a provider-returned image URL (http(s) only, size-capped)."""
+        download_image(
+            url, path, timeout=60, max_bytes=max_bytes, allow_origins=allow_origins
+        )

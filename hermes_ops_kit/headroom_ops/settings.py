@@ -11,16 +11,13 @@ from __future__ import annotations
 import os
 
 from .. import ops_config_io  # noqa: E402
-from ..ops_config_io import OPS_KIT_DIR, load_yaml, save_yaml  # noqa: E402
+from ..ops_config_io import load_yaml, save_yaml  # noqa: E402
 
 BUNDLED_CONFIG = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "config",
     "headroom.yaml",
 )
-DEPLOYED_CONFIG = os.path.join(OPS_KIT_DIR, "headroom.yaml")
-
-
 def deployed_config() -> str:
     """Dynamic path to ~/.hermes/ops-kit/headroom.yaml."""
     return os.path.join(ops_config_io.ops_kit_dir(), "headroom.yaml")
@@ -47,6 +44,10 @@ DEFAULTS: dict = {
     "run_dir": "~/.hermes/ops-kit/run",
     "state_file": "~/.hermes/ops-kit/headroom_prev_route.json",
 }
+
+
+# Deprecated import-time alias (compatibility window); use deployed_config().
+DEPLOYED_CONFIG = deployed_config()
 
 
 def seed_deployed() -> None:

@@ -7,7 +7,7 @@ that Hermes loads natively via its built-in skill loader.
 
 Usage:
     hermes-skill-factory from-command hermes-key-rotate
-    hermes-skill-factory from-runbook AI_STUDIO/HERMES_KEY_ROTATION.md
+    hermes-skill-factory from-runbook docs/runbooks/KEY_ROTATION.md
     hermes-skill-factory list
     hermes-skill-factory validate hermes-key-rotate
 """

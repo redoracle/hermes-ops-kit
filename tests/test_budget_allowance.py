@@ -23,7 +23,7 @@ COMMITTED_BUDGET = os.path.join(
 
 @pytest.fixture(autouse=True)
 def _committed_budget(monkeypatch):
-    monkeypatch.setattr(budget, "BUDGET_CONFIG_PATHS", [COMMITTED_BUDGET])
+    monkeypatch.setattr(budget, "budget_config_paths", lambda: [COMMITTED_BUDGET])
 
 
 def test_provider_classes_include_new_providers():
@@ -117,7 +117,7 @@ def test_budget_yaml_nested_budgets_honored(tmp_path, monkeypatch):
         "  paid_standard: [openai]\n"
         "  paid_premium: [anthropic]\n"
     )
-    monkeypatch.setattr(budget, "BUDGET_CONFIG_PATHS", [str(cfg)])
+    monkeypatch.setattr(budget, "budget_config_paths", lambda: [str(cfg)])
     r = budget.evaluate_budget()
     assert r["daily_budget_usd"] == 50.0
     assert r["monthly_budget_usd"] == 500.0
@@ -140,7 +140,7 @@ def test_block_classes_read_from_config(tmp_path, monkeypatch):
         "  paid_premium: [anthropic]\n"
         "actions:\n  block:\n    block_classes: [paid_premium, paid_standard, paid_low]\n"
     )
-    monkeypatch.setattr(budget, "BUDGET_CONFIG_PATHS", [str(cfg)])
+    monkeypatch.setattr(budget, "budget_config_paths", lambda: [str(cfg)])
     r = budget.evaluate_budget()
     assert "paid_low" in r["block_classes"]
     # With allowance exhausted + paid_low in block_classes, fireworks is blocked.
@@ -173,7 +173,7 @@ def test_block_classes_empty_disables_blocking(tmp_path, monkeypatch):
         "  paid_premium: [anthropic]\n"
         "actions:\n  block:\n    block_classes: []\n"
     )
-    monkeypatch.setattr(budget, "BUDGET_CONFIG_PATHS", [str(cfg)])
+    monkeypatch.setattr(budget, "budget_config_paths", lambda: [str(cfg)])
     r = budget.evaluate_budget()
     assert r["block_classes"] == []  # empty honored, not overridden
     # Allowance exhausted + empty block_classes → even paid_premium is allowed.
