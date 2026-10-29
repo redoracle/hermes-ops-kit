@@ -76,6 +76,7 @@ env/                       # Environment rendering pipeline (3-layer denylist ga
                         #   --merge flag: syncs new/updated keys from .generated into .env
   atomic_write.py          #   temp → chmod 600 → fsync → rename
 
+provider_keys.py           # providers:/custom_providers: lookup (endpoint, key env), same alias rule as Hermes core
 providers/                 # Provider adapters + rotators + state machine (LLM text only)
   *_adapter.py (6)         #   API/CLI adapters (invoked by bridge.py as subprocesses)
   *_rotator.py  (6)        #   Key rotators with structured ValidationResult + retry + rollback
@@ -94,7 +95,7 @@ assistants/                # Remote agent delegation (NOT providers)
   task_store.py            #   SQLite task lifecycle tracking
   audit.py                 #   JSONL delegation audit
 
-mcp/                       # MCP tool auditor + risk classifier; preflight gates servers
+mcp_auditor/               # MCP tool auditor + risk classifier; preflight gates servers
   auditor.py               #   Server discovery, tool audit, approve/revoke policy
   classifier.py            #   Capability detection + risk rules
   reporter.py              #   Formatted audit output
@@ -107,7 +108,8 @@ policy/                    # Centralized policy engine
 ui/                        # Shared terminal UI foundation
   console.py               #   Unified Console: NO_COLOR, TTY, mode dispatch
   json_output.py           #   Standard envelope: {ok, result, warnings, errors}
-  output.py                #   print_result(), print_error(), print_table()
+  output.py                #   print_result(), print_error(), print_table(), Table (aligned columns)
+  width.py                 #   display_width(), pad(), truncate(): pad by terminal cells, not len()
 
 config/                    # Runtime configuration (YAML)
   assistants.yaml          #   Assistant registry

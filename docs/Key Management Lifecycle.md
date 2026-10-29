@@ -195,12 +195,22 @@ echo "sk-new-key" | hermes-key-rotate rotate --provider deepseek --manual-new-ke
 hermes-key-rotate rotate --provider openai --dry-run
 ```
 
+`rotate --provider all` rotates every provider, one at a time or concurrently with `--parallel`. One provider failing does not hide the others: the result is `{ok, results}` with an entry per provider, and a failed provider carries its own `error` and `error_type` (secrets redacted). `--manual-new-key-stdin` and `--admin-key-stdin` supply one key, so they need a single `--provider`.
+
 ### Rotate (Emergency)
 
 ```bash
 # Immediate revoke + replace on key compromise
 echo "sk-emergency-key" | hermes-key-rotate emergency --provider openai --yes-i-understand-downtime-risk
 ```
+
+To revoke the compromised key without creating a replacement (the service stays down until a new key is provisioned):
+
+```bash
+hermes-key-rotate emergency --provider openai --revoke-only --yes-i-understand-downtime-risk
+```
+
+If nothing was revoked, the result has `ok: false`, `revoked: false`, `manual_action_required: true` and a `reason` (no admin key is stored for the provider, or the rotator could not revoke the key). Revoke the key in the provider's console in that case.
 
 ### Validate
 

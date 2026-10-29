@@ -67,6 +67,11 @@ hermes-key-rotate --provider openai --manual-new-key-stdin   # real rotation (in
 hermes-key-rotate --status    # fingerprints + age report (post-rotation check)
 ```
 
+## Results to act on
+
+- `--provider all` returns `{ok, results}` with one entry per provider. Check each entry: a failed provider carries its own `error` and does not hide the others.
+- `emergency --revoke-only` that returns `manual_action_required: true` revoked nothing. Read `reason` and revoke the key in the provider's console.
+
 ## Related
 
 - `hermes-usage`
