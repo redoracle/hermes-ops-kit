@@ -1,6 +1,9 @@
 """Keep collection-time constants and subprocesses away from operational state."""
 
+import errno
+import ipaddress
 import os
+import socket
 import sys
 import tempfile
 import types
@@ -13,6 +16,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "real_home: the test may resolve the real ~/.hermes (it only inspects the path)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "network: the test may open connections to non-loopback hosts",
     )
     config._ops_test_home = tempfile.TemporaryDirectory(prefix="ops-kit-tests-")
     config._ops_previous_home = os.environ.get("HERMES_HOME")
@@ -146,3 +153,64 @@ def _tests_never_resolve_the_real_hermes_home(request, monkeypatch):
         return path
 
     monkeypatch.setattr(ops_config_io, "home", guarded)
+
+
+def _is_loopback(host) -> bool:
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "replace")
+    if not isinstance(host, str):
+        return False
+    if host in ("", "localhost", "::1"):
+        return True
+    try:
+        return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _no_outbound_network(request, monkeypatch):
+    """A test must never reach a real provider: fake keys and fixtures would leave the machine.
+
+    Only loopback connections (local stub servers) are allowed in the test process. A
+    refused attempt looks like an offline host to the code under test (so it may swallow
+    it), and the test still fails at teardown. Mark a test ``network`` to opt out.
+    Subprocesses are not covered: they get stub endpoints or a dead proxy from the test.
+
+    Yields the list of refused addresses; a test that provokes one on purpose clears it.
+    """
+    refused: list = []
+    if request.node.get_closest_marker("network"):
+        yield refused
+        return
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+
+    def allowed(sock, address) -> bool:
+        if sock.family == getattr(socket, "AF_UNIX", None):
+            return True
+        host = address[0] if isinstance(address, tuple) and address else None
+        return _is_loopback(host)
+
+    def refuse(address):
+        refused.append(address)
+        host = address[0] if isinstance(address, tuple) and address else address
+        return ConnectionRefusedError(
+            f"test tried to reach {host!r}; stub it or mark the test @pytest.mark.network"
+        )
+
+    def connect(self, address):
+        if not allowed(self, address):
+            raise refuse(address)
+        return real_connect(self, address)
+
+    def connect_ex(self, address):
+        if not allowed(self, address):
+            refuse(address)
+            return errno.ECONNREFUSED
+        return real_connect_ex(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+    yield refused
+    assert not refused, f"test tried to reach the network: {refused}"

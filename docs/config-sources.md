@@ -14,6 +14,7 @@ carries a parallel copy of the truth.
 | `~/.hermes/ops-kit/{budget,headroom,plugin_policy,obsidian_maintenance}.yaml` | Kit-owned operational state | Each falls back to its packaged default |
 | `hermes_ops_kit/config/*` | Packaged defaults only | Never the authority when a deployed file exists |
 | `hermes_ops_kit/provider_catalog.py` | **Provider/model + env-key catalog SSOT** | Consumed by `bridge.CAPABILITIES`, `route_verifier` credential map; `PROVIDER_META.preferred_models` and `BUILTIN_PROFILES` must stay subsets (test-enforced in `tests/test_provider_registry_sync.py`) |
+| `hermes_ops_kit/provider_keys.py` | **Which `providers:` / `custom_providers:` block (endpoint, key env) Hermes uses for a provider name** | Mirrors core's `custom_provider_aliases`; used by `doctor`, `route_verifier`, `route_runtime_harness` and the Headroom overlay so they cannot disagree (`tests/test_provider_keys.py`, `tests/test_headroom_upstream.py`) |
 
 Custom providers (`custom:<name>` in `config.yaml`) are dynamic: they are
 never hardcoded — route resolution and credential checks read

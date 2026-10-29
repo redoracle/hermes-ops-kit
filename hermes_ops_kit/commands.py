@@ -11,6 +11,7 @@ import os
 import re
 import sys
 
+from .provider_keys import provider_key_env  # noqa: E402
 from .ui.output import Table  # noqa: E402
 from .ui.width import display_width, pad  # noqa: E402
 from ._subprocess import run_module  # pyright: ignore[reportMissingImports]
@@ -448,13 +449,6 @@ def _check_credentials_section(
     """
     hc = ops_config_io.load_yaml(ops_config_io.hermes_config())
     providers_seen: set[str] = set()
-    custom_key_env: dict[str, str] = {}
-    for cp in hc.get("custom_providers", []) or []:
-        if not isinstance(cp, dict):
-            continue
-        name, key_env = str(cp.get("name", "")), str(cp.get("key_env", ""))
-        if name and key_env:
-            custom_key_env[f"custom:{name}"] = key_env
     model = hc.get("model", {})
     providers_seen.add(model.get("provider", ""))
     for fb in hc.get("fallback_providers", []):
@@ -475,8 +469,11 @@ def _check_credentials_section(
         if not provider_raw:
             continue
         normalized = _PROVIDER_NORMALIZE.get(provider_raw, provider_raw)
-        if normalized.startswith("custom:"):
-            key_env = custom_key_env.get(normalized)
+        # The key variable config.yaml names (providers: or custom_providers:, matched the
+        # way Hermes core matches them) wins over the built-in catalogue: that is how
+        # `custom:<name>` and the managed `headroom` overlay carry their credentials.
+        key_env = provider_key_env(hc, provider_raw)
+        if key_env or normalized.startswith("custom:"):
             ok = bool(key_env and env_vars.get(key_env, "").strip())
             detail = f"{key_env} set" if ok else f"no credential for {normalized}"
         else:
@@ -515,19 +512,11 @@ def _check_bypass_section(
                 False,
                 "provider='auto' → resolves to primary at runtime",
             )
-        elif provider.startswith("custom:"):
-            # Custom providers carry their own key_env in config.yaml —
+        elif provider.startswith("custom:") or provider_key_env(hc, provider):
+            # Providers that carry their own key_env in config.yaml —
             # same resolution as the CREDENTIALS section, so the two
             # sections can never contradict each other.
-            key_env = next(
-                (
-                    str(cp.get("key_env", "")).strip()
-                    for cp in hc.get("custom_providers", []) or []
-                    if isinstance(cp, dict)
-                    and f"custom:{cp.get('name', '')}" == provider
-                ),
-                "",
-            )
+            key_env = provider_key_env(hc, provider)
             ok = bool(key_env and env_vars.get(key_env, "").strip())
             _check(
                 f"aux {sk}",

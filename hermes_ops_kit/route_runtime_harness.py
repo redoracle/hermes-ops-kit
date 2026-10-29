@@ -56,6 +56,7 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
 
 from .config.route_map import aux_harness_triples  # noqa: E402
 from . import ops_config_io  # noqa: E402
+from .provider_keys import custom_provider_aliases, key_env_of  # noqa: E402
 from .ui.output import Table  # noqa: E402
 
 # AUX route map — canonical source: config/route_map.py
@@ -108,8 +109,10 @@ def _all_online_results(
     # environment (after dotenv), so route discovery is provable without live
     # API calls.  Mirrors the precedent of the static "zai" entry above.
     for cp in (hermes_cfg or {}).get("custom_providers", []) or []:
+        if not isinstance(cp, dict):
+            continue
         name = str(cp.get("name", "")).strip()
-        key_env = str(cp.get("key_env", "")).strip()
+        key_env = key_env_of(cp)
         if not name:
             continue
         try:
@@ -120,11 +123,17 @@ def _all_online_results(
             pass
         if key_env and not os.environ.get(key_env):
             continue
-        results[f"custom:{name}"] = {
-            "provider": f"custom:{name}",
-            "status": "online",
-            "api_latency_ms": 500,
-        }
+        # A route may name the entry by any identity Hermes core accepts (`custom:my-prov`
+        # for a `My Prov` entry), so register each of them.
+        for alias in sorted(
+            {f"custom:{name}"}
+            | {a for a in custom_provider_aliases(name) if a.startswith("custom:")}
+        ):
+            results[alias] = {
+                "provider": alias,
+                "status": "online",
+                "api_latency_ms": 500,
+            }
     return results
 
 
