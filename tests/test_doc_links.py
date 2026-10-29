@@ -7,7 +7,9 @@ wikilink behind. Neither shows up in the command tests.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -25,10 +27,28 @@ def _prose(path: Path) -> str:
     return INLINE_CODE.sub("", FENCE.sub("", text))
 
 
+def _docs(root: Path) -> list[Path]:
+    """`docs/*.md` as a clean checkout has them: tracked files only, so a git-ignored local
+    note cannot make a link look alive here and dead in CI."""
+    listing = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--", "docs/*.md"],
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", "")},
+        check=False,
+    )
+    tracked = [root / n for n in listing.stdout.decode().split("\0") if n]
+    return (
+        sorted(tracked)
+        if listing.returncode == 0 and tracked
+        else sorted((root / "docs").glob("*.md"))
+    )
+
+
 def broken_links(root: Path) -> list[str]:
     """`file: target` for every relative markdown link or docs wikilink that resolves to nothing."""
-    files = [root / "README.md", *sorted((root / "docs").glob("*.md"))]
-    stems = {f.stem.lower() for f in (root / "docs").glob("*.md")}
+    docs = _docs(root)
+    files = [root / "README.md", *docs]
+    stems = {f.stem.lower() for f in docs}
     problems = []
     for path in files:
         text = _prose(path)

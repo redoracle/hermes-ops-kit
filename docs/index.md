@@ -28,7 +28,6 @@ Map of the `docs/` folder, grouped by what you are trying to do.
 - [[Operations Runbook]] — day-to-day procedures
 - [[Key Management Lifecycle]] — rotation and revocation
 - [[install-reconciler]] — source, installed package and runtime reconciliation
-- [[ROUND_BALANCING]] — credential pooling and load balancing per provider
 
 ## Routing and Headroom
 
