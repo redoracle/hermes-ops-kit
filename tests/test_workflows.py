@@ -58,3 +58,35 @@ def test_dependabot_covers_every_ecosystem_with_a_cooldown():
     updates = {u["package-ecosystem"]: u for u in config["updates"]}
     assert set(updates) == {"pip", "npm", "github-actions"}
     assert all(u["cooldown"]["default-days"] == 7 for u in updates.values())
+
+
+def test_dependabot_does_not_propose_the_preset_major_the_release_notes_cannot_render():
+    config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
+    npm = next(u for u in config["updates"] if u["package-ecosystem"] == "npm")
+    assert {
+        "dependency-name": "conventional-changelog-conventionalcommits",
+        "update-types": ["version-update:semver-major"],
+    } in npm["ignore"]
+
+
+def test_the_release_config_workflow_runs_the_release_notes_check():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/release-config.yml").read_text()
+    )
+    triggers = workflow.get(
+        "on", workflow.get(True)
+    )  # PyYAML reads a bare `on` as True
+    # a lockfile-only bump (what Dependabot sends) must trigger it
+    assert {"package-lock.json", ".releaserc.json"} <= set(
+        triggers["pull_request"]["paths"]
+    )
+    commands = [
+        step["run"]
+        for step in workflow["jobs"]["release-notes"]["steps"]
+        if "run" in step
+    ]
+    assert commands == [
+        "npm ci --ignore-scripts",
+        "node scripts/check-release-notes.mjs",
+    ]
+    assert (ROOT / "scripts" / "check-release-notes.mjs").is_file()
