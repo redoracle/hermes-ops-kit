@@ -144,7 +144,7 @@ hermes-usage
 hermes-ops-kit headroom down
 
 # Roll back
-hermes-ops-kit headroom disable        # restores the snapshotted route
+hermes-ops-kit headroom disable        # restores the snapshotted route (and removes the providers: key again if enable created it)
 # last resort:
 #   hermes config set model.provider nvidia
 #   cp ~/.hermes/config.yaml.bak.<ts>.headroom ~/.hermes/config.yaml

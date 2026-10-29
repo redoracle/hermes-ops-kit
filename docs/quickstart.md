@@ -213,3 +213,4 @@ hermes-key-rotate --doctor-secrets
 - [[Threat Model]] — security model
 - [[Key Management Lifecycle]] — full secret lifecycle, rotation modes, revocation matrix
 - [[Operations Runbook]] — incident response procedures
+- [[index]] — map of all documentation

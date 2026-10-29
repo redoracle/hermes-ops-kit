@@ -273,8 +273,8 @@ or partial content. Power loss during write leaves only the temp file.
 - [[Architecture]] — module architecture
 - [[Hermes Compatibility]] — Hermes integration guide
 - [[Route Profile Design]] — route architecture
-- [[Plugin Security Scanner]] — plugin scanner documentation
-- [[Hermes Hook Integration]] — scanner hook wiring for Hermes
+- [[plugin-security-scanner|Plugin Security Scanner]] — plugin scanner documentation
+- [[hermes-hook-integration|Hermes Hook Integration]] — scanner hook wiring for Hermes
 - `security/redaction.py` — shared secret-pattern table and `redact()`
 - `security/lockfile.py` — per-provider fcntl.flock advisory locks
 - `env/atomic_write.py` — temp→chmod 600→fsync→rename atomic writes
