@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from .state import (
     DEPENDENCY_DECLARATION_DRIFT,
     DISTRIBUTION_METADATA_DRIFT,
+    INCOMPATIBLE_DEPENDENCY,
+    MISSING_DEPENDENCY,
     EDITABLE_TOPOLOGY_DRIFT,
     GENERATED_EXECUTABLE_DRIFT,
     PATH_SHADOWED_EXECUTABLE,
@@ -37,6 +39,7 @@ from .state import (
     HealthStatus,
     InstallationMode,
     Severity,
+    mutation_refusal,
 )
 
 # Findings a packaging-only reinstall can genuinely fix
@@ -57,6 +60,10 @@ _BLOCKING_CODES = {
     DEPENDENCY_DECLARATION_DRIFT: "dependency declaration changed — reinstall "
     "required, not packaging-only",
     MULTIPLE_INSTALLATIONS: "multiple installations — ambiguous target",
+    MISSING_DEPENDENCY: "required dependencies are not installed — a packaging-only "
+    "reinstall cannot fix that",
+    INCOMPATIBLE_DEPENDENCY: "installed dependencies do not satisfy the requirements — "
+    "a packaging-only reinstall cannot fix that",
     INTERPRETER_MISMATCH: "generated executables target a different interpreter",
     INTERPRETER_AMBIGUOUS: "interpreter ambiguous",
     SOURCE_ORIGIN_DISALLOWED: "source origin not allowed — refusing implicit "
@@ -93,6 +100,14 @@ def plan_repair(report: HealthReport) -> RepairPlan:
     if report.overall is HealthStatus.HEALTHY:
         plan.safe_to_apply = False
         plan.safety_reason = "nothing to repair — installation is HEALTHY"
+        return plan
+
+    refusal = mutation_refusal(
+        report.runtime.runtime_role, report.runtime.ownership_reason
+    )
+    if refusal:
+        plan.safe_to_apply = False
+        plan.safety_reason = refusal
         return plan
 
     if report.overall is HealthStatus.UNSAFE:

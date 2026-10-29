@@ -33,16 +33,37 @@ from ...security.plugin_scanner.enforce import _restore_hermes_config  # pyright
 from ...security.plugin_scanner.policy import approve_plugin  # pyright: ignore[reportMissingImports]
 from ...security.plugin_scanner.scanner import scan_all  # pyright: ignore[reportMissingImports]
 from ... import ops_config_io  # noqa: E402
+from ..._subprocess import child_env
 
 # The scanner's own plugin ID — auto-approved during bootstrap since
 # the operator has already verified the installation source.
 _SCANNER_PLUGIN_ID = "hermes-ops-kit"
 
 
-HERMES_HOME = Path(ops_config_io.HERMES_HOME)
-OPS_KIT_DIR = HERMES_HOME / "ops-kit"
-REPORT_DIR = OPS_KIT_DIR / "reports"
-SCANNER_CONFIG_PATH = OPS_KIT_DIR / "plugin_scanner.yaml"
+
+
+def hermes_home() -> Path:
+    """Active profile's Hermes home, resolved at call time."""
+    return Path(ops_config_io.home())
+
+
+def ops_kit_dir() -> Path:
+    return hermes_home() / "ops-kit"
+
+
+def report_dir() -> Path:
+    return ops_kit_dir() / "reports"
+
+
+def scanner_config_path() -> Path:
+    return ops_kit_dir() / "plugin_scanner.yaml"
+
+
+# Deprecated import-time aliases (compatibility window); the kit uses the functions.
+HERMES_HOME = hermes_home()
+OPS_KIT_DIR = ops_kit_dir()
+REPORT_DIR = report_dir()
+SCANNER_CONFIG_PATH = scanner_config_path()
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_SCANNER_CONFIG = Path(__file__).resolve().parent / "plugin_scanner.yaml"
 PLUGIN_MANIFEST = ROOT_DIR / "plugin.yaml"
@@ -66,15 +87,16 @@ def _ops_kit_version() -> str:
 
 def _ensure_default_scanner_config(*, dry_run: bool = False) -> dict[str, Any]:
     """Create ~/.hermes/ops-kit/plugin_scanner.yaml if missing."""
-    exists = SCANNER_CONFIG_PATH.exists()
+    config_path = scanner_config_path()
+    exists = config_path.exists()
     created = not exists and not dry_run
     if created:
-        OPS_KIT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-        shutil.copy2(DEFAULT_SCANNER_CONFIG, SCANNER_CONFIG_PATH)
-        os.chmod(SCANNER_CONFIG_PATH, 0o600)
+        ops_kit_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.copy2(DEFAULT_SCANNER_CONFIG, config_path)
+        os.chmod(config_path, 0o600)
     return {
         "created": created,
-        "path": str(SCANNER_CONFIG_PATH),
+        "path": str(config_path),
         "exists": exists or created,
         "would_create": not exists and dry_run,
     }
@@ -127,16 +149,17 @@ def _summarize_scan_results(results: list[Any]) -> dict[str, Any]:
 
 
 def _report_paths(report_stem: str) -> dict[str, str]:
+    directory = report_dir()
     return {
-        "directory": str(REPORT_DIR),
-        "json": str(REPORT_DIR / f"{report_stem}.json"),
-        "text": str(REPORT_DIR / f"{report_stem}.txt"),
+        "directory": str(directory),
+        "json": str(directory / f"{report_stem}.json"),
+        "text": str(directory / f"{report_stem}.txt"),
     }
 
 
 def _write_reports(report_stem: str, payload: dict[str, Any]) -> dict[str, str]:
     paths = _report_paths(report_stem)
-    REPORT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    report_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
     payload["report_paths"] = paths
 
     lines = [
@@ -270,6 +293,7 @@ def bootstrap(
                 capture_output=True,
                 text=True,
                 timeout=60,
+                env=child_env(),
             )
             restart["succeeded"] = proc.returncode == 0
             restart["diagnostics"] = (
@@ -285,17 +309,18 @@ def bootstrap(
                 _restore_hermes_config(backup_path)
                 restart["rollback_performed"] = True
 
+    home = hermes_home()
     payload = {
         "timestamp": timestamp,
         "hermes_ops_kit_version": _ops_kit_version(),
         "scanner_version": scanner_version,
         "scan_profile": "install",
         "paths": {
-            "plugins": str(HERMES_HOME / "plugins"),
-            "skills": str(HERMES_HOME / "skills"),
-            "mcp_policy": str(HERMES_HOME / "mcp_policy.json"),
-            "hermes_config": str(HERMES_HOME / "config.yaml"),
-            "scanner_config": str(SCANNER_CONFIG_PATH),
+            "plugins": str(home / "plugins"),
+            "skills": str(home / "skills"),
+            "mcp_policy": str(home / "mcp_policy.json"),
+            "hermes_config": str(home / "config.yaml"),
+            "scanner_config": str(scanner_config_path()),
         },
         "tools": _tool_availability(),
         "setup": {

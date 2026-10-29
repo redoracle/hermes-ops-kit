@@ -60,7 +60,19 @@ infrastructure configuration. This document catalogs threats and mitigations.
 
 **Mitigations:**
 
-- 16-pattern `redact()` function catches all known key formats
+- Table-driven `redact()` (`SECRET_PATTERNS`, one table shared with `scan_for_secrets` and
+  delegation pre-flight) covers provider keys, GitHub tokens of any length
+  (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`/`github_pat_`), Bitwarden/Vaultwarden bootstrap
+  assignments (bare, quoted, `export`, JSON-embedded), `Authorization`/`Bearer`/`x-api-key`
+  headers in any case, `Cookie`/`Set-Cookie`, URL credentials and `*_KEY|_TOKEN|_PASSWORD|_SECRET`
+  assignments, and every PEM private-key flavour. Structured tool results are redacted per
+  string value and by credential key name (`password`, `Cookie`, `Authorization`, …), so a
+  secret at the start of a value or inside a header cannot slip past the line-anchored
+  patterns. Redacting twice changes nothing, and redacted output passes the scanner
+- Image URLs returned by a provider are untrusted: `image_routes/adapters/base.download_image()` fetches
+  `http(s)` only (a `file://` URL would otherwise copy a local secret into the image cache and hand its
+  path to Hermes), refuses redirects to other schemes, caps the size at 25 MB and writes atomically.
+  `assistant discover` rejects non-`http(s)` URLs the same way
 - `assert_clean()` scanner gate before every Obsidian/audit write
 - `.gitignore` excludes `.env*`, `*.jsonl`, `*.key`, `*.pem`
 - Atomic env writes with chmod 600
@@ -81,6 +93,15 @@ infrastructure configuration. This document catalogs threats and mitigations.
 - Audit log stores only request/result fingerprints, never raw content
 - Read-only by default for remote assistants
 - Capabilities are allowlisted per assistant in `assistants.yaml`
+- Reserved constraints (`no_secret_access`, `no_env_dump`, `no_file_write`, `no_shell_execution`,
+  `no_network_scan`) must be exact booleans under their canonical name; a caller may only
+  tighten them, never relax a configured restriction, and the object that is evaluated is
+  the object that is transmitted
+- `/ops-kit` from a chat surface reaches only an allowlist of read-only, local, fast commands
+  (bounded time and output, redacted reply); rotation, approvals and repairs are terminal-only.
+  The child runs in read-only mode: it seeds nothing into the profile and never starts or
+  contacts a configured MCP server (tests run every allowed command and require that no file
+  appears and that a probe MCP server is never launched)
 
 ### Trust Boundary 4: Plugin Installation & Execution
 
@@ -141,6 +162,25 @@ starts. Servers with incomplete discovery or unapproved HIGH tools are disabled.
 Any CRITICAL tool disables its server and blocks boot, even if broadly approved.
 Preflight uses static declarations only, avoiding execution or network contact
 with an unaudited MCP server during the gate itself.
+
+### Trust Boundary 7: Hermes profiles in one process
+
+**Threats:**
+
+- One profile's credentials, files or locks used for work done for another profile
+- A child process inheriting the launch profile's environment
+- A maintenance command modifying an environment Hermes owns
+
+**Mitigations:**
+
+- Paths resolve at call time from the active profile (`ops_config_io.home()`); embedded code
+  never writes the shared `os.environ` and reads credentials per profile with `get_secret()`
+- Every `subprocess` call has an explicit environment: core's served-profile environment for
+  children that act for the profile, a minimal credential-free one for tools
+- Repair and update refuse Hermes-managed or unidentifiable environments and point at native
+  maintenance; the check is repeated inside the installer so a stale plan cannot bypass it
+- Enforced by tests: `tests/test_no_frozen_paths.py`, `tests/test_spawn_env.py`,
+  `tests/test_embedded_secrets.py`, `tests/test_profile_concurrency.py`
 
 ## Key Rotation Threat Analysis
 
@@ -235,7 +275,7 @@ or partial content. Power loss during write leaves only the temp file.
 - [[Route Profile Design]] — route architecture
 - [[Plugin Security Scanner]] — plugin scanner documentation
 - [[Hermes Hook Integration]] — scanner hook wiring for Hermes
-- `security/redaction.py` — 16-pattern secret redaction
+- `security/redaction.py` — shared secret-pattern table and `redact()`
 - `security/lockfile.py` — per-provider fcntl.flock advisory locks
 - `env/atomic_write.py` — temp→chmod 600→fsync→rename atomic writes
 - `security/plugin_scanner/` — plugin security scanner source

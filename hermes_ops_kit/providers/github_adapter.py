@@ -26,6 +26,7 @@ import sys
 import time
 
 # Add parent directory for shared Hermes security module
+from .._subprocess import child_env
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
 
@@ -211,7 +212,7 @@ def _run_gh(args: list, operation: str, start: float, timeout: int = 60) -> dict
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=os.environ,
+            env=child_env(),
         )
     except subprocess.TimeoutExpired:
         return {

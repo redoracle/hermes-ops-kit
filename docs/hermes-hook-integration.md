@@ -81,6 +81,11 @@ approval:
   mode: auto
 ```
 
+> The scanner does not read `plugin_scanner.yaml` today: it is an informational snapshot of the
+> shipped defaults, and the scanner always behaves as `auto`. The `interactive` and `strict`
+> modes are design intent, not selectable settings. `hermes-ops-kit plugin config show` prints
+> the profiles that actually run.
+
 ## Session Start Hook Flow
 
 The session hook is informational because Hermes loads plugins before firing it:
@@ -268,4 +273,9 @@ Ops-kit registers `transform_tool_result` for current Hermes result replacement.
 It handles strings and JSON-serializable results; unsupported Python objects pass
 through. `post_tool_call` return values are ignored by current core. The first
 string transformer wins, so ops-kit also sanitizes its own tool outputs directly.
-The session-start scanner remains report-only.
+Non-string results are redacted per string value and by credential key name (so a
+secret that starts a value, or sits under `Cookie`/`password`, is caught), then once
+more as JSON text for credentials inside escaped quotes or `\n`-joined lines; redaction is idempotent and its patterns
+(shell `export` and quoted assignments, `Authorization` in any scheme or case,
+`Cookie`, URL credentials, GitHub tokens of any length) are shared with the write-time
+scanner. The session-start scanner remains report-only.

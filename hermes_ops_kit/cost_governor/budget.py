@@ -10,9 +10,13 @@ from dataclasses import dataclass, field
 from typing import Any
 from .. import ops_config_io  # noqa: E402
 
-BUDGET_CONFIG_PATHS = [
-    ops_config_io.deployed_or_bundled("budget.yaml"),
-]
+def budget_config_paths() -> list[str]:
+    """Budget config candidates for the active profile, resolved at call time."""
+    return [ops_config_io.deployed_or_bundled("budget.yaml")]
+
+
+# Deprecated import-time alias (compatibility window); the kit uses budget_config_paths().
+BUDGET_CONFIG_PATHS = budget_config_paths()
 
 DEFAULT_BUDGET = {
     "daily_usd": 5.00,
@@ -47,7 +51,7 @@ class BudgetDecision:
 
 
 def _load_budget() -> dict[str, Any]:
-    for p in BUDGET_CONFIG_PATHS:
+    for p in budget_config_paths():
         if os.path.exists(p):
             cfg = ops_config_io.load_yaml(p)
             if cfg:

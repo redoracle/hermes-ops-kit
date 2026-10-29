@@ -7,14 +7,33 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.integration
-def test_current_hermes_directory_hooks_and_image_contract(tmp_path):
+def _real_core() -> tuple[str, str]:
+    """The Hermes source and an executable interpreter for it, or skip with the reason.
+
+    Core keeps several ``installs/*/environments/*`` directories and replaces them over
+    time, so a remembered ``HERMES_RUNTIME_PYTHON`` can point at a removed one. Fall back
+    to the interpreter in the source checkout's own ``venv``; skip if neither runs.
+    """
     source = os.environ.get("HERMES_AGENT_SOURCE")
     python = os.environ.get("HERMES_RUNTIME_PYTHON")
     if not source or not python:
         pytest.skip(
             "set HERMES_AGENT_SOURCE and HERMES_RUNTIME_PYTHON for real-core acceptance"
         )
+    if not (os.path.isfile(python) and os.access(python, os.X_OK)):
+        fallback = Path(source).expanduser() / "venv" / "bin" / "python"
+        if not (fallback.is_file() and os.access(fallback, os.X_OK)):
+            pytest.skip(
+                f"HERMES_RUNTIME_PYTHON={python} is not an executable interpreter and "
+                f"{fallback} does not exist"
+            )
+        python = str(fallback)
+    return source, python
+
+
+@pytest.mark.integration
+def test_current_hermes_directory_hooks_and_image_contract(tmp_path):
+    source, python = _real_core()
     repo = Path(__file__).resolve().parents[1]
     script = r"""
 import importlib, sys
@@ -76,3 +95,48 @@ print("real directory loader, transform semantics/order, native image forwarding
         timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.integration
+def test_current_hermes_slash_command_returns_a_bounded_reply_string(tmp_path):
+    """Real core: the plugin's /ops-kit handler, called the way core calls it, returns text."""
+    source, python = _real_core()
+    repo = Path(__file__).resolve().parents[1]
+    script = r"""
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from hermes_cli.plugin_command_dispatch import invoke_plugin_command
+from hermes_cli.plugins import PluginManager
+from hermes_cli.plugins_manifest import parse_manifest_file
+root = Path(sys.argv[2])
+manifest = parse_manifest_file(root / "plugin.yaml", root, "user", "")
+manager = PluginManager()
+manager._load_plugin(manifest)
+loaded = manager._plugins["hermes-ops-kit"]
+assert loaded.enabled, loaded.error
+entry = manager._plugin_commands["ops-kit"]
+handler = entry["handler"]
+context = dict(source="cli", session_id="s", session_key="k", platform="cli")
+def call(raw):
+    reply = invoke_plugin_command(handler, raw, **context)
+    assert isinstance(reply, str), type(reply)
+    return reply
+assert "read-only from chat" in call("")
+assert "not available from chat" in call("rotate --provider openai")
+assert "not available from chat" in call("install doctor --python /bin/sh")
+assert "Could not parse" in call('audit search "oops')
+# a real read-only command: runs in a child that core's scoped environment builds
+assert call("audit tail") == "No audit events", call("audit tail")
+print("real core slash dispatch: PASS")
+"""
+    result = subprocess.run(
+        [python, "-I", "-B", "-c", script, str(Path(source).resolve()), str(repo)],
+        cwd=tmp_path,
+        env={**os.environ, "HERMES_HOME": str(tmp_path / "home")},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "real core slash dispatch: PASS" in result.stdout

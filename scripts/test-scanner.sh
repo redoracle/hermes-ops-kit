@@ -122,6 +122,18 @@ check env PYTHONPATH="$PLUGIN_DIR" "$PYTHON" -P -c "
 from hermes_ops_kit.security.plugin_scanner.scanner import scan_plugin
 from hermes_ops_kit.security.plugin_scanner.findings import RiskLevel
 
+from hermes_ops_kit.security.plugin_scanner.policy import get_rule_overrides
+
+# The self-scan expects the operator's own rule overrides for ops-kit; without them the
+# plugin's detector patterns are (correctly) flagged, so the check says so instead of failing.
+if not get_rule_overrides('hermes-ops-kit'):
+    import os
+    if os.environ.get('CI') == 'true':
+        # a check that silently skips under CI is a check nobody notices has stopped running
+        raise SystemExit('FAIL: CI needs the ops-kit rule overrides to run the self-scan')
+    print('SKIP: no rule overrides for hermes-ops-kit in the active policy')
+    raise SystemExit(0)
+
 r = scan_plugin('hermes-ops-kit', '$PLUGIN_DIR', profile='manual', force=True)
 
 # Must not be CRITICAL (all findings downgraded via overrides)

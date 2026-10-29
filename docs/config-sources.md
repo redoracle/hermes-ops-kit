@@ -14,6 +14,7 @@ carries a parallel copy of the truth.
 | `~/.hermes/ops-kit/{budget,headroom,plugin_policy,obsidian_maintenance}.yaml` | Kit-owned operational state | Each falls back to its packaged default |
 | `hermes_ops_kit/config/*` | Packaged defaults only | Never the authority when a deployed file exists |
 | `hermes_ops_kit/provider_catalog.py` | **Provider/model + env-key catalog SSOT** | Consumed by `bridge.CAPABILITIES`, `route_verifier` credential map; `PROVIDER_META.preferred_models` and `BUILTIN_PROFILES` must stay subsets (test-enforced in `tests/test_provider_registry_sync.py`) |
+| `hermes_ops_kit/provider_keys.py` | **Which `providers:` / `custom_providers:` block (endpoint, key env) Hermes uses for a provider name** | Mirrors core's `custom_provider_aliases`; used by `doctor`, `route_verifier`, `route_runtime_harness` and the Headroom overlay so they cannot disagree (`tests/test_provider_keys.py`, `tests/test_headroom_upstream.py`) |
 
 Custom providers (`custom:<name>` in `config.yaml`) are dynamic: they are
 never hardcoded — route resolution and credential checks read
@@ -23,16 +24,52 @@ never hardcoded — route resolution and credential checks read
 
 - **`.env` / `.env.generated`** — sole parser: `env/loader.py` (`load_dotenv()`,
   `load_env_dict()`, `parse_env_file()`, `load_env_setdefault()`). Generated
-  wins over `.env`; inline `#` comments require preceding whitespace
-  (python-dotenv semantics). JSON envelopes report the kit version, and every `--json` mode uses the standard `ok_envelope` shape (ok/command/version/timestamp/result/errors) — test-enforced. `env/env_loader.py` is a compat shim only.
+  wins over `.env`; values follow python-dotenv syntax: optional `export`, quoted
+  values with escapes, multiline quoted values, and `#` comments after whitespace.
+  Interpolation is off, so `${VAR}` is never expanded from the ambient environment.
+  A line without `=` or a malformed line yields no key. JSON envelopes report the kit version, and every `--json` mode uses the standard `ok_envelope` shape (ok/command/version/timestamp/result/errors) — test-enforced. `env/env_loader.py` is a compat shim only.
   `usage_metrics_v2.load_env_file` delegates to `load_env_setdefault()`
-  (never clobbers real env vars).
-- **`HERMES_HOME`** — sole path authority: `ops_config_io.HERMES_HOME` /
-  `expand_home()` / `hermes_config()` / `ops_kit_dir()`. No module constructs `~/.hermes`
-  paths or reads `HERMES_HOME` from the environment directly
-  (test-enforced: `tests/test_config_single_source.py`, including `scripts/*.sh`).
-  Subsystems (assistants manager, headroom reconciler, install reconciler, skill factory,
-  export center, and security bootstrap) derive runtime paths dynamically at call-time.
+  (never clobbers real env vars). Inside Hermes (embedded) none of these loaders
+  writes `os.environ`: the process environment is shared by every profile, so
+  embedded code reads credentials with `env.loader.get_secret()` (or
+  `provider_catalog.provider_key()`) instead — the active profile's `.env` /
+  `.env.generated` first (generated wins), then core's scoped `get_secret`. A read made
+  with no profile scope bound while Hermes multiplexes profiles raises core's
+  `UnscopedSecretError` and must not be swallowed. Standalone, the process
+  environment is the last fallback, as before. The files deliberately come first:
+  ops-kit's own rotation writes `.env.generated`, which must win over an older `.env`
+  entry and may not be visible to core's scope; a value that core's scope holds only
+  for an external SecretSource is reached when no file has the key. An empty entry
+  (`KEY=`) counts as unset, never as an override.
+- **`HERMES_HOME`** — sole path authority: `ops_config_io.home()`, resolved **at call
+  time** (an explicit `ops_config_io.HERMES_HOME` override, then core's
+  `get_hermes_home()` when core is loaded — so routed profiles get their own home — then
+  the `HERMES_HOME` environment variable, then `~/.hermes`), with `config_path()` /
+  `expand_home()` / `hermes_config()` / `ops_kit_dir()` built on it. The module-level
+  names (`HERMES_HOME`, `HERMES_CONFIG`, `OPS_KIT_DIR` and per-module constants such as
+  `AUDIT_PATH`, `LOCK_DIR`, `CACHE_DB_PATH`) remain only as deprecated import-time
+  aliases for external code; the kit never reads them (test-enforced:
+  `tests/test_no_frozen_paths.py`, `tests/test_config_single_source.py`, including
+  `scripts/*.sh`; the guard reads the syntax tree, so renamed imports are caught too).
+  No module builds a `~/.hermes` path itself, apart from string defaults handed straight
+  to `expand_home()`; `ops_config_io.default_home()` is the one place that spells the
+  shared default root.
+  Audit and task stores, locks, scanner cache and policy, MCP policy, rotation
+  checkpoints, exports, assistants manager, headroom reconciler, install reconciler,
+  skill factory and security bootstrap all follow the active profile, and
+  `tests/test_profile_concurrency.py` runs three profiles concurrently against them.
+- **Child processes** — every `subprocess` call passes an explicit `env=`
+  (test-enforced: `tests/test_spawn_env.py`). A child that acts for the profile gets
+  `_subprocess.child_env()`: inside Hermes, core's served-profile environment
+  (launch-profile credentials scrubbed for a routed profile, the profile's own overlaid
+  where credentials are needed), standalone a copy of the parent environment; either way
+  with `HERMES_HOME` set so the child resolves the same profile. Credential-free tools
+  (the scanner's semgrep, bandit and gitleaks, `git rev-parse` on a plugin, the install
+  probe) get `minimal_env()`. The guard resolves `import subprocess as x` and
+  `from subprocess import run`, and rejects an `env=` that merely copies `os.environ`.
+- **Read-only mode** — `HERMES_OPS_KIT_READ_ONLY=1` (`ops_config_io.read_only()`), set
+  only by the `/ops-kit` chat child: defaults are not seeded into the profile and MCP
+  servers are not started or contacted (`run_audit` forces `dynamic_discovery=False`).
 - **YAML reads & Atomic writes** — via `ops_config_io.load_yaml` (ruamel → PyYAML → JSON,
   `{}` on missing/empty/unparseable/non-mapping roots; `deployed_or_bundled`
   derives its dir from `HERMES_HOME` at call time; all atomic writers use

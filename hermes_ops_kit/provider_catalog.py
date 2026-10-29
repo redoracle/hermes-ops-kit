@@ -112,13 +112,29 @@ def first_available_key(
     environments (GOOGLE_API_KEY-only, GH_TOKEN-only, ZAI_API_KEY-only)
     as credential-less — this checks every declared alias.
     """
-    import os
-
-    env = os.environ if env_vars is None else env_vars
     for key in key_envs_for(provider):
-        if str(env.get(key, "")).strip():
+        if str(_lookup(key, env_vars)).strip():
             return key
     return None
+
+
+def _lookup(name: str, env_vars: dict[str, str] | None) -> str:
+    """Value of *name*: from *env_vars* if given, else the active profile's scoped read."""
+    if env_vars is not None:
+        return env_vars.get(name, "")
+    from .env.loader import get_secret
+
+    return get_secret(name, "") or ""
+
+
+def provider_key(provider: str, env_vars: dict[str, str] | None = None) -> str | None:
+    """The credential value for *provider* (first available alias), or None.
+
+    Without *env_vars* this is a scoped read for the active Hermes profile; it
+    never touches or depends on ``os.environ`` being populated from ``.env``.
+    """
+    name = first_available_key(provider, env_vars)
+    return _lookup(name, env_vars) if name else None
 
 
 def has_credential(provider: str, env_vars: dict[str, str] | None = None) -> bool:

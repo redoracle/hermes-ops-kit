@@ -8,10 +8,72 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
+from .provider_keys import provider_key_env  # noqa: E402
+from .security.redaction import redact  # noqa: E402
+from .ui.output import Table  # noqa: E402
+from .ui.width import display_width, pad  # noqa: E402
 from ._subprocess import run_module  # pyright: ignore[reportMissingImports]
 from . import ops_config_io  # noqa: E402
+
+
+# Flags the hand-dispatched commands really accept, per subcommand: flag -> takes a value.
+# Anything else starting with "-" is refused, so a typo or a trailing ``-h`` can never fall
+# through to an action (``mcp revoke -h`` used to revoke everything).
+from ._cli_args import PRESENTATION_FLAGS, SWITCH as _SWITCH, VALUE as _VALUE, check_flags as _check_flags  # noqa: E402
+
+_GUARDED_FLAGS: dict[str, dict[str | None, dict[str, bool]]] = {
+    "doctor": {},
+    "mcp": {
+        "tools": {"--server": _VALUE},
+        "approve": {"--all": _SWITCH, "--server": _VALUE, "--tool": _VALUE},
+    },
+    "budget": {},
+    "maintenance": {},
+    "audit": {
+        "search": {"--type": _VALUE, "--assistant": _VALUE, "--provider": _VALUE}
+    },
+    "assistants": {"delegate": {"--capability": _VALUE, "--task": _VALUE}},
+    "assistant": {"delegate": {"--capability": _VALUE, "--task": _VALUE}},
+}
+_INSTALL_FLAGS: dict[str, dict[str, bool]] = {
+    "doctor": {
+        "--json": _SWITCH,
+        "--verbose": _SWITCH,
+        "-v": _SWITCH,
+        "--repair": _SWITCH,
+        "--python": _VALUE,
+    },
+    "update": {"--dry-run": _SWITCH, "--json": _SWITCH, "--python": _VALUE},
+    "repair": {},
+}
+
+_GROUP_USAGE = {
+    "doctor": "hermes-ops-kit doctor",
+    "mcp": "hermes-ops-kit mcp {audit|list|tools [--server ID]|risks|export|policy|revoke"
+    "|approve (--all|--server ID|--tool ID)}",
+    "budget": "hermes-ops-kit budget {status|check-route|policy}",
+    "maintenance": "hermes-ops-kit maintenance {profiles|run PROFILE}",
+    "audit": "hermes-ops-kit audit {tail [N]|search [--type T] [--assistant A] "
+    "[--provider P]|export}",
+    "assistants": "hermes-ops-kit assistants {list|ping ID|delegate ID --capability X "
+    '--task "..."}',
+}
+_GROUP_USAGE["assistant"] = _GROUP_USAGE["assistants"]
+
+
+def _check_args(group: str, args: list[str]) -> int | None:
+    sub = args[0] if args and not args[0].startswith("-") else None
+    accepted = _GUARDED_FLAGS[group].get(sub, {})
+    return _check_flags(
+        f"{group} {sub}" if sub else group,
+        accepted,
+        args,
+        _GROUP_USAGE[group],
+        ignored=PRESENTATION_FLAGS,
+    )
 
 
 def handle_ops_kit_command(args: list[str]) -> int:
@@ -28,6 +90,11 @@ def handle_ops_kit_command(args: list[str]) -> int:
 
     subcmd = args[0]
     rest = args[1:]
+
+    if subcmd in _GUARDED_FLAGS:
+        verdict = _check_args(subcmd, rest)
+        if verdict is not None:
+            return verdict
 
     if subcmd == "status":
         return _run_script("usage_metrics_v2.py", ["--json"])
@@ -119,10 +186,10 @@ def _handle_doctor() -> int:
         total += 1
         if ok:
             ok_count += 1
-            print(f"  ✅ {label:<20s} {detail}")
+            print(f"  ✅ {pad(label, 20)} {detail}")
         else:
             warnings.append(f"{label}: {detail}")
-            print(f"  ⚠ {label:<20s} {detail}")
+            print(f"  🟡 {pad(label, 20)} {detail}")
 
     def _hdr(title: str) -> None:
         print(f"\n{title}")
@@ -132,11 +199,11 @@ def _handle_doctor() -> int:
     try:
         from .security.file_permissions import check_env_file  # pyright: ignore[reportMissingImports]
 
-        generated = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+        generated = os.path.join(ops_config_io.home(), ".env.generated")
         env_check_path = (
             generated
             if os.path.exists(generated)
-            else os.path.join(ops_config_io.HERMES_HOME, ".env")
+            else os.path.join(ops_config_io.home(), ".env")
         )
         env_check = check_env_file(env_check_path)
         _check(
@@ -151,7 +218,7 @@ def _handle_doctor() -> int:
         "plugin ops-kit",
         os.path.exists(
             os.path.join(
-                ops_config_io.HERMES_HOME,
+                ops_config_io.home(),
                 "plugins",
                 "hermes-ops-kit",
                 "plugin.yaml",
@@ -223,7 +290,7 @@ def _handle_doctor() -> int:
     except Exception as e:
         _check("secrets", False, str(e)[:60])
 
-    gen_env = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+    gen_env = os.path.join(ops_config_io.home(), ".env.generated")
     if os.path.exists(gen_env):
         import stat
 
@@ -262,7 +329,7 @@ def _handle_doctor() -> int:
     if warnings:
         print("\nWARNINGS")
         for w in warnings:
-            print(f"  ⚠ {w}")
+            print(f"  🟡 {w}")
 
     print("\nNEXT")
     print("  hermes-ops-kit doctor")
@@ -383,13 +450,6 @@ def _check_credentials_section(
     """
     hc = ops_config_io.load_yaml(ops_config_io.hermes_config())
     providers_seen: set[str] = set()
-    custom_key_env: dict[str, str] = {}
-    for cp in hc.get("custom_providers", []) or []:
-        if not isinstance(cp, dict):
-            continue
-        name, key_env = str(cp.get("name", "")), str(cp.get("key_env", ""))
-        if name and key_env:
-            custom_key_env[f"custom:{name}"] = key_env
     model = hc.get("model", {})
     providers_seen.add(model.get("provider", ""))
     for fb in hc.get("fallback_providers", []):
@@ -410,8 +470,11 @@ def _check_credentials_section(
         if not provider_raw:
             continue
         normalized = _PROVIDER_NORMALIZE.get(provider_raw, provider_raw)
-        if normalized.startswith("custom:"):
-            key_env = custom_key_env.get(normalized)
+        # The key variable config.yaml names (providers: or custom_providers:, matched the
+        # way Hermes core matches them) wins over the built-in catalogue: that is how
+        # `custom:<name>` and the managed `headroom` overlay carry their credentials.
+        key_env = provider_key_env(hc, provider_raw)
+        if key_env or normalized.startswith("custom:"):
             ok = bool(key_env and env_vars.get(key_env, "").strip())
             detail = f"{key_env} set" if ok else f"no credential for {normalized}"
         else:
@@ -450,19 +513,11 @@ def _check_bypass_section(
                 False,
                 "provider='auto' → resolves to primary at runtime",
             )
-        elif provider.startswith("custom:"):
-            # Custom providers carry their own key_env in config.yaml —
+        elif provider.startswith("custom:") or provider_key_env(hc, provider):
+            # Providers that carry their own key_env in config.yaml —
             # same resolution as the CREDENTIALS section, so the two
             # sections can never contradict each other.
-            key_env = next(
-                (
-                    str(cp.get("key_env", "")).strip()
-                    for cp in hc.get("custom_providers", []) or []
-                    if isinstance(cp, dict)
-                    and f"custom:{cp.get('name', '')}" == provider
-                ),
-                "",
-            )
+            key_env = provider_key_env(hc, provider)
             ok = bool(key_env and env_vars.get(key_env, "").strip())
             _check(
                 f"aux {sk}",
@@ -601,24 +656,44 @@ def _handle_route_test(args: list[str]) -> int:
         f"Route Verification · ok={report['ok']} · "
         f"tested={report['summary']['total_routes_tested']}"
     )
+    route_rows = []
     for entry in report["routes"]:
         icon = (
             "✅"
             if entry["result"] == "passed"
-            else "⚠️"
+            else "🟡"
             if entry["result"] == "failed"
             else "·"
         )
-        print(
-            f"  {icon} {entry['category']:<9s} {entry['route']:<18s} "
-            f"{entry['result']:<8s} "
-            f"{entry['actual_provider']}:{entry['actual_model']} → {entry['runtime_path']}"
+        route_rows.append(
+            [
+                icon,
+                entry["category"],
+                entry["route"],
+                entry["result"],
+                f"{entry['actual_provider']}:{entry['actual_model']} → {entry['runtime_path']}",
+            ]
         )
+    route_table = Table(["", "CATEGORY", "ROUTE", "RESULT", "RESOLVED"], route_rows, max_width=60)
+    print(route_table.header())
+    print(route_table.separator())
+    for row in route_rows:
+        print(route_table.row(row))
     return 0 if report["ok"] else 1
 
 
 def _handle_mcp(args: list[str]) -> int:
     """Handle `hermes-ops-kit mcp ...` subcommands."""
+    try:
+        return _run_mcp(args)
+    except RuntimeError as exc:
+        # The auditor raises RuntimeError with a readable cause for unreadable
+        # config.yaml / policy state; show it instead of a traceback.
+        print(f"ERROR: {redact(str(exc))}")
+        return 1
+
+
+def _run_mcp(args: list[str]) -> int:
     sub = args[0] if args else "audit"
     rest = args[1:] if len(args) > 1 else []
     try:
@@ -715,16 +790,18 @@ def _mcp_approve(
         return 1
     if "--all" in args:
         # Approve all known MCP servers atomically
-        server_ids = []
         try:
             from .mcp_auditor.auditor import inventory_servers  # pyright: ignore[reportMissingImports]
 
-            for s in inventory_servers():
-                server_ids.append(s["server_id"])
-        except Exception:
-            pass
+            server_ids = [s["server_id"] for s in inventory_servers()]
+        except Exception as exc:
+            # An unreadable inventory is not an empty one: say so and fail, instead of
+            # reporting "nothing to approve" with exit 0.
+            print(f"Cannot read the MCP server inventory: {redact(str(exc))}")
+            return 1
         if not server_ids:
-            server_ids = ["obsidian-mcp-vault"]
+            print("No MCP servers configured; nothing to approve.")
+            return 0
         for sid in server_ids:
             approve_server_fn(sid)
         print(f"Approved all MCP servers: {', '.join(server_ids)}")
@@ -787,9 +864,8 @@ def _mcp_tools(args: list[str]) -> int:
             continue
 
         # Column widths
-        name_w = max(len(t["tool_name"]) for t in tools) if tools else 20
+        tool_rows = []
         for t in tools:
-            risk = t["risk"]
             # Status label
             if t.get("approved"):
                 status = "APPROVED ✓"
@@ -797,8 +873,13 @@ def _mcp_tools(args: list[str]) -> int:
                 status = "BLOCKED ✗"
             else:
                 status = "REQUIRES APPROVAL"
-            # Color-coded risk (no ANSI for compatibility with --no-color)
-            print(f"  {t['tool_name']:<{name_w}s}  {risk:<8s}  {status}")
+            tool_rows.append([t["tool_name"], t["risk"], status])
+        tool_table = Table(["TOOL", "RISK", "STATUS"], tool_rows, max_width=60)
+        if tool_rows:
+            print(tool_table.header())
+            print(tool_table.separator())
+        for row in tool_rows:
+            print(tool_table.row(row))
     print()
     return 0
 
@@ -816,19 +897,29 @@ def _handle_budget(args: list[str]) -> int:
         s = evaluate_budget()
         status_icon = {
             "ok": "✅",
-            "warn": "⚠",
-            "throttle": "⚠",
+            "warn": "🟡",
+            "throttle": "🟡",
             "restrict": "⛔",
             "blocked": "🚫",
-        }.get(s["budget_status"], "?")
+        }.get(s["budget_status"], "❓")
         print(f"BUDGET · {s['budget_status'].upper()}\n")
+        budget_rows = []
         for period in ("daily", "monthly"):
             spend = s[f"{period}_spend_usd"]
             observed = f"${spend:.2f}" if spend is not None else "unavailable"
             percent = s[f"{period}_percent"]
             percent_text = f"{percent}%" if percent is not None else "unknown"
-            print(f"  {period:<7} {observed} / ${s[f'{period}_budget_usd']:.2f}   {percent_text}  {status_icon}")
-        print(f"  mode     {s['enforcement_mode']}")
+            budget_rows.append(
+                [period, observed, f"${s[f'{period}_budget_usd']:.2f}", percent_text, status_icon]
+            )
+        budget_table = Table(
+            ["PERIOD", "SPENT", "BUDGET", "USED", ""], budget_rows, aligns="<>>>"
+        )
+        print(budget_table.header())
+        print(budget_table.separator())
+        for row in budget_rows:
+            print(budget_table.row(row))
+        print(f"\n  mode     {s['enforcement_mode']}")
         if s["actions"]:
             print(f"  actions  {', '.join(s['actions'])}")
     elif sub == "check-route" and len(args) >= 2:
@@ -898,14 +989,19 @@ def _handle_audit(args: list[str]) -> int:
         return 1
 
     if sub == "tail":
+        if rest and not re.fullmatch(r"[0-9]+", rest[0]):
+            print(f"ERROR: audit tail takes a number of events, got '{rest[0]}'")
+            print(f"Usage: {_GROUP_USAGE['audit']}")
+            return 2
         limit = int(rest[0]) if rest else 20
         events = tail_events(limit)
         if not events:
             print("No audit events")
             return 0
         print(f"AUDIT · last {len(events)} events\n")
+        audit_rows: list[list[str]] = []
         for evt in events:
-            ts = evt.get("ts", "?")[-8:].replace("T", " ")
+            ts = str(evt.get("ts", "?")).replace("T", " ").rstrip("Z")
             etype = evt.get("type", "?")
             detail = ""
             if etype == "assistant_called":
@@ -918,8 +1014,13 @@ def _handle_audit(args: list[str]) -> int:
                 detail = json.dumps(
                     {k: v for k, v in evt.items() if k not in ("ts", "type")},
                     default=str,
-                )[:80]
-            print(f"  {ts}  {etype:<25s} {detail}")
+                )
+            audit_rows.append([ts, etype, detail])
+        audit_table = Table(["TIME (UTC)", "EVENT", "DETAIL"], audit_rows, max_width=80)
+        print(audit_table.header())
+        print(audit_table.separator())
+        for row in audit_rows:
+            print(audit_table.row(row))
         return 0
 
     elif sub == "search":
@@ -1028,14 +1129,36 @@ def _handle_install(_args: list[str]) -> int:
     subcmd = _args[0]
     rest = _args[1:]
 
+    if subcmd in ("setup", "repair", "update") and any(
+        a in ("-h", "--help") for a in rest
+    ):
+        # Asking for help must never run the action (repair rewrites config.yaml,
+        # update syncs the source tree).
+        print("Usage: hermes-ops-kit install {doctor|setup|repair|update} [options]")
+        print("  doctor [--json] [--verbose] [--python <path>] [--repair]")
+        print("  setup  [--json]               first-install bootstrap")
+        print("  repair                        restore config.yaml from its .bak")
+        print("  update [--dry-run] [--python <path>] [--json]")
+        return 0
+
+    if subcmd in _INSTALL_FLAGS:
+        verdict = _check_flags(
+            f"install {subcmd}",
+            _INSTALL_FLAGS[subcmd],
+            rest,
+            ignored=PRESENTATION_FLAGS if subcmd == "doctor" else frozenset(),
+        )
+        if verdict is not None:
+            return verdict
+
     if subcmd == "setup":
         from .security.plugin_scanner.bootstrap import main as bootstrap_main  # pyright: ignore[reportMissingImports]
 
         return bootstrap_main(rest)
 
     if subcmd == "repair":
-        backup_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml.bak")
-        config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+        backup_path = os.path.join(ops_config_io.home(), "config.yaml.bak")
+        config_path = os.path.join(ops_config_io.home(), "config.yaml")
         if os.path.exists(backup_path):
             from .security.plugin_scanner.enforce import _restore_hermes_config  # pyright: ignore[reportMissingImports]
 
@@ -1081,7 +1204,8 @@ def _handle_install(_args: list[str]) -> int:
                     "Runtime may be degraded — diagnose with: "
                     "hermes-ops-kit install doctor --verbose"
                 )
-        return 0 if (outcome.success or outcome.dry_run) else 1
+        refused = outcome.stopped_at == "ownership"
+        return 0 if (outcome.success or (outcome.dry_run and not refused)) else 1
 
     # Runtime installation reconciler (read-only) — flags:
     #   --json    machine-readable HealthReport
@@ -1164,9 +1288,9 @@ def _handle_install(_args: list[str]) -> int:
     )
 
     # Env file permissions — check .env.generated first, then .env
-    generated = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+    generated = os.path.join(ops_config_io.home(), ".env.generated")
     env_path = (
-        generated if os.path.exists(generated) else os.path.join(ops_config_io.HERMES_HOME, ".env")
+        generated if os.path.exists(generated) else os.path.join(ops_config_io.home(), ".env")
     )
     env_ok = False
     if os.path.exists(env_path):
@@ -1180,26 +1304,40 @@ def _handle_install(_args: list[str]) -> int:
     else:
         checks.append(("~/.hermes/.env", False, "not found"))
 
+    # A failed prerequisite is a finding like any other, so the JSON document, the
+    # displayed health and the exit status always agree. (Only this doctor view
+    # adds them: repair and update plan from the report without them.)
+    from .install_reconciler.evaluator import reclassify
+    from .install_reconciler.state import PREREQUISITE_FAILED, Finding, Severity
+
+    failed = [(name, detail) for name, ok, detail in checks if not ok]
+    for name, detail in failed:
+        report.findings.append(
+            Finding(
+                code=PREREQUISITE_FAILED,
+                severity=Severity.ERROR,
+                observed=f"{name}: {detail}",
+                repairable=False,
+            )
+        )
+    if failed:
+        reclassify(report)
+
     # Print results (human mode only — --json emits a single pure JSON doc)
-    all_ok = True
-    for name, ok, detail in checks:
-        if not ok:
-            all_ok = False
-        if not json_output:
+    if not json_output:
+        check_w = max(display_width(name) for name, _, _ in checks) + 1
+        for name, ok, detail in checks:
             icon = "✅" if ok else "❌"
-            print(f"  {icon} {name}: {detail}")
+            print(f"  {icon} {pad(name + ':', check_w)} {detail}")
 
     # Reconciler section (read-only)
     if json_output:
         print_json(report)
-        reconciler_ok = report.overall.value == "HEALTHY"
     else:
         print()
         print(format_report(report, verbose=verbose))
-        reconciler_ok = report.overall.value == "HEALTHY"
-        reconciler_ok = report.overall.value == "HEALTHY"
 
-    return 0 if (all_ok and reconciler_ok) else 1
+    return 0 if report.overall.value == "HEALTHY" else 1
 
 
 def _handle_plugin(args: list[str]) -> int:
@@ -1224,3 +1362,9 @@ def _handle_preflight(args: list[str]) -> int:
     from .security.plugin_scanner.enforce import main  # pyright: ignore[reportMissingImports]
 
     return main(args)
+
+
+if __name__ == "__main__":  # `python -P -m hermes_ops_kit.commands <subcommand> ...` (slash replies)
+    import sys
+
+    sys.exit(handle_ops_kit_command(sys.argv[1:]))

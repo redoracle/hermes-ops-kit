@@ -720,10 +720,10 @@ class TestApprovalPolicy:
         )
 
         approve_plugin("plugin-a")
-        approve_finding("plugin-b:secrets:rule:hash")
+        approve_finding("plugin-b:secrets:rule:abc123")
         revoke_all()
         approved_a, _ = is_approved("plugin-a")
-        approved_b, _ = is_approved("plugin-b", finding_id="plugin-b:secrets:rule:hash")
+        approved_b, _ = is_approved("plugin-b", finding_id="plugin-b:secrets:rule:abc123")
         assert approved_a is False
         assert approved_b is False
 
@@ -759,13 +759,13 @@ class TestApprovalPolicy:
         from hermes_ops_kit.security.plugin_scanner.policy import (
             approve_plugin,
             get_policy,
-            PLUGIN_POLICY_PATH,
+            plugin_policy_path,
         )
 
         approve_plugin("atomic-test")
         # Policy file should exist, tmp should not
-        assert os.path.exists(PLUGIN_POLICY_PATH)
-        assert not os.path.exists(PLUGIN_POLICY_PATH + ".tmp")
+        assert os.path.exists(plugin_policy_path())
+        assert not os.path.exists(plugin_policy_path() + ".tmp")
         policy = get_policy()
         assert "atomic-test" in policy["approved_plugins"]
 
@@ -1213,7 +1213,7 @@ class TestPreflightEnforcement:
         from hermes_ops_kit.security.plugin_scanner.policy import approve_finding
 
         finding = Finding(
-            id="finding-approved:policy:network:test",
+            id="finding-approved:policy:network:abc123",
             plugin_name="finding-approved",
             category="policy",
             rule="network",
@@ -1263,7 +1263,7 @@ class TestPreflightEnforcement:
 
         config_path = tmp_path / "config.yaml"
         config_path.write_text("plugins:\n  enabled: [existing]\n  disabled: []\n")
-        monkeypatch.setattr(enforce, "HERMES_CONFIG_PATH", str(config_path))
+        monkeypatch.setattr(enforce, "hermes_config_path", lambda: str(config_path))
 
         decisions = enforce.get_enforcement_decisions(
             [
@@ -1318,7 +1318,7 @@ class TestPreflightEnforcement:
 
         config_path = tmp_path / "config.yaml"
         config_path.write_text("plugins:\n  enabled: [unsafe]\n  disabled: []\n")
-        monkeypatch.setattr(enforce, "HERMES_CONFIG_PATH", str(config_path))
+        monkeypatch.setattr(enforce, "hermes_config_path", lambda: str(config_path))
 
         decisions = enforce.get_enforcement_decisions(
             [self._result("unsafe", RiskLevel.HIGH)]
@@ -1336,7 +1336,7 @@ class TestPreflightEnforcement:
         config_path = tmp_path / "config.yaml"
         original = "plugins: [unterminated\n"
         config_path.write_text(original)
-        monkeypatch.setattr(enforce, "HERMES_CONFIG_PATH", str(config_path))
+        monkeypatch.setattr(enforce, "hermes_config_path", lambda: str(config_path))
 
         decisions = enforce.get_enforcement_decisions(
             [self._result("unsafe", RiskLevel.HIGH)]
@@ -1525,7 +1525,7 @@ class TestPreflightEnforcement:
             "plugins:\n  enabled: []\n  disabled: []\n"
             "mcp_servers:\n  writer:\n    enabled: true\n    command: writer\n"
         )
-        monkeypatch.setattr(enforce, "HERMES_CONFIG_PATH", str(config_path))
+        monkeypatch.setattr(enforce, "hermes_config_path", lambda: str(config_path))
         plugin_decisions = enforce.get_enforcement_decisions([])
         mcp_decisions = {
             "ok": True,
@@ -1547,7 +1547,7 @@ class TestPreflightEnforcement:
 
         policy_path = tmp_path / "mcp_policy.json"
         policy_path.write_text("{broken")
-        monkeypatch.setattr(auditor, "_MCP_POLICY_PATH", str(policy_path))
+        monkeypatch.setattr(auditor, "mcp_policy_path", lambda: str(policy_path))
         with pytest.raises(RuntimeError, match="Cannot load MCP policy"):
             auditor._load_mcp_policy()
 
@@ -1556,7 +1556,7 @@ class TestPreflightEnforcement:
 
         policy_path = tmp_path / "mcp_policy.json"
         policy_path.write_text('{"approved_servers": "danger"}')
-        monkeypatch.setattr(auditor, "_MCP_POLICY_PATH", str(policy_path))
+        monkeypatch.setattr(auditor, "mcp_policy_path", lambda: str(policy_path))
         with pytest.raises(RuntimeError, match="approved_servers"):
             auditor._load_mcp_policy()
 
@@ -1565,7 +1565,7 @@ class TestPreflightEnforcement:
 
         policy_path = tmp_path / "plugin_policy.json"
         policy_path.write_text('{"approved_plugins": "danger"}')
-        monkeypatch.setattr(plugin_policy, "PLUGIN_POLICY_PATH", str(policy_path))
+        monkeypatch.setattr(plugin_policy, "plugin_policy_path", lambda: str(policy_path))
         with pytest.raises(RuntimeError, match="approved_plugins"):
             plugin_policy._load_policy()
 
@@ -1879,19 +1879,12 @@ class TestBootstrapFlow:
         import hermes_ops_kit.security.plugin_scanner.enforce as enforce
 
         home = tmp_path / ".hermes"
-        ops_dir = home / "ops-kit"
-        reports_dir = ops_dir / "reports"
         config_path = home / "config.yaml"
         config_path.parent.mkdir(parents=True, exist_ok=True)
         original_config = "plugins:\n  enabled: [unsafe]\n  disabled: []\n"
         config_path.write_text(original_config)
 
-        monkeypatch.setattr(bootstrap, "HERMES_HOME", home)
-        monkeypatch.setattr(bootstrap, "OPS_KIT_DIR", ops_dir)
-        monkeypatch.setattr(bootstrap, "REPORT_DIR", reports_dir)
-        monkeypatch.setattr(
-            bootstrap, "SCANNER_CONFIG_PATH", ops_dir / "plugin_scanner.yaml"
-        )
+        monkeypatch.setattr(bootstrap.ops_config_io, "HERMES_HOME", str(home))
         monkeypatch.setattr(
             bootstrap,
             "DEFAULT_SCANNER_CONFIG",
@@ -1913,7 +1906,7 @@ class TestBootstrapFlow:
             "scan_all",
             lambda profile, force: [self._FakeResult("unsafe", RiskLevel.HIGH)],
         )
-        monkeypatch.setattr(enforce, "HERMES_CONFIG_PATH", str(config_path))
+        monkeypatch.setattr(enforce, "hermes_config_path", lambda: str(config_path))
         monkeypatch.setattr(
             enforce,
             "scan_all",
@@ -1989,10 +1982,7 @@ class TestBootstrapFlow:
         home = tmp_path / ".hermes"
         ops_dir = home / "ops-kit"
         scanner_config = ops_dir / "plugin_scanner.yaml"
-        monkeypatch.setattr(bootstrap, "HERMES_HOME", home)
-        monkeypatch.setattr(bootstrap, "OPS_KIT_DIR", ops_dir)
-        monkeypatch.setattr(bootstrap, "REPORT_DIR", ops_dir / "reports")
-        monkeypatch.setattr(bootstrap, "SCANNER_CONFIG_PATH", scanner_config)
+        monkeypatch.setattr(bootstrap.ops_config_io, "HERMES_HOME", str(home))
         monkeypatch.setattr(bootstrap, "scan_all", lambda profile, force: [])
         monkeypatch.setattr(
             bootstrap,

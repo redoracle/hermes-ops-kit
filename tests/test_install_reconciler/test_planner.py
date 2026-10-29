@@ -33,6 +33,7 @@ def _ctx() -> RuntimeContext:
         python_executable="/venv/bin/python",
         plugin_source="/repo",
         installation_mode=InstallationMode.EDITABLE,
+        runtime_role="standalone",
     )
 
 
@@ -168,7 +169,8 @@ def test_typical_drift_is_safe_and_packaging_only():
 def test_uv_argv_is_explicit_no_shell():
     argv = build_install_argv("uv", "/venv/bin/python", "/repo", editable=True)
     assert argv[:5] == ["uv", "pip", "install", "-p", "/venv/bin/python"]
-    assert argv[5] == "--editable"
+    assert argv[5] == "--no-deps"  # packaging-only: never resolve or upgrade dependencies
+    assert argv[6] == "--editable"
     assert "/repo" in argv
 
 

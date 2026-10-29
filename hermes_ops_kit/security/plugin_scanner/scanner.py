@@ -355,7 +355,10 @@ def scan_plugin(
     )
 
     # ── Store in cache ──────────────────────────────────────────
-    if cache_enabled and not errors:
+    # A tool failure is transient: caching it would keep reporting it (and skipping the tool)
+    # for the whole cache lifetime after the tool is fixed.
+    transient = any(f.rule == "gitleaks:scanner-error" for f in all_findings)
+    if cache_enabled and not errors and not transient:
         ttl = scan_profile.cache_ttl_hours
         try:
             cache_store(
@@ -437,8 +440,8 @@ def scan_all(
 
     # Standard plugin locations
     locations = [
-        os.path.join(ops_config_io.HERMES_HOME, "plugins"),
-        os.path.join(ops_config_io.HERMES_HOME, "skills"),
+        os.path.join(ops_config_io.home(), "plugins"),
+        os.path.join(ops_config_io.home(), "skills"),
     ]
 
     for loc in locations:

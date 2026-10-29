@@ -18,7 +18,13 @@ from contextlib import contextmanager
 from typing import Iterator
 from .. import ops_config_io  # noqa: E402
 
-LOCK_DIR = os.path.join(ops_config_io.HERMES_HOME, "locks")
+def lock_dir() -> str:
+    """Advisory-lock directory of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "locks")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses lock_dir().
+LOCK_DIR = lock_dir()
 _commit_owner = threading.local()
 
 
@@ -58,8 +64,9 @@ def provider_lock(provider: str, timeout: float = 30.0) -> Iterator[None]:
             # safe to rotate openai keys
             rotator.rotate(...)
     """
-    os.makedirs(LOCK_DIR, mode=0o700, exist_ok=True)
-    lock_path = os.path.join(LOCK_DIR, f"{provider}.lock")
+    directory = lock_dir()
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    lock_path = os.path.join(directory, f"{provider}.lock")
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     acquired = False
     deadline = time.monotonic() + timeout

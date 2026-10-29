@@ -9,12 +9,12 @@ To add a new assistant: add one entry to config/assistants.yaml. Zero Python fil
 from __future__ import annotations
 
 import json
-import os
 import time
 import urllib.request
 import urllib.error
 import urllib.parse
 
+from ..env.loader import get_secret
 from ..assistants.base import AssistantConfig, AssistantResult, AssistantTask  # pyright: ignore[reportMissingImports]
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 
@@ -37,9 +37,9 @@ class AssistantClient:
 
     def __init__(self, config: AssistantConfig) -> None:
         self.config = config
-        self.base_url = os.environ.get(config.base_url_env, "")
-        self.api_key = os.environ.get(config.api_key_env, "")
-        self.model = os.environ.get(config.model_env, config.default_model)
+        self.base_url = get_secret(config.base_url_env, "") or ""
+        self.api_key = get_secret(config.api_key_env, "") or ""
+        self.model = get_secret(config.model_env, config.default_model) or config.default_model
         self.timeout = config.max_timeout_seconds
 
     def _validate_transport(self, url: str) -> None:
@@ -71,12 +71,9 @@ class AssistantClient:
 
         Returns a dict compatible with usage_metrics_v2 provider check format.
         """
-        from ..env.loader import load_dotenv
-
-        load_dotenv()
-        # Re-read env vars — they may have been loaded since __init__ was called
-        self.base_url = os.environ.get(self.config.base_url_env, "")
-        self.api_key = os.environ.get(self.config.api_key_env, "")
+        # Re-read — values may have changed since __init__ (scoped read, no os.environ)
+        self.base_url = get_secret(self.config.base_url_env, "") or ""
+        self.api_key = get_secret(self.config.api_key_env, "") or ""
 
         start = time.time()
         cfg = self.config

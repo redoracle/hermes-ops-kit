@@ -15,9 +15,11 @@ from dataclasses import dataclass, field
 
 from ..security.lockfile import LockTimeoutError, provider_lock
 from .cli import run_install_doctor
+from .discovery import classify_ownership
 from .installer_adapter import InstallResult, run_install
 from .planner import RepairPlan, plan_repair
-from .state import HealthReport, HealthStatus, InstallationMode
+from .state import HealthReport, HealthStatus, InstallationMode, mutation_refusal
+from .._subprocess import minimal_env
 
 LOCK_NAME = "install-reconciler"
 LOCK_TIMEOUT = 120.0
@@ -54,6 +56,11 @@ class RepairOutcome:
         return "unknown"
 
 
+def _ownership_of(python: str) -> tuple[str, str]:
+    owned = classify_ownership(python)
+    return owned.role, owned.reason
+
+
 def _snapshot(report: HealthReport) -> dict:
     """Pre-repair state capture (for diagnosis/rollback in M3)."""
     snap: dict = {
@@ -71,6 +78,7 @@ def _snapshot(report: HealthReport) -> dict:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=minimal_env(),
             )
             if sha.returncode == 0:
                 snap["git_sha"] = sha.stdout.strip()
@@ -108,6 +116,14 @@ def _repair_locked(
     plan = plan_repair(report)
     outcome.plan = plan
     if not plan.safe_to_apply:
+        return outcome
+
+    # Re-derive ownership here, not only from the report: the PATH-shim replacement
+    # below mutates before run_install (which has its own check) is ever reached.
+    refusal = mutation_refusal(*_ownership_of(plan.target_python))
+    if refusal:
+        plan.safe_to_apply = False
+        plan.safety_reason = refusal
         return outcome
 
     outcome.snapshot = _snapshot(report)

@@ -253,6 +253,6 @@ def render_env(
 
     with credential_commit_lock():
         content = render_env_content(backend, projection)
-        target = output_path or os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+        target = output_path or os.path.join(ops_config_io.home(), ".env.generated")
         atomic_write(target, content)
     return target

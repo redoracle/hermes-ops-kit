@@ -47,6 +47,24 @@ python3 -m pytest tests/test_security.py -v
 python3 -m pytest tests/cli/ -v
 ```
 
+The real-core contract tests (`tests/test_hermes_contract.py`) skip unless you point them
+at a Hermes checkout and its committed interpreter:
+
+```bash
+export HERMES_AGENT_SOURCE="$HOME/.hermes/hermes-agent"
+# the environment Hermes itself runs, not an arbitrary venv under ~/.hermes/installs:
+export HERMES_RUNTIME_PYTHON="$(python3 - <<'PY'
+import os, sys
+sys.path.insert(0, os.environ["HERMES_AGENT_SOURCE"])
+from pathlib import Path
+from pm.environments import committed_venv, venv_python
+print(venv_python(committed_venv(Path(os.environ["HERMES_AGENT_SOURCE"]))))
+PY
+)"
+```
+
+Tests use a temporary `HERMES_HOME`; one that resolves the real `~/.hermes` fails by design.
+
 ## Architecture
 
 See `docs/architecture.md` for the module map and data flow. Key conventions:
@@ -76,6 +94,9 @@ See `docs/architecture.md` for the module map and data flow. Key conventions:
 - [ ] Ruff clean: `make check`
 - [ ] Docs updated if you changed CLI behavior or config formats
 - [ ] Relevant CHANGELOG entry added
+
+Dependabot PRs are integrated by a maintainer; see the *Dependency updates* section of
+`docs/Operations Runbook.md`.
 
 ## Boundaries
 

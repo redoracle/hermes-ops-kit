@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import os
 import threading
+import urllib.error
+import urllib.request
 import uuid
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from typing import Any
 
 from ...env import loader as _env_loader
+from ...security.url_policy import require_public_url
 
 
 _DEFAULT_CACHE_DIR = "~/.hermes/cache/images"
@@ -70,6 +74,75 @@ def ensure_cache_dir() -> str:
     d = _cache_dir()
     os.makedirs(d, exist_ok=True)
     return d
+
+
+class _HttpRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to http(s) hosts that pass the same public-address rule."""
+
+    def __init__(self, allow_origins: Iterable[tuple[str, int] | None] = ()):
+        self._allow_origins = tuple(allow_origins)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        try:
+            require_public_url(newurl, self._allow_origins)
+        except ValueError as exc:
+            raise urllib.error.URLError(f"redirect refused: {exc}") from exc
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _http_opener(allow_origins: Iterable[tuple[str, int] | None] = ()) -> urllib.request.OpenerDirector:
+    """An opener that speaks http(s) only: no file:, ftp: or data: handlers."""
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.HTTPHandler(),
+        urllib.request.HTTPSHandler(),
+        _HttpRedirects(allow_origins),
+        urllib.request.UnknownHandler(),  # a non-http(s) URL raises instead of returning None
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    return opener
+
+
+def download_image(
+    url: str,
+    path: str,
+    timeout: int = 60,
+    max_bytes: int = 25 * 1024 * 1024,
+    allow_origins: Iterable[tuple[str, int] | None] = (),
+) -> None:
+    """Fetch an image URL returned by a provider into ``path``.
+
+    The URL comes from a provider response, so it is untrusted: only http(s) is
+    fetched (a ``file://`` URL would otherwise copy a local secret into the image
+    cache, whose path is handed back to Hermes), hosts on loopback or private networks
+    are refused unless listed in ``allow_origins`` (the adapter's own configured host),
+    the size is capped, and the file appears atomically.
+    """
+    require_public_url(url, allow_origins)
+    req = urllib.request.Request(url, headers={"User-Agent": "Hermes-OpsKit/0.1"})
+    tmp = path + ".download"
+    try:
+        with _http_opener(allow_origins).open(req, timeout=timeout) as resp:
+            with open(tmp, "wb") as f:
+                received = 0
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    received += len(chunk)
+                    if received > max_bytes:
+                        raise ValueError(
+                            f"Image exceeds {max_bytes // (1024 * 1024)}MB cap"
+                        )
+                    f.write(chunk)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def make_output_path(provider: str, ext: str = "png") -> str:

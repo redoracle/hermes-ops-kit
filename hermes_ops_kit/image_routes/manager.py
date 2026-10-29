@@ -27,6 +27,7 @@ import sys
 
 
 from ..ui.console import Console
+from ..ui.output import Table
 
 from ..ops_config_io import deployed_or_bundled, load_yaml, save_yaml
 
@@ -77,16 +78,27 @@ def cmd_routes(_args: argparse.Namespace) -> None:
         "no-quota": con.yellow("NO QUOTA"),  # key exists but API rejected it
     }
 
+    image_rows = []
     for key, cfg in routes.items():
         hr = hc.get("routes", {}).get(key, {})
         raw_status = hr.get("status", "offline")
         status = STATUS_LABELS.get(raw_status, con.red(raw_status.upper()))
-        default_marker = con.bold(" ★") if key == config.get("default_route") else ""
-        con.print(
-            f"  {key:<10s} {cfg.get('provider', '?'):<16s} "
-            f"{cfg.get('model', '?'):<28s} {status:<26s} "
-            f"{cfg.get('cost_class', '?'):<10s} {cfg.get('label', '')}{default_marker}"
+        default_marker = " ★" if key == config.get("default_route") else ""
+        image_rows.append(
+            [
+                key,
+                cfg.get("provider", "?"),
+                cfg.get("model", "?"),
+                status,
+                cfg.get("cost_class", "?"),
+                f"{cfg.get('label', '')}{default_marker}",
+            ]
         )
+    table = Table(["ROUTE", "PROVIDER", "MODEL", "STATUS", "COST", "LABEL"], image_rows)
+    con.print(con.bold(table.header()))
+    con.print(con.dim(table.separator()))
+    for row in image_rows:
+        con.print(table.row(row))
 
     con.print()
     con.print("Policies:")

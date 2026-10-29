@@ -43,7 +43,6 @@ from typing import Any
 # ─── Constants ────────────────────────────────────────────────────────
 
 from . import ops_config_io  # noqa: E402
-from .ops_config_io import OPS_KIT_DIR as CONFIG_DIR  # noqa: E402
 
 
 def _config_dir() -> str:
@@ -62,12 +61,13 @@ def _lock_path() -> str:
     return os.path.join(ops_config_io.ops_kit_dir(), "assistants.yaml.lock")
 
 
-BACKUP_DIR = os.path.join(CONFIG_DIR, "backups")
-DEFAULT_CONFIG = os.path.join(CONFIG_DIR, "assistants.yaml")
+# Deprecated import-time aliases (compatibility window); the manager uses the functions above.
+BACKUP_DIR = _backup_dir()
+DEFAULT_CONFIG = _default_config()
 BUNDLED_CONFIG = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "config", "assistants.yaml"
 )
-LOCK_PATH = os.path.join(CONFIG_DIR, "assistants.yaml.lock")
+LOCK_PATH = _lock_path()
 
 VALID_TYPES = {
     "remote_hermes",
@@ -109,6 +109,7 @@ ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 # ─── Secret scanner (uses shared security.redaction) ──────────────────
 
 from .security.redaction import SECRET_PATTERNS  # noqa: E402  # pyright: ignore[reportMissingImports]
+from .security.url_policy import open_without_redirects, require_http_url  # noqa: E402
 
 SUSPICIOUS_KEYS = {
     "api_key",
@@ -759,6 +760,10 @@ def _discover_assistant(url: str, assistant_id: str | None = None) -> dict:
 
     # Normalize URL
     base = url.rstrip("/")
+    try:
+        require_http_url(base)
+    except ValueError as exc:
+        return {"ok": False, "error": f"Assistant URL rejected: {exc}"}
     agent_url = f"{base}/.well-known/agent.json"
 
     try:
@@ -844,6 +849,10 @@ def _ping_assistant(config_path: str, assistant_id: str, timeout: int = 15) -> d
 
     if not base_url:
         return {"ok": False, "error": f"{base_url_env} not set"}
+    try:
+        require_http_url(base_url)
+    except ValueError as exc:
+        return {"ok": False, "error": f"{base_url_env} rejected: {exc}"}
     if not api_key:
         return {"ok": False, "error": f"{api_key_env} not set"}
 
@@ -870,7 +879,7 @@ def _ping_assistant(config_path: str, assistant_id: str, timeout: int = 15) -> d
                 "Authorization": f"Bearer {api_key}",
             },
         )
-        resp = urllib.request.urlopen(req, timeout=timeout)
+        resp = open_without_redirects(req, timeout=timeout)
         body = json.loads(resp.read().decode())
         duration = int((time.time() - start) * 1000)
         text = body.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -1283,6 +1292,10 @@ def main() -> None:
                 {"ok": result.get("ok", False), "command": "ping", "result": result},
                 as_json=args.json,
             )
+            if not result.get("ok", False):
+                # a failed ping must not exit 0: scripts and monitors rely on the status
+                missing = "not found in config" in str(result.get("error", ""))
+                sys.exit(EXIT_NOT_FOUND if missing else EXIT_NETWORK)
 
         elif args.command == "discover":
             dry = getattr(args, "preview", False) or getattr(args, "dry_run", False)

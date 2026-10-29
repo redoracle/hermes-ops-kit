@@ -15,8 +15,20 @@ import os
 import time
 from .. import ops_config_io  # noqa: E402
 
-AUDIT_DIR = os.path.join(ops_config_io.HERMES_HOME, "ops-kit/audit")
-AUDIT_PATH = os.path.join(AUDIT_DIR, "events.jsonl")
+
+def audit_dir() -> str:
+    """Audit directory of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "ops-kit/audit")
+
+
+def audit_path() -> str:
+    """Audit ledger file of the active profile, resolved at call time."""
+    return os.path.join(audit_dir(), "events.jsonl")
+
+
+# Deprecated import-time aliases (compatibility window); the kit uses the functions.
+AUDIT_DIR = audit_dir()
+AUDIT_PATH = audit_path()
 
 VALID_EVENT_TYPES = {
     "route_changed",
@@ -83,7 +95,7 @@ def write_event(event_type: str, data: dict | None = None, **kwargs) -> None:
             f"Invalid event type: {event_type}. Valid: {sorted(VALID_EVENT_TYPES)}"
         )
 
-    os.makedirs(AUDIT_DIR, exist_ok=True)
+    os.makedirs(audit_dir(), exist_ok=True)
 
     event = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -93,7 +105,7 @@ def write_event(event_type: str, data: dict | None = None, **kwargs) -> None:
         event.update(data)
     event.update(kwargs)
 
-    with open(AUDIT_PATH, "a") as f:
+    with open(audit_path(), "a") as f:
         f.write(json.dumps(event, default=str) + "\n")
         f.flush()
         os.fsync(f.fileno())
@@ -101,10 +113,10 @@ def write_event(event_type: str, data: dict | None = None, **kwargs) -> None:
 
 def tail_events(limit: int = 20) -> list[dict]:
     """Return the most recent N events."""
-    if not os.path.exists(AUDIT_PATH):
+    if not os.path.exists(audit_path()):
         return []
     events = []
-    with open(AUDIT_PATH) as f:
+    with open(audit_path()) as f:
         for line in f:
             line = line.strip()
             if line:
@@ -123,10 +135,10 @@ def search_events(
     limit: int = 100,
 ) -> list[dict]:
     """Search audit events with optional filters."""
-    if not os.path.exists(AUDIT_PATH):
+    if not os.path.exists(audit_path()):
         return []
     results = []
-    with open(AUDIT_PATH) as f:
+    with open(audit_path()) as f:
         for line in f:
             line = line.strip()
             if not line:

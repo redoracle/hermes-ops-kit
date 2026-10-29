@@ -19,8 +19,11 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 
+from .depcheck import COLLECT_SOURCE
 from .fingerprint import actual_fingerprint
 from .state import (
     ActualInstallation,
@@ -29,6 +32,8 @@ from .state import (
     PluginEntryPoint,
     RuntimeContext,
 )
+from .. import ops_config_io
+from .._subprocess import minimal_env
 
 PROBE_TIMEOUT = 30
 
@@ -37,6 +42,7 @@ PROBE_TIMEOUT = 30
 # runtime actually work" authority.
 _PROBE = r"""
 import json, sys, sysconfig
+__COLLECT_ENVIRONMENT__
 from pathlib import Path
 from importlib.metadata import distributions, entry_points
 
@@ -63,6 +69,7 @@ out["dist_name"] = d.metadata["Name"]
 out["dist_version"] = d.version
 out["dist_info"] = str(getattr(d, "_path", ""))
 out["requires"] = [str(r) for r in d.requires or []]
+out["environment"] = collect_environment()
 
 du = d.read_text("direct_url.json")
 out["direct_url"] = du
@@ -112,6 +119,9 @@ print(json.dumps(out))
 """
 
 
+_PROBE = _PROBE.replace("__COLLECT_ENVIRONMENT__", COLLECT_SOURCE)
+
+
 def _read_shebang(path: str) -> str:
     try:
         with open(path, "rb") as fh:
@@ -154,6 +164,7 @@ def discover_actual_state(
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT,
+            env=minimal_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         actual.probe_error = f"{type(exc).__name__}: {exc}"
@@ -187,6 +198,9 @@ def discover_actual_state(
     actual.is_editable = bool(data.get("editable"))
     actual.origin_url = data.get("origin_url", "")
     actual.requires = data.get("requires", [])
+    environment = data.get("environment") or {}
+    actual.installed_distributions = environment.get("installed", {})
+    actual.marker_environment = environment.get("markers", {})
     if data.get("dist_count", 0) > 1:
         actual.extra_distributions = ["<multiple dist-info matched>"]
 
@@ -228,6 +242,105 @@ def discover_actual_state(
     return actual
 
 
+@dataclass(frozen=True)
+class Ownership:
+    """Who owns an interpreter's environment, and the evidence for it.
+
+    ``managed``    inside a Hermes-owned location: direct mutation is refused.
+    ``standalone`` provably outside every Hermes-owned location.
+    ``unknown``    could not be established (unresolvable target, unreadable
+                   core record): treated like ``managed``.
+    """
+
+    role: str
+    reason: str
+
+    @property
+    def mutable(self) -> bool:
+        return self.role == "standalone"
+
+
+def _same_or_inside(path: str, root: str) -> bool:
+    """True when *path* is *root* or lies below it, by real filesystem identity.
+
+    ``samefile`` on each ancestor, not string comparison: a case-variant spelling
+    on a case-insensitive filesystem, a symlink or a hardlink is still the same
+    directory and must not slip past a textual prefix test.
+    """
+    if not os.path.exists(root):
+        return False
+    start = Path(path)
+    for ancestor in (start, *start.parents):
+        try:
+            if os.path.samefile(ancestor, root):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _hermes_owned_roots() -> list[tuple[str, str]]:
+    """(root, label) pairs of locations that Hermes owns; read-only discovery.
+
+    Everything under the install state (committed environments, package-manager
+    runtime) and the managed Python store is Hermes'; so is an environment directly
+    inside the Hermes root, and the core source tree's own environments.
+    """
+    default_root = ops_config_io.default_home()
+    roots: list[tuple[str, str]] = [
+        (os.path.join(default_root, "installs"), "core install state"),
+        (os.path.join(default_root, "tools"), "core managed Python store"),
+        (os.path.join(default_root, "venv"), "environment in the Hermes root"),
+        (os.path.join(default_root, ".venv"), "environment in the Hermes root"),
+    ]
+    sources = [
+        os.environ.get("HERMES_AGENT_SOURCE"),
+        os.environ.get("HERMES_INSTALL_ROOT"),
+        os.path.join(default_root, "hermes-agent"),
+    ]
+    for source in dict.fromkeys(filter(None, sources)):
+        source = os.path.abspath(os.path.expanduser(source))
+        for name in ("venv", ".venv"):
+            roots.append((os.path.join(source, name), "core source tree environment"))
+    return roots
+
+
+def classify_ownership(python_executable: str) -> Ownership:
+    """Classify the environment of *python_executable* from read-only evidence.
+
+    The environment prefix is taken from the interpreter path itself (never by
+    resolving the binary: a venv's ``bin/python`` points at its base interpreter).
+    Both the prefix as written and its resolved form are checked, so a symlinked
+    environment cannot hide inside a Hermes-owned location.
+    """
+    exe = os.path.abspath(os.path.expanduser(str(python_executable)))
+    if not os.path.exists(exe):
+        return Ownership("unknown", f"target interpreter not found: {exe}")
+    prefix = os.path.dirname(os.path.dirname(exe))
+    candidates = {prefix, os.path.realpath(prefix)}
+
+    # Authoritative when core's package manager is already loaded in this process.
+    environments = sys.modules.get("pm.environments")
+    paths = sys.modules.get("pm.paths")
+    committed = getattr(environments, "committed_venv", None)
+    install_root = getattr(paths, "install_root", None)
+    if callable(committed) and callable(install_root):
+        try:
+            venv = committed(install_root())
+        except Exception as exc:  # corrupt/outside-install record: do not guess
+            return Ownership("unknown", f"core environment record unreadable: {exc}")
+        if venv is not None:
+            owned = {os.path.abspath(str(venv)), os.path.realpath(str(venv))}
+            if candidates & owned:
+                return Ownership("managed", f"core's committed environment: {venv}")
+
+    for candidate in candidates:
+        for root, label in _hermes_owned_roots():
+            if _same_or_inside(candidate, root):
+                return Ownership("managed", f"inside {label}: {root}")
+    return Ownership("standalone", "outside every Hermes-owned location")
+
+
 def resolve_runtime_context(
     target_python: str | None = None,
     plugin_source: str | None = None,
@@ -238,16 +351,16 @@ def resolve_runtime_context(
     omitted the current interpreter is used, but that choice is recorded
     explicitly in the context.
     """
-    import sys
-
     # NB: os.path.abspath, NOT Path.resolve() — a venv's bin/python is a
     # symlink to the base interpreter; resolving it would probe the BASE
     # python (no venv site-packages) and report MISSING_DISTRIBUTION on a
     # perfectly healthy venv install.
     exe = os.path.abspath(os.path.expanduser(str(target_python or sys.executable)))
     source = str(Path(plugin_source).resolve()) if plugin_source else ""
+    ownership = classify_ownership(exe)
     return RuntimeContext(
         python_executable=exe,
         plugin_source=source,
-        runtime_role="dev",
+        runtime_role=ownership.role,
+        ownership_reason=ownership.reason,
     )

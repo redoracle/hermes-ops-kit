@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from . import ops_config_io  # noqa: E402
+from .provider_keys import provider_key_env  # noqa: E402
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
@@ -133,7 +134,7 @@ def extract_route_evidence(
         List of evidence dicts with keys: ts, task, provider, model, mode, raw
     """
     if log_path is None:
-        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs", "agent.log")
+        log_path = os.path.join(ops_config_io.home(), "logs", "agent.log")
     if since is None:
         since = _config_mtime(ops_config_io.hermes_config())
 
@@ -186,13 +187,10 @@ def check_credential_gaps(
 
         # Custom providers (custom:<name>) carry their own key_env in the
         # Hermes config — resolve it instead of relying on the static map.
-        if provider_lower.startswith("custom:"):
-            for cp in cfg.get("custom_providers", []) or []:
-                if f"custom:{cp.get('name', '')}" == provider_lower:
-                    key_env = str(cp.get("key_env", "")).strip()
-                    if key_env and env_vars.get(key_env, "").strip():
-                        return True, f"{key_env} set"
-                    break
+        key_env = provider_key_env(cfg, provider)
+        if key_env or provider_lower.startswith("custom:"):
+            if key_env and env_vars.get(key_env, "").strip():
+                return True, f"{key_env} set"
             return False, f"no credential for {provider}"
         key = first_available_key(provider_lower, env_vars)
         if key:
@@ -259,7 +257,7 @@ def verify_all_routes(
     if hermes_config_path is None:
         hermes_config_path = ops_config_io.hermes_config()
     if log_path is None:
-        log_path = os.path.join(ops_config_io.HERMES_HOME, "logs", "agent.log")
+        log_path = os.path.join(ops_config_io.home(), "logs", "agent.log")
 
     config_mtime = _config_mtime(hermes_config_path)
     cfg = _load_yaml(hermes_config_path)

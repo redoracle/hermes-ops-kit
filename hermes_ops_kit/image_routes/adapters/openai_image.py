@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import base64
 import os
-import urllib.request
+from ...security.url_policy import origin_of
 
 
-from ...provider_catalog import first_available_key, has_credential, key_envs_for  # noqa: E402
+from ...provider_catalog import has_credential, key_envs_for, provider_key  # noqa: E402
 
 from ...image_routes.adapters.base import (
+    download_image,
     BaseImageAdapter,
-    load_dotenv,
     ensure_cache_dir,
     make_output_path,
     build_envelope,
@@ -48,7 +48,6 @@ class OpenAIImageAdapter(BaseImageAdapter):
 
     def is_available(self) -> bool:
         """Check that OPENAI_API_KEY is set and the SDK is importable."""
-        load_dotenv()
         if not has_credential("openai"):
             return False
         try:
@@ -69,8 +68,7 @@ class OpenAIImageAdapter(BaseImageAdapter):
     ) -> dict:
         import openai  # pyright: ignore[reportMissingImports]
 
-        load_dotenv()
-        api_key = os.environ.get(first_available_key("openai") or "")
+        api_key = provider_key("openai")
         if not api_key:
             return build_envelope(
                 False,
@@ -127,7 +125,11 @@ class OpenAIImageAdapter(BaseImageAdapter):
                 elif url:
                     # Download from URL (DALL-E 3 returns this)
                     path = make_output_path(self.provider_name, "png")
-                    self._download_image(url, path)
+                    self._download_image(
+                        url,
+                        path,
+                        allow_origins=(origin_of(os.environ.get("OPENAI_BASE_URL")),),
+                    )
                     image_paths.append(path)
 
         except Exception as e:
@@ -168,30 +170,13 @@ class OpenAIImageAdapter(BaseImageAdapter):
         )
 
     @staticmethod
-    def _download_image(url: str, path: str, max_bytes: int = 25 * 1024 * 1024) -> None:
-        """Download an image from a URL to a local path, streaming in chunks.
-
-        Enforces a size cap to prevent memory exhaustion.
-        """
-        req = urllib.request.Request(url, headers={"User-Agent": "Hermes-OpsKit/0.1"})
-        tmp = path + ".download"
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                with open(tmp, "wb") as f:
-                    received = 0
-                    while True:
-                        chunk = resp.read(8192)
-                        if not chunk:
-                            break
-                        received += len(chunk)
-                        if received > max_bytes:
-                            raise ValueError(
-                                f"Image exceeds {max_bytes // (1024 * 1024)}MB cap"
-                            )
-                        f.write(chunk)
-            os.chmod(tmp, 0o644)
-            os.replace(tmp, path)
-        except Exception:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+    def _download_image(
+        url: str,
+        path: str,
+        max_bytes: int = 25 * 1024 * 1024,
+        allow_origins: tuple[tuple[str, int] | None, ...] = (),
+    ) -> None:
+        """Download a provider-returned image URL (http(s) only, size-capped)."""
+        download_image(
+            url, path, timeout=60, max_bytes=max_bytes, allow_origins=allow_origins
+        )

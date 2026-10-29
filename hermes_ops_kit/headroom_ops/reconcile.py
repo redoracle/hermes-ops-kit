@@ -31,6 +31,7 @@ from typing import Any
 from ..headroom_ops import daemon  # noqa: E402
 from ..headroom_ops.settings import load_settings  # noqa: E402
 from ..ops_config_io import backup_file, hermes_config, load_yaml, save_yaml  # noqa: E402
+from ..provider_keys import endpoint as _endpoint, find_provider_block  # noqa: E402
 
 PROVIDER_NAME = "headroom"
 
@@ -47,21 +48,31 @@ def is_proxied(hermes_cfg: dict, settings: dict) -> bool:
     return bool(base) and base == str(settings["base_url"]).rstrip("/")
 
 
+def resolve_provider_entry(hermes_cfg: dict, provider: str) -> dict[str, Any]:
+    """The endpoint block Hermes would use for ``provider``, or ``{}``.
+
+    A block without an endpoint is skipped. The result always has ``base_url`` (core also
+    accepts ``url`` and ``api``) and keeps ``key_env`` / ``api_key_env`` as written.
+    """
+    entry = find_provider_block(hermes_cfg, provider, need_endpoint=True)
+    return {**entry, "base_url": _endpoint(entry)} if entry else {}
+
+
 def upstream_provider_entry(
     hermes_cfg: dict, settings: dict
 ) -> tuple[str, dict[str, Any]]:
-    """(provider_name, providers entry) of the real upstream provider.
+    """(provider_name, endpoint entry) of the real upstream provider.
 
     When already proxied the previous primary is read from the snapshot;
-    otherwise it is the current ``model.provider``.
+    otherwise it is the current ``model.provider``. The entry comes from
+    ``providers:`` or from ``custom_providers:`` (see ``resolve_provider_entry``).
     """
     model = hermes_cfg.get("model") or {}
     provider = str(model.get("provider", "")).strip()
     if provider.lower() == PROVIDER_NAME:
         snap = load_snapshot(settings)
         provider = str(((snap.get("model") or {}).get("provider")) or "").strip()
-    entry = (hermes_cfg.get("providers") or {}).get(provider)
-    return provider, entry if isinstance(entry, dict) else {}
+    return provider, resolve_provider_entry(hermes_cfg, provider)
 
 
 def resolve_primary_provider(hermes_cfg: dict) -> tuple[str, bool]:
@@ -226,11 +237,14 @@ def _restore_direct(
 
     model = hermes_cfg.setdefault("model", {})
     model.update(snap_model)
-    providers = hermes_cfg.get("providers") or {}
     if snap.get("had_headroom_provider") and snap.get("prev_headroom_entry"):
-        providers[PROVIDER_NAME] = snap["prev_headroom_entry"]
+        hermes_cfg.setdefault("providers", {})[PROVIDER_NAME] = snap["prev_headroom_entry"]
     else:
-        providers.pop(PROVIDER_NAME, None)
+        providers = hermes_cfg.get("providers")
+        if isinstance(providers, dict):
+            providers.pop(PROVIDER_NAME, None)
+            if not providers and snap.get("had_providers_key") is False:
+                del hermes_cfg["providers"]  # enable created the key; leave none behind
     for aux_key, prev in (snap.get("aux") or {}).items():
         slot = (hermes_cfg.get("auxiliary") or {}).get(aux_key)
         if isinstance(slot, dict):
@@ -263,7 +277,7 @@ def _reconcile_enable(
     if not upstream_url or not key_env:
         result["warnings"].append(
             f"primary provider '{provider}' has no OpenAI-compatible "
-            f"providers entry (base_url + api_key_env) — cannot proxy it; "
+            f"providers/custom_providers entry (base_url + key_env) — cannot proxy it; "
             f"keeping the direct route"
         )
         if proxied:
@@ -319,6 +333,7 @@ def _reconcile_enable(
                 PROVIDER_NAME in (hermes_cfg.get("providers") or {}) and not ours
             ),
             "prev_headroom_entry": (None if ours else copy.deepcopy(prev_entry)),
+            "had_providers_key": "providers" in hermes_cfg,
             "aux": {},
         }
     else:

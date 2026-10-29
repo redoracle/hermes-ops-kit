@@ -13,6 +13,7 @@ import sysconfig
 from pathlib import Path
 
 from .._subprocess import package_root
+from .depcheck import collect_environment
 from .evaluator import evaluate
 from .fingerprint import actual_fingerprint
 from .resolver import resolve_expected_state
@@ -45,6 +46,9 @@ def discover_in_process(package_name: str = "hermes-ops-kit") -> ActualInstallat
     actual.version = dist.version
     actual.dist_info_path = str(getattr(dist, "_path", ""))
     actual.requires = [str(r) for r in dist.requires or []]
+    environment = collect_environment()  # in-process: stdlib metadata only
+    actual.installed_distributions = environment["installed"]
+    actual.marker_environment = environment["markers"]
 
     du = dist.read_text("direct_url.json")
     if du:

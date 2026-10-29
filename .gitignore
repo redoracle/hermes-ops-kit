@@ -45,3 +45,6 @@ CLAUDE.md
 
 docs/ROUND_BALANCING.md
 dist/
+
+# Node tooling for the release job (npm ci)
+node_modules/

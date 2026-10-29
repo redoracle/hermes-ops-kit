@@ -7,9 +7,14 @@ whether a repair is actually safe to apply.
 
 from __future__ import annotations
 
+from .depcheck import check_dependencies
+
 from .state import (
     CONSOLE_ENTRYPOINT_DRIFT,
+    DEPENDENCY_CHECK_UNAVAILABLE,
     DEPENDENCY_DECLARATION_DRIFT,
+    INCOMPATIBLE_DEPENDENCY,
+    MISSING_DEPENDENCY,
     DISTRIBUTION_METADATA_DRIFT,
     EDITABLE_TOPOLOGY_DRIFT,
     GENERATED_EXECUTABLE_DRIFT,
@@ -265,6 +270,38 @@ def evaluate(
             )
         )
 
+    # Resolved dependencies: are the declared requirements really satisfied in the
+    # TARGET environment? Distinct from declaration drift above. Skipped (unknown,
+    # not asserted healthy) when the observation did not include installed packages.
+    if actual.installed_distributions:
+        problems, unavailable = check_dependencies(
+            actual.requires, actual.installed_distributions, actual.marker_environment
+        )
+        for problem in problems:
+            missing = problem.kind == "missing"
+            findings.append(
+                Finding(
+                    code=MISSING_DEPENDENCY if missing else INCOMPATIBLE_DEPENDENCY,
+                    severity=Severity.ERROR,
+                    observed=(
+                        f"{problem.requirement} is not installed"
+                        if missing
+                        else f"installed version {problem.installed} does not satisfy "
+                        f"{problem.requirement}"
+                    ),
+                    expected=problem.requirement,
+                    repairable=False,
+                )
+            )
+        if unavailable:
+            findings.append(
+                Finding(
+                    code=DEPENDENCY_CHECK_UNAVAILABLE,
+                    severity=Severity.INFO,
+                    observed=f"dependencies not verified: {unavailable}",
+                )
+            )
+
     # Packaging metadata drift via ABI fingerprint (same version, changed ABI)
     if actual.fingerprint and actual.fingerprint != expected.fingerprint:
         findings.append(
@@ -347,6 +384,12 @@ def _missing_distribution(
         expected=f"{expected.package_name} {expected.version}".strip(),
         repairable=True,
     )
+
+
+def reclassify(report: HealthReport) -> HealthReport:
+    """Recompute ``report.overall`` after findings were added to it."""
+    report.overall = _classify(report.findings)
+    return report
 
 
 def _classify(findings: list[Finding]) -> HealthStatus:

@@ -10,8 +10,11 @@ Audit trail: ~/.hermes/ops-kit/plugin_policy_audit.jsonl
 from __future__ import annotations
 
 import json
+import errno
 import hashlib
 import os
+import re
+import stat
 import tempfile
 import time
 from typing import Any
@@ -28,14 +31,23 @@ from ... import ops_config_io  # noqa: E402
 # Allow tests to override the policy path via env var to avoid
 # wiping the production policy file during test runs.
 _POLICY_PATH_ENV = "HERMES_PLUGIN_POLICY_PATH"
-PLUGIN_POLICY_PATH = os.environ.get(
-    _POLICY_PATH_ENV,
-    os.path.join(ops_config_io.HERMES_HOME, "ops-kit/plugin_policy.json"),
-)
-PLUGIN_AUDIT_PATH = os.path.join(
-    os.path.dirname(PLUGIN_POLICY_PATH),
-    "plugin_policy_audit.jsonl",
-)
+def plugin_policy_path() -> str:
+    """Plugin policy file: the env override if set, else the active profile's."""
+    return os.environ.get(_POLICY_PATH_ENV) or os.path.join(
+        ops_config_io.home(), "ops-kit/plugin_policy.json"
+    )
+
+
+def plugin_audit_path() -> str:
+    """Plugin policy audit log, next to the policy file."""
+    return os.path.join(
+        os.path.dirname(plugin_policy_path()), "plugin_policy_audit.jsonl"
+    )
+
+
+# Deprecated import-time aliases (compatibility window); the kit uses the functions.
+PLUGIN_POLICY_PATH = plugin_policy_path()
+PLUGIN_AUDIT_PATH = plugin_audit_path()
 
 
 # ── Policy I/O ───────────────────────────────────────────────────────
@@ -43,9 +55,10 @@ PLUGIN_AUDIT_PATH = os.path.join(
 
 def _load_policy() -> dict[str, Any]:
     """Load and validate plugin policy, failing closed on malformed content."""
-    if os.path.exists(PLUGIN_POLICY_PATH):
+    policy_path = plugin_policy_path()
+    if os.path.exists(policy_path):
         try:
-            with open(PLUGIN_POLICY_PATH) as f:
+            with open(policy_path) as f:
                 return _validate_policy(json.load(f))
         except (json.JSONDecodeError, OSError, RuntimeError) as exc:
             raise RuntimeError(f"Cannot load plugin policy: {exc}") from exc
@@ -263,7 +276,8 @@ def apply_rule_overrides(
 
 def _save_policy(policy: dict[str, Any]) -> None:
     """Atomic write of plugin policy (tmp + os.replace)."""
-    policy_dir = os.path.dirname(PLUGIN_POLICY_PATH)
+    policy_path = plugin_policy_path()
+    policy_dir = os.path.dirname(policy_path)
     os.makedirs(policy_dir, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".plugin-policy-", dir=policy_dir)
     try:
@@ -272,8 +286,8 @@ def _save_policy(policy: dict[str, Any]) -> None:
             json.dump(policy, f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, PLUGIN_POLICY_PATH)
-        os.chmod(PLUGIN_POLICY_PATH, 0o600)
+        os.replace(tmp, policy_path)
+        os.chmod(policy_path, 0o600)
     finally:
         try:
             os.unlink(tmp)
@@ -283,17 +297,149 @@ def _save_policy(policy: dict[str, Any]) -> None:
 
 def _audit_log(entry: dict[str, Any]) -> None:
     """Append an audit entry to the JSONL audit trail."""
-    os.makedirs(os.path.dirname(PLUGIN_AUDIT_PATH), exist_ok=True)
+    audit_path = plugin_audit_path()
+    os.makedirs(os.path.dirname(audit_path), exist_ok=True)
     entry.setdefault("ts", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
         flags |= getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(PLUGIN_AUDIT_PATH, flags, 0o600)
+        fd = os.open(audit_path, flags, 0o600)
         with os.fdopen(fd, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        os.chmod(PLUGIN_AUDIT_PATH, 0o600)
+        os.chmod(audit_path, 0o600)
     except OSError:
         pass
+
+
+# ── Policy import / export ───────────────────────────────────────────
+
+MAX_POLICY_IMPORT_BYTES = 1024 * 1024
+_APPROVAL_KEYS = ("approved_plugins", "approved_findings", "approved_categories")
+_RESTRICTION_KEYS = ("disabled_plugins", "blocked_plugins")
+
+
+class PolicyImportError(RuntimeError):
+    """The file is not an acceptable policy, or the import needs a confirmation."""
+
+
+def export_policy() -> dict[str, Any]:
+    """The current policy, exactly as ``import_policy`` accepts it."""
+    return _load_policy()
+
+
+def _read_policy_file(path: str) -> tuple[dict[str, Any], str]:
+    # O_NOFOLLOW and a read bounded on the open descriptor: nothing can be swapped in
+    # between a check and the read.
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as f:
+            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                raise PolicyImportError(
+                    "Policy file must be a regular file (no symlinks)"
+                )
+            raw = f.read(MAX_POLICY_IMPORT_BYTES + 1)
+    except OSError as exc:
+        if exc.errno == errno.ENOENT:
+            message = f"Policy file not found: {os.path.basename(path)}"
+        elif exc.errno in (errno.ELOOP, errno.EISDIR):
+            message = "Policy file must be a regular file (no symlinks)"
+        else:
+            message = f"Cannot open policy file: {exc.strerror}"
+        raise PolicyImportError(message) from exc
+    if len(raw) > MAX_POLICY_IMPORT_BYTES:
+        raise PolicyImportError("Policy file is larger than 1 MiB")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise PolicyImportError(f"Policy file is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict) or data.get("version") != 2:
+        raise PolicyImportError("Policy file must be a version 2 policy object")
+    try:
+        validated = _validate_policy(data)
+    except RuntimeError as exc:
+        raise PolicyImportError(str(exc)) from exc
+    known = _default_policy()
+    ignored = sorted(set(validated) - set(known))
+    # Only the keys the scanner understands are imported; anything else is dropped, not stored.
+    policy = {key: validated[key] for key in known}
+    policy["_ignored_keys"] = ignored
+    return policy, hashlib.sha256(raw).hexdigest()
+
+
+def diff_policy(current: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """What importing ``new`` over ``current`` adds and removes.
+
+    ``escalations`` lists the changes that make the scanner more permissive: new
+    approvals, new or changed rule overrides, and lifted disables or blocks.
+    """
+    added: dict[str, list[str]] = {}
+    removed: dict[str, list[str]] = {}
+    for key in (*_APPROVAL_KEYS, *_RESTRICTION_KEYS):
+        before, after = set(current[key]), set(new[key])
+        if after - before:
+            added[key] = sorted(after - before)
+        if before - after:
+            removed[key] = sorted(before - after)
+    override_changes = sorted(
+        f"{plugin}/{rule}: {action}"
+        for plugin, rules in new["rule_overrides"].items()
+        for rule, action in rules.items()
+        if current["rule_overrides"].get(plugin, {}).get(rule) != action
+    )
+    override_removed = sorted(
+        f"{plugin}/{rule}"
+        for plugin, rules in current["rule_overrides"].items()
+        for rule in rules
+        if rule not in new["rule_overrides"].get(plugin, {})
+    )
+    if override_changes:
+        added["rule_overrides"] = override_changes
+    if override_removed:
+        removed["rule_overrides"] = override_removed
+    escalations = [
+        *(f"{k}: {v}" for k in _APPROVAL_KEYS for v in added.get(k, [])),
+        *(f"rule_overrides: {v}" for v in override_changes),
+        *(f"lifted {k}: {v}" for k in _RESTRICTION_KEYS for v in removed.get(k, [])),
+    ]
+    return {"added": added, "removed": removed, "escalations": escalations}
+
+
+def import_policy(
+    path: str, *, apply: bool = False, allow_approvals: bool = False
+) -> dict[str, Any]:
+    """Validate ``path`` and show, or with ``apply`` write, the policy it describes.
+
+    Approvals are bound to plugin names, so an imported file can approve a plugin
+    outright: an import that makes the scanner more permissive is refused unless
+    ``allow_approvals`` is set. The audit entry records counts and the file digest,
+    never contents.
+    """
+    new, digest = _read_policy_file(path)
+    ignored = new.pop("_ignored_keys")
+    result = diff_policy(_load_policy(), new)
+    result["ignored_keys"] = ignored
+    result["applied"] = False
+    if not apply:
+        return result
+    if result["escalations"] and not allow_approvals:
+        raise PolicyImportError(
+            f"Import would make the scanner more permissive "
+            f"({len(result['escalations'])} change(s)); re-run with --allow-approvals "
+            "after reviewing the dry run"
+        )
+    _save_policy(new)
+    result["applied"] = True
+    _audit_log(
+        {
+            "action": "policy_import",
+            "source": os.path.basename(path),
+            "sha256": digest,
+            "added": {k: len(v) for k, v in result["added"].items()},
+            "removed": {k: len(v) for k, v in result["removed"].items()},
+            "escalations": len(result["escalations"]),
+        }
+    )
+    return result
 
 
 # ── Approval Logic ───────────────────────────────────────────────────
@@ -407,8 +553,26 @@ def approve_plugin(plugin_name: str, notes: str = "") -> dict[str, Any]:
     return policy
 
 
+# approved_findings holds exact finding IDs, <plugin>:<category>:<rule>:<hex hash> as
+# Finding._generate_id builds them (the rule may contain colons, e.g. "gitleaks:github-pat"),
+# or a prefix wildcard "<prefix>_*" that is_approved() honors. Anything else is a typo that
+# would silently approve nothing.
+FINDING_ID_RE = re.compile(
+    r"[\w.@-]+:[a-z]+:[\w.:-]+:[0-9a-f]{3,64}|[\w.@-]+_\*"
+)
+
+
+def is_finding_id(value: str) -> bool:
+    return bool(FINDING_ID_RE.fullmatch(value))
+
+
 def approve_finding(finding_id: str, notes: str = "") -> dict[str, Any]:
     """Approve a single finding by its ID."""
+    if not is_finding_id(finding_id):
+        raise ValueError(
+            "finding ID must look like <plugin>:<category>:<rule>:<hex hash> "
+            "or <prefix>_*"
+        )
     policy = _load_policy()
     if finding_id not in policy["approved_findings"]:
         policy["approved_findings"].append(finding_id)
@@ -595,8 +759,8 @@ def _discover_plugins() -> list[str]:
     """Discover installed plugin names."""
     plugins: list[str] = []
     locations = [
-        os.path.join(ops_config_io.HERMES_HOME, "plugins"),
-        os.path.join(ops_config_io.HERMES_HOME, "skills"),
+        os.path.join(ops_config_io.home(), "plugins"),
+        os.path.join(ops_config_io.home(), "skills"),
     ]
     for loc in locations:
         if os.path.isdir(loc):

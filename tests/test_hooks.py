@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 import hermes_ops_kit.hooks as hooks
 
 
@@ -52,3 +56,62 @@ def test_on_session_start_runs_permissions_and_scan(monkeypatch, capsys):
 
     assert "unsafe permissions" in capsys.readouterr().err
     assert calls == [{"session_id": "session-1"}]
+
+
+def test_transform_tool_result_redacts_quoted_export_in_string():
+    out = hooks.transform_tool_result(
+        "terminal", 'export BW_SESSION="abc123DEF456ghi789JKL012mno345PQR678stu=="'
+    )
+    assert out is not None and "abc123DEF456" not in out
+
+
+def test_transform_tool_result_redacts_json_embedded_credentials():
+    result = {
+        "stdout": 'export BW_SESSION="abc123DEF456ghi789JKL012mno345PQR678stu=="\nAuthorization: Basic dXNlcjpwYXNzd29yZDEyMzQ1Njc4OTA='
+    }
+    out = hooks.transform_tool_result("terminal", result)
+    assert out is not None
+    assert "abc123DEF456" not in out and "dXNlcjpw" not in out
+
+
+def test_transform_tool_result_leaves_benign_output_unchanged():
+    assert hooks.transform_tool_result("terminal", "all good") is None
+    assert hooks.transform_tool_result("terminal", {"ok": True}) is None
+
+
+# --- structured results: secrets at the start of a value or under a sensitive key ---------
+
+_STRUCTURED_LEAKS = [
+    ({"stdout": "OPENAI_API_KEY=abcdef123456789"}, "abcdef123456789"),
+    ({"content": "  GH_TOKEN=abcdef123456789"}, "abcdef123456789"),
+    (["x", "DB_PASSWORD=hunter2xyz"], "hunter2xyz"),
+    ({"headers": {"Cookie": "sid=abc123"}}, "abc123"),
+    ({"headers": {"Set-Cookie": "session=abc123"}}, "abc123"),
+    ({"password": 'a"b', "api_key": "xyz789"}, "xyz789"),
+    ({"nested": [{"deep": {"Authorization": "Bearer zzz999"}}]}, "zzz999"),
+    ({"stdout": "ok\nOPENAI_API_KEY=abcdef123456789"}, "abcdef123456789"),
+]
+
+
+@pytest.mark.parametrize("value,secret", _STRUCTURED_LEAKS)
+def test_structured_results_are_redacted_per_leaf_and_by_key(value, secret):
+    out = hooks.transform_tool_result("terminal", value)
+    assert out is not None and secret not in out
+    assert json.loads(out) is not None  # still valid JSON
+
+
+@pytest.mark.parametrize("value,_", _STRUCTURED_LEAKS)
+def test_structured_redaction_is_idempotent(value, _):
+    once = hooks.transform_tool_result("terminal", value)
+    assert hooks.transform_tool_result("terminal", json.loads(once)) is None
+
+
+def test_benign_structures_are_left_alone():
+    benign = {
+        "ok": True,
+        "token_count": 5,
+        "keyboard": "us",
+        "name": "disk-encryption-configuration-name",
+        "items": ["a", {"b": 1}],
+    }
+    assert hooks.transform_tool_result("terminal", benign) is None

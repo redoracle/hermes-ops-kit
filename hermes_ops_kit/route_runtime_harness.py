@@ -56,6 +56,8 @@ PROVIDER_RESULTS_TEMPLATE: dict[str, dict[str, Any]] = {
 
 from .config.route_map import aux_harness_triples  # noqa: E402
 from . import ops_config_io  # noqa: E402
+from .provider_keys import custom_provider_aliases, key_env_of  # noqa: E402
+from .ui.output import Table  # noqa: E402
 
 # AUX route map — canonical source: config/route_map.py
 AUX_MAP = aux_harness_triples()
@@ -107,8 +109,10 @@ def _all_online_results(
     # environment (after dotenv), so route discovery is provable without live
     # API calls.  Mirrors the precedent of the static "zai" entry above.
     for cp in (hermes_cfg or {}).get("custom_providers", []) or []:
+        if not isinstance(cp, dict):
+            continue
         name = str(cp.get("name", "")).strip()
-        key_env = str(cp.get("key_env", "")).strip()
+        key_env = key_env_of(cp)
         if not name:
             continue
         try:
@@ -119,11 +123,17 @@ def _all_online_results(
             pass
         if key_env and not os.environ.get(key_env):
             continue
-        results[f"custom:{name}"] = {
-            "provider": f"custom:{name}",
-            "status": "online",
-            "api_latency_ms": 500,
-        }
+        # A route may name the entry by any identity Hermes core accepts (`custom:my-prov`
+        # for a `My Prov` entry), so register each of them.
+        for alias in sorted(
+            {f"custom:{name}"}
+            | {a for a in custom_provider_aliases(name) if a.startswith("custom:")}
+        ):
+            results[alias] = {
+                "provider": alias,
+                "status": "online",
+                "api_latency_ms": 500,
+            }
     return results
 
 
@@ -603,7 +613,7 @@ def verify_fallback_chain(
         }
     """
     if hermes_cfg is None:
-        cfg_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+        cfg_path = os.path.join(ops_config_io.home(), "config.yaml")
         hermes_cfg = _load_yaml_text(cfg_path) if os.path.exists(cfg_path) else {}
 
     model_cfg = hermes_cfg.get("model", {})
@@ -732,11 +742,20 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"Hermes route harness · ok={report['ok']} · tested={report['summary']['total_routes_tested']}"
         )
-        for entry in report["routes"]:
-            print(
-                f"- {entry['category']:<9s} {entry['route']:<18s} {entry['result']:<8s} "
-                f"{entry['actual_provider']}:{entry['actual_model']} → {entry['runtime_path']}"
-            )
+        route_rows = [
+            [
+                e["category"],
+                e["route"],
+                e["result"],
+                f"{e['actual_provider']}:{e['actual_model']} → {e['runtime_path']}",
+            ]
+            for e in report["routes"]
+        ]
+        route_table = Table(["CATEGORY", "ROUTE", "RESULT", "RESOLVED"], route_rows, max_width=60)
+        print(route_table.header())
+        print(route_table.separator())
+        for row in route_rows:
+            print(route_table.row(row))
     return 0 if report["ok"] else 1
 
 

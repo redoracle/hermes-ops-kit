@@ -17,10 +17,12 @@ import os
 import urllib.error
 import urllib.request
 
-from ...provider_catalog import first_available_key  # noqa: E402
+from ...env.loader import get_secret  # noqa: E402
+from ...security.url_policy import origin_of
+from ...provider_catalog import provider_key  # noqa: E402
 from ...image_routes.adapters.base import (
+    download_image,
     BaseImageAdapter,
-    load_dotenv,
     ensure_cache_dir,
     make_output_path,
     build_envelope,
@@ -35,10 +37,8 @@ class CloudflareImageAdapter(BaseImageAdapter):
 
     def is_available(self) -> bool:
         """Check CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are set."""
-        load_dotenv()
         return bool(
-            os.environ.get(first_available_key("cloudflare") or "")
-            and os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+            provider_key("cloudflare") and get_secret("CLOUDFLARE_ACCOUNT_ID")
         )
 
     def generate(
@@ -60,9 +60,8 @@ class CloudflareImageAdapter(BaseImageAdapter):
                 "for image modification.",
                 error_type="UnsupportedFeature",
             )
-        load_dotenv()
-        api_token = os.environ.get(first_available_key("cloudflare") or "")
-        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        api_token = provider_key("cloudflare")
+        account_id = get_secret("CLOUDFLARE_ACCOUNT_ID")
         if not api_token or not account_id:
             return build_envelope(
                 False,
@@ -74,7 +73,7 @@ class CloudflareImageAdapter(BaseImageAdapter):
             )
 
         model_id = model or self.default_model
-        base_url = os.environ.get("CLOUDFLARE_AI_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+        base_url = (get_secret("CLOUDFLARE_AI_BASE_URL", DEFAULT_BASE_URL) or DEFAULT_BASE_URL).rstrip("/")
         run_url = f"{base_url}/accounts/{account_id}/ai/run/{model_id}"
         start = self._start_timer()
         image_paths = []
@@ -106,7 +105,9 @@ class CloudflareImageAdapter(BaseImageAdapter):
                     result = json.loads(body).get("result", {})
                     img_data = result.get("image", "")
                     if img_data.startswith("http"):
-                        self._download_image(img_data, path)
+                        self._download_image(
+                            img_data, path, allow_origins=(origin_of(base_url),)
+                        )
                     else:
                         with open(path, "wb") as f:
                             f.write(base64.b64decode(img_data))
@@ -166,9 +167,13 @@ class CloudflareImageAdapter(BaseImageAdapter):
         )
 
     @staticmethod
-    def _download_image(url: str, path: str) -> None:
-        """Download an image from a URL to a local path."""
-        req = urllib.request.Request(url, headers={"User-Agent": "Hermes-OpsKit/0.1"})
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            with open(path, "wb") as f:
-                f.write(resp.read())
+    def _download_image(
+        url: str,
+        path: str,
+        max_bytes: int = 25 * 1024 * 1024,
+        allow_origins: tuple[tuple[str, int] | None, ...] = (),
+    ) -> None:
+        """Download a provider-returned image URL (http(s) only, size-capped)."""
+        download_image(
+            url, path, timeout=120, max_bytes=max_bytes, allow_origins=allow_origins
+        )

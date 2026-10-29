@@ -33,7 +33,7 @@ from typing import Any
 
 from ..headroom_ops import daemon, reconcile as rec  # noqa: E402
 from ..headroom_ops.settings import (  # noqa: E402
-    DEPLOYED_CONFIG,
+    deployed_config,
     FORBIDDEN_FLAGS,
     load_settings,
     proxy_root,
@@ -42,6 +42,7 @@ from ..headroom_ops.settings import (  # noqa: E402
 from ..ops_config_io import hermes_config, load_yaml  # noqa: E402
 from ..security.redaction import sanitize_url_for_display  # noqa: E402
 from ..ui.console import Console  # noqa: E402
+from ..ui.width import display_width, pad  # noqa: E402
 from ..ui.json_output import error_envelope, error_item, ok_envelope  # noqa: E402
 
 
@@ -78,7 +79,7 @@ def _public_state(state: dict[str, Any]) -> dict[str, Any]:
         "apply": s.get("apply"),
         "daemon": state["daemon"],
         "collisions": state["collisions"],
-        "config_path": DEPLOYED_CONFIG,
+        "config_path": deployed_config(),
     }
 
 
@@ -153,7 +154,8 @@ def _doctor_checks(state: dict[str, Any]) -> list[tuple[str, bool, str]]:
             "upstream resolvable",
             bool(upstream),
             upstream
-            or f"providers.{state['upstream_provider'] or '?'} has no base_url",
+            or f"no providers/custom_providers entry with a base_url for "
+            f"'{state['upstream_provider'] or '?'}'",
         )
     )
 
@@ -265,9 +267,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return 0 if all_ok else 1
 
     con.print(con.header("=== Headroom Doctor ==="))
+    name_w = max((display_width(n) for n, _, _ in checks), default=0) + 1
     for name, ok, detail in checks:
         icon = "✅" if ok else "❌"
-        con.print(f"  {icon} {name}: {detail}")
+        con.print(f"  {icon} {pad(name + ':', name_w)} {detail}")
     return 0 if all_ok else 1
 
 
@@ -277,7 +280,7 @@ def _resolve_upstream_or_fail(con: Console, state: dict[str, Any]) -> str | None
         con.print_error(
             f"cannot resolve an OpenAI-compatible upstream for provider "
             f"'{state['upstream_provider'] or '?'}' — add base_url to its "
-            f"providers entry in {hermes_config()}"
+            f"providers: or custom_providers: entry in {hermes_config()}"
         )
         return None
     return upstream

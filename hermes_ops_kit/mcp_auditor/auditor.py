@@ -19,11 +19,12 @@ from typing import Any
 
 from ..mcp_auditor.classifier import detect_capabilities, classify_risk, scan_metadata  # pyright: ignore[reportMissingImports]
 from .. import ops_config_io  # noqa: E402
+from .._subprocess import child_env
 
 
 def _load_hermes_mcp_config() -> dict[str, Any]:
     """Extract mcp_servers from Hermes config, failing closed if malformed."""
-    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+    config_path = ops_config_io.config_path()
     if not os.path.exists(config_path):
         return {}
     try:
@@ -41,7 +42,13 @@ def _load_hermes_mcp_config() -> dict[str, Any]:
     return servers
 
 
-_MCP_POLICY_PATH = os.path.join(ops_config_io.HERMES_HOME, "mcp_policy.json")
+def mcp_policy_path() -> str:
+    """MCP policy file of the active profile, resolved at call time."""
+    return os.path.join(ops_config_io.home(), "mcp_policy.json")
+
+
+# Deprecated import-time alias (compatibility window); the kit uses mcp_policy_path().
+_MCP_POLICY_PATH = mcp_policy_path()
 
 
 def _validate_mcp_policy(policy: Any) -> dict[str, Any]:
@@ -66,15 +73,16 @@ def _load_mcp_policy() -> dict[str, Any]:
     (legacy / YAML-native storage) for backwards compatibility.
     """
     # Primary: standalone JSON policy file
-    if os.path.exists(_MCP_POLICY_PATH):
+    policy_path = mcp_policy_path()
+    if os.path.exists(policy_path):
         try:
-            with open(_MCP_POLICY_PATH) as f:
+            with open(policy_path) as f:
                 policy = json.load(f)
             return _validate_mcp_policy(policy)
         except (json.JSONDecodeError, OSError) as exc:
             raise RuntimeError(f"Cannot load MCP policy: {exc}") from exc
     # Fallback: inline mcp_policy in config.yaml
-    config_path = os.path.join(ops_config_io.HERMES_HOME, "config.yaml")
+    config_path = ops_config_io.config_path()
     if os.path.exists(config_path):
         try:
             import yaml as _yaml  # pyright: ignore[reportMissingImports,reportMissingModuleSource]
@@ -90,7 +98,8 @@ def _load_mcp_policy() -> dict[str, Any]:
 
 def _save_mcp_policy(policy: dict[str, Any]) -> None:
     """Durably persist the authoritative MCP policy with mode 0600."""
-    policy_dir = os.path.dirname(_MCP_POLICY_PATH)
+    policy_path = mcp_policy_path()
+    policy_dir = os.path.dirname(policy_path)
     os.makedirs(policy_dir, mode=0o700, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".mcp-policy-", suffix=".json", dir=policy_dir)
     try:
@@ -99,8 +108,8 @@ def _save_mcp_policy(policy: dict[str, Any]) -> None:
             json.dump(policy, f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, _MCP_POLICY_PATH)
-        os.chmod(_MCP_POLICY_PATH, 0o600)
+        os.replace(tmp, policy_path)
+        os.chmod(policy_path, 0o600)
     finally:
         try:
             os.unlink(tmp)
@@ -201,7 +210,7 @@ def _discover_stdio_tools(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            env={**os.environ, **(env or {})},
+            env={**child_env(credentials=False), **(env or {})},
         )
     except (OSError, FileNotFoundError, PermissionError):
         return []
@@ -241,7 +250,7 @@ def _load_oauth_token(server_id: str) -> str | None:
     # Defense in depth: server_id comes from ~/.hermes/config.yaml (trusted),
     # but constrain it to a single path component so a malformed name cannot
     # traverse outside the token store (e.g. "../../.ssh/...").
-    token_dir = os.path.join(ops_config_io.HERMES_HOME, "mcp-tokens")
+    token_dir = os.path.join(ops_config_io.home(), "mcp-tokens")
     token_path = os.path.realpath(os.path.join(token_dir, f"{server_id}.json"))
     if os.path.dirname(token_path) != os.path.realpath(token_dir):
         return None
@@ -492,6 +501,8 @@ def run_audit(*, dynamic_discovery: bool = True) -> dict[str, Any]:
     callers must pass ``dynamic_discovery=False`` so auditing cannot execute or
     contact an unaudited server before deciding whether it may load.
     """
+    if ops_config_io.read_only():
+        dynamic_discovery = False  # never launch or contact a server from a read-only caller
     servers = inventory_servers()
     tools = []
     risks: list[dict[str, Any]] = []

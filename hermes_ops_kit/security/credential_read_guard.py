@@ -26,6 +26,8 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .. import ops_config_io
+
 # ── Best-effort delegation to Hermes core ──────────────────────────────
 # Resolved at import time so a runtime `export HERMES_REDACT_SECRETS=false`-style
 # mutation cannot swap the guard mid-session. Missing core → fall back to the
@@ -93,7 +95,11 @@ def _local_block_error(path: str) -> Optional[str]:
     # .anthropic_oauth.json, …) must be checked against BOTH roots — mirrors
     # core agent/file_safety._hermes_home_path + _hermes_root_path.
     roots: list[Path] = []
-    for env_root in (os.environ.get("HERMES_HOME") or "~/.hermes", "~/.hermes"):
+    for env_root in (
+        os.environ.get("HERMES_HOME") or "~/.hermes",
+        ops_config_io.home(),
+        "~/.hermes",
+    ):
         try:
             real = Path(os.path.expanduser(env_root)).resolve()
             if real not in roots:

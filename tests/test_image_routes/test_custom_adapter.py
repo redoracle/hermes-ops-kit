@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hermes_ops_kit import ops_config_io
+
 
 def _make_fake_openai() -> ModuleType:
     """Create a minimal fake openai module for tests."""
@@ -35,7 +37,7 @@ class TestCustomImageAdapter:
         with patch.dict(os.environ, {"FREELLM_API_KEY": "test-key"}):
             assert adapter.is_available() is True
 
-    def test_is_available_missing_key(self) -> None:
+    def test_is_available_missing_key(self, tmp_path, monkeypatch) -> None:
         """Adapter is unavailable when key is missing."""
         from hermes_ops_kit.image_routes.adapters.custom_image import CustomImageAdapter
 
@@ -45,6 +47,8 @@ class TestCustomImageAdapter:
             key_env="FREELLM_API_KEY",
         )
 
+        # clear=True also removes HERMES_HOME: pin the home so the kit never reads ~/.hermes
+        monkeypatch.setattr(ops_config_io, "HERMES_HOME", str(tmp_path))
         with patch.dict(os.environ, {"FREELLM_API_KEY": ""}, clear=True):
             assert adapter.is_available() is False
 
@@ -111,7 +115,7 @@ class TestCustomImageAdapter:
         assert result["image_paths"]
         assert len(result["image_paths"]) == 1
 
-    def test_generate_missing_key_returns_error(self) -> None:
+    def test_generate_missing_key_returns_error(self, tmp_path, monkeypatch) -> None:
         """Missing key returns MissingAPIKey error."""
         from hermes_ops_kit.image_routes.adapters.custom_image import CustomImageAdapter
 
@@ -121,6 +125,7 @@ class TestCustomImageAdapter:
             key_env="FREELLM_API_KEY",
         )
 
+        monkeypatch.setattr(ops_config_io, "HERMES_HOME", str(tmp_path))
         with patch.dict(os.environ, {"FREELLM_API_KEY": ""}, clear=True):
             result = adapter.generate(prompt="a red cube")
 

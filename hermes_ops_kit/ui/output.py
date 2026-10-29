@@ -10,6 +10,7 @@ from typing import Any
 
 from ..ui.console import Console  # pyright: ignore[reportMissingImports]
 from ..ui.json_output import ok_envelope, error_envelope  # pyright: ignore[reportMissingImports]
+from ..ui.width import display_width, pad, truncate
 
 
 def print_result(
@@ -62,12 +63,53 @@ def print_error_result(
                 )
 
 
+class Table:
+    """Column layout that pads by terminal cells, so wide characters stay aligned.
+
+    Build it from every row first (widths come from the data), then format rows one at a
+    time: callers that print detail lines between rows cannot use ``print_table``.
+    """
+
+    def __init__(
+        self,
+        headers: list[str],
+        rows: list[list[str]],
+        *,
+        aligns: str = "",
+        max_width: int = 48,
+    ) -> None:
+        count = len(headers)
+        self.aligns = (aligns + "<" * count)[:count]
+        self.headers = headers
+        self.widths = [
+            min(max_width, max([display_width(h)] + [display_width(str(r[i])) for r in rows if i < len(r)]))
+            for i, h in enumerate(headers)
+        ]
+
+    def _line(self, cells: list[str]) -> str:
+        parts = [
+            pad(truncate(str(cells[i]), self.widths[i]) if i < len(cells) else "", self.widths[i], self.aligns[i])
+            for i in range(len(self.widths))
+        ]
+        return ("  " + "  ".join(parts)).rstrip()
+
+    def header(self) -> str:
+        return self._line(self.headers)
+
+    def separator(self) -> str:
+        return "  " + "  ".join("─" * w if w else "" for w in self.widths).rstrip()
+
+    def row(self, cells: list[str]) -> str:
+        return self._line(cells)
+
+
 def print_table(
     console: Console,
     headers: list[str],
     rows: list[list[str]],
     *,
     title: str = "",
+    aligns: str = "",
 ) -> None:
     """Print a simple aligned table."""
     if console.json_mode:
@@ -79,26 +121,8 @@ def print_table(
     if title:
         console.print(console.header(title))
 
-    # Calculate column widths
-    col_widths = [len(h) for h in headers]
+    table = Table(headers, rows, aligns=aligns)
+    console.print(console.bold(table.header()))
+    console.print(console.dim(table.separator()))
     for row in rows:
-        for i, cell in enumerate(row):
-            if i < len(col_widths):
-                col_widths[i] = max(col_widths[i], len(str(cell)))
-
-    # Header
-    header_line = "  " + "  ".join(
-        h.ljust(col_widths[i]) for i, h in enumerate(headers)
-    )
-    console.print(console.bold(header_line))
-
-    # Separator
-    sep = "  " + "  ".join("─" * col_widths[i] for i in range(len(headers)))
-    console.print(console.dim(sep))
-
-    # Rows
-    for row in rows:
-        line = "  " + "  ".join(
-            str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)
-        )
-        console.print(line)
+        console.print(table.row(row))

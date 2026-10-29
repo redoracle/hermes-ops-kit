@@ -28,7 +28,8 @@ import time
 # Add parent directory for shared Hermes security module
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 import uuid
-from ..provider_catalog import first_available_key, key_envs_for  # noqa: E402
+from ..provider_catalog import provider_key, key_envs_for  # noqa: E402
+from .._subprocess import child_env
 
 ALLOWED_MODELS = [
     "gemini-2.5-pro",
@@ -59,7 +60,7 @@ def op_generate(
     """Gemini API generate content."""
     from google import genai  # pyright: ignore[reportAttributeAccessIssue]
 
-    api_key = os.environ.get(first_available_key("gemini") or "")
+    api_key = provider_key("gemini")
     if not api_key:
         return {"ok": False, "error": f"No gemini credential set (any of: {', '.join(key_envs_for('gemini'))})"}
 
@@ -114,7 +115,7 @@ def op_grounded(
     """Gemini API with Google Search grounding."""
     from google import genai  # pyright: ignore[reportAttributeAccessIssue]
 
-    api_key = os.environ.get(first_available_key("gemini") or "")
+    api_key = provider_key("gemini")
     if not api_key:
         return {"ok": False, "error": f"No gemini credential set (any of: {', '.join(key_envs_for('gemini'))})"}
 
@@ -199,6 +200,7 @@ def op_cli_plan(prompt: str, workdir: str = ".", timeout: int = 300) -> dict:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=child_env(),
         )
     except subprocess.TimeoutExpired:
         return {

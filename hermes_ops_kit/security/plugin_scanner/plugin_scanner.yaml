@@ -3,6 +3,10 @@
 # Installed to ~/.hermes/ops-kit/plugin_scanner.yaml on first use.
 # All paths are relative to the user's home directory.
 #
+# INFORMATIONAL SNAPSHOT: the scanner does not read this file. Profiles, gates and the
+# approval behavior are defined in code (findings.ScanProfile and policy.py), so an edited
+# file cannot weaken them. See `hermes-ops-kit plugin config show` for what actually runs.
+#
 # Safe defaults: no external API calls, no sandbox, medium+ disabled
 # unless approved, critical blocked.
 

@@ -208,6 +208,7 @@ def test_updater_reinstalls_regular_runtime_after_rollback(tmp_path, monkeypatch
             python_executable="/venv/bin/python",
             plugin_source=str(src),
             installation_mode=InstallationMode.REGULAR,
+            runtime_role="standalone",
         ),
     )
     unhealthy = HealthReport(overall=HealthStatus.REPAIRABLE, runtime=before.runtime)

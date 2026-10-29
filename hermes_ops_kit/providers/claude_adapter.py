@@ -25,9 +25,10 @@ import re
 import subprocess
 import sys
 import time
-from ..provider_catalog import first_available_key  # noqa: E402
+from ..provider_catalog import provider_key  # noqa: E402
 
 # Add parent directory for shared Hermes security module
+from .._subprocess import child_env
 from ..security.redaction import redact  # pyright: ignore[reportMissingImports]
 
 ALLOWED_MODELS = [
@@ -74,7 +75,7 @@ def op_api_chat(
     """Anthropic Messages API call."""
     import anthropic  # pyright: ignore[reportMissingImports]
 
-    client = anthropic.Anthropic(api_key=os.environ.get(first_available_key("anthropic") or ""))
+    client = anthropic.Anthropic(api_key=provider_key("anthropic"))
 
     api_model = MODEL_MAP.get(model, model)
 
@@ -112,7 +113,7 @@ def op_api_extract(prompt: str, model: str, json_schema: dict, max_tokens: int) 
     """Structured extraction with tool use forcing JSON output."""
     import anthropic  # pyright: ignore[reportMissingImports]
 
-    client = anthropic.Anthropic(api_key=os.environ.get(first_available_key("anthropic") or ""))
+    client = anthropic.Anthropic(api_key=provider_key("anthropic"))
 
     api_model = MODEL_MAP.get(model, model)
 
@@ -193,7 +194,7 @@ def op_claude_code(
             capture_output=True,
             text=True,
             timeout=timeout,
-            env={**os.environ, "CLAUDE_CODE_SIMPLE": "1"},
+            env=child_env({"CLAUDE_CODE_SIMPLE": "1"}),
         )
     except subprocess.TimeoutExpired:
         return {

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import json
+import unicodedata
 
 from ..security.secret_scanner import scan_for_secrets
 
@@ -25,7 +26,7 @@ FORBIDDEN_PATTERNS: list[tuple[str, str]] = [
     (r"gh[pou]_[A-Za-z0-9]{36,}", "GitHub token"),
     (r"gh[sr]_[A-Za-z0-9_-]{36,}", "GitHub App token"),
     (r"Authorization:\s*\S", "Authorization header"),
-    (r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----", "Private key"),
+    (r"-----BEGIN\s+(?:[A-Z0-9]+\s+)*PRIVATE\s+KEY-----", "Private key"),
     (r"BW_SESSION=", "Bitwarden session"),
     (r"VAULTWARDEN_PASSWORD=", "Vaultwarden password"),
     (r"\.env", ".env reference"),  # weak signal — flag for review
@@ -51,27 +52,103 @@ class PolicyViolation(Exception):
     """A task was blocked by the assistant policy engine."""
 
 
-def serialize_task(task: AssistantTask, config: AssistantConfig) -> str:
-    """One canonical envelope for policy evaluation and transmission."""
-    constraints = {
-        "no_secret_access": True, "no_env_dump": True,
+# Reserved constraint -> (violation message when a caller tries to relax it,
+# whether the assistant config permits relaxing it).
+_RESERVED_CONSTRAINTS = (
+    "no_secret_access",
+    "no_env_dump",
+    "no_file_write",
+    "no_shell_execution",
+    "no_network_scan",
+)
+_RELAX_MESSAGES = {
+    "no_secret_access": "secret access requested but not allowed by assistant policy",
+    "no_env_dump": "environment dump requested but not allowed by assistant policy",
+    "no_file_write": "file write requested but not allowed by assistant policy",
+    "no_shell_execution": "shell execution requested but not allowed by assistant policy",
+    "no_network_scan": "network scan requested but not allowed by assistant policy",
+}
+
+
+def _normalize_key(key: object) -> str:
+    """Fold case, width, separators and invisible characters, so lookalike spellings
+    of a reserved name (``No_Shell_Execution``, ``no\u200b_shell_execution``) are caught."""
+    text = unicodedata.normalize("NFKC", str(key))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return text.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def effective_constraints(
+    task: AssistantTask, config: AssistantConfig
+) -> tuple[dict, list[str]]:
+    """Derive the one constraint object that is both evaluated and transmitted.
+
+    Reserved flags start from the configured restriction. A caller may only
+    tighten (``True``); relaxing (``False``) is honored solely where the config
+    permits it. Reserved flags must be exact booleans under their canonical
+    name, so ``0``/``None``/``"false"`` and alias spellings can neither relax a
+    restriction nor reach the remote worker. Other keys pass through unchanged.
+    """
+    effective: dict = {
+        "no_secret_access": True,
+        "no_env_dump": True,
         "no_file_write": not config.allow_file_mutation,
         "no_shell_execution": not config.allow_shell_execution,
         "no_network_scan": True,
     }
-    constraints.update(task.constraints or {})
-    return json.dumps({
-        "task_id": task.task_id, "assistant": config.id,
-        "capability": task.capability, "priority": "normal", "task": task.task,
-        "context": task.context or {"caller": config.orchestrator_name.lower()},
-        "constraints": constraints,
-    }, indent=2)
+    may_relax = {
+        "no_secret_access": config.allow_secret_prompts,
+        "no_file_write": config.allow_file_mutation,
+        "no_shell_execution": config.allow_shell_execution,
+    }
+    violations: list[str] = []
+    raw = task.constraints or {}
+    if not isinstance(raw, dict):
+        return effective, ["constraints must be an object"]
+    for key, value in raw.items():
+        if key not in _RESERVED_CONSTRAINTS:
+            if _normalize_key(key) in _RESERVED_CONSTRAINTS:
+                violations.append(
+                    f"reserved constraint must use its canonical name: {key!r}"
+                )
+            else:
+                effective[key] = value
+            continue
+        if type(value) is not bool:
+            violations.append(
+                f"constraint '{key}' must be a boolean, got {type(value).__name__}"
+            )
+        elif value:
+            effective[key] = True
+        elif effective[key] and not may_relax.get(key, False):
+            violations.append(_RELAX_MESSAGES[key])
+        else:
+            effective[key] = False
+    return effective, violations
+
+
+def serialize_task(task: AssistantTask, config: AssistantConfig) -> str:
+    """One canonical envelope for policy evaluation and transmission."""
+    constraints, _ = effective_constraints(task, config)
+    return json.dumps(
+        {
+            "task_id": task.task_id,
+            "assistant": config.id,
+            "capability": task.capability,
+            "priority": "normal",
+            "task": task.task,
+            "context": task.context or {"caller": config.orchestrator_name.lower()},
+            "constraints": constraints,
+        },
+        indent=2,
+    )
 
 
 def check_task(
     task: AssistantTask,
     config: AssistantConfig,
-    *, envelope: str | None = None,
+    *,
+    envelope: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Run all policy checks against a task.
 
@@ -111,25 +188,15 @@ def check_task(
         )
 
     # 6. Check constraints against security policy
-    constraints = task.constraints or {}
-    if constraints.get("no_secret_access") is False and not config.allow_secret_prompts:
-        violations.append("secret access requested but not allowed by assistant policy")
-
-    if constraints.get("no_file_write") is False and not config.allow_file_mutation:
-        violations.append("file write requested but not allowed by assistant policy")
-
-    if (
-        constraints.get("no_shell_execution") is False
-        and not config.allow_shell_execution
-    ):
-        violations.append(
-            "shell execution requested but not allowed by assistant policy"
-        )
+    _, constraint_violations = effective_constraints(task, config)
+    violations.extend(constraint_violations)
 
     return len(violations) == 0, violations
 
 
-def assert_allowed(task: AssistantTask, config: AssistantConfig, *, envelope: str | None = None) -> None:
+def assert_allowed(
+    task: AssistantTask, config: AssistantConfig, *, envelope: str | None = None
+) -> None:
     """Raise PolicyViolation if the task is not allowed."""
     allowed, violations = check_task(task, config, envelope=envelope)
     if not allowed:

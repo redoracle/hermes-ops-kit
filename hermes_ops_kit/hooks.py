@@ -10,7 +10,7 @@ import json
 import os
 import stat
 
-from .security.redaction import redact  # pyright: ignore[reportMissingImports]
+from .security.redaction import redact, redact_json  # pyright: ignore[reportMissingImports]
 from . import ops_config_io  # noqa: E402
 
 
@@ -18,32 +18,32 @@ def _permission_warnings() -> list[str]:
     """Return warnings for unsafe Hermes secret-file permissions."""
     warnings: list[str] = []
 
-    env_path = os.path.join(ops_config_io.HERMES_HOME, ".env")
+    env_path = os.path.join(ops_config_io.home(), ".env")
     if os.path.exists(env_path):
         mode = stat.S_IMODE(os.stat(env_path).st_mode)
         if mode != 0o600:
             warnings.append(
-                f"~/.hermes/.env has unsafe permissions: {oct(mode)[2:]} "
-                f"(expected 600). Run: chmod 600 ~/.hermes/.env"
+                f"{env_path} has unsafe permissions: {oct(mode)[2:]} "
+                f"(expected 600). Run: chmod 600 {env_path}"
             )
 
     # Check hermes dir permissions
-    hermes_dir = ops_config_io.HERMES_HOME
+    hermes_dir = ops_config_io.home()
     if os.path.exists(hermes_dir):
         mode = stat.S_IMODE(os.stat(hermes_dir).st_mode)
         if mode != 0o700:
             warnings.append(
-                f"~/.hermes has unsafe permissions: {oct(mode)[2:]} "
-                f"(expected 700). Run: chmod 700 ~/.hermes"
+                f"{hermes_dir} has unsafe permissions: {oct(mode)[2:]} "
+                f"(expected 700). Run: chmod 700 {hermes_dir}"
             )
 
     # Check generated env
-    gen_env = os.path.join(ops_config_io.HERMES_HOME, ".env.generated")
+    gen_env = os.path.join(ops_config_io.home(), ".env.generated")
     if os.path.exists(gen_env):
         mode = stat.S_IMODE(os.stat(gen_env).st_mode)
         if mode != 0o600:
             warnings.append(
-                f"~/.hermes/.env.generated has unsafe permissions: {oct(mode)[2:]}"
+                f"{gen_env} has unsafe permissions: {oct(mode)[2:]}"
             )
 
     return warnings
@@ -104,7 +104,7 @@ def transform_tool_result(tool_name: str, result: object, **kwargs: object) -> s
         return redacted if redacted != result else None
     try:
         serialized = json.dumps(result, ensure_ascii=False)
-        redacted = redact(serialized)
+        redacted = redact_json(result)
         return redacted if redacted != serialized else None
     except (TypeError, ValueError):
         return None
