@@ -488,3 +488,28 @@ def test_a_custom_provider_without_an_endpoint_names_both_places(tmp_path: Path)
     res = _headroom(home, "up")
     assert res.returncode == 1
     assert "providers: or custom_providers:" in res.stdout + res.stderr
+
+
+def test_disable_leaves_no_empty_providers_key_when_enable_created_it(
+    hermes_home: Path, proxy_stub: int
+):
+    """The upstream lives in custom_providers: there was no `providers:` before enable."""
+    (hermes_home / "config.yaml").write_text(
+        "model:\n  provider: custom:up\n  default: m\n"
+        "custom_providers:\n"
+        "  - name: up\n    base_url: http://127.0.0.1:9/v1\n    key_env: UP_KEY\n"
+        "fallback_providers:\n  - provider: github\n    model: gpt-5-mini\n"
+    )
+    (hermes_home / ".env").write_text("UP_KEY=test-key\n")
+    original = _load_config(hermes_home)
+    assert "providers" not in original
+
+    _write_headroom_yaml(hermes_home, enabled=True, port=proxy_stub)
+    res = _headroom(hermes_home, "reconcile", "--json")
+    assert _result(res)["action"] == "enabled", res.stdout + res.stderr
+    assert "headroom" in _load_config(hermes_home)["providers"]
+
+    _write_headroom_yaml(hermes_home, enabled=False, port=proxy_stub)
+    res = _headroom(hermes_home, "reconcile", "--json")
+    assert _result(res)["action"] == "restored_direct"
+    assert _load_config(hermes_home) == original  # not even an empty `providers: {}`

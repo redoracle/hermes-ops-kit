@@ -412,7 +412,16 @@ def cmd_rotate_all_parallel(
     providers = list(PROVIDER_ROTATORS.keys())
 
     def rotate_one(provider: str) -> tuple[str, dict]:
-        return provider, cmd_rotate(backend, provider, dry_run=dry_run)
+        # One provider failing (a missing app config, an unreachable API) must not hide the
+        # other providers' results: report it as that provider's failed result.
+        try:
+            return provider, cmd_rotate(backend, provider, dry_run=dry_run)
+        except Exception as exc:
+            return provider, {
+                "ok": False,
+                "error": redact(str(exc)),
+                "error_type": type(exc).__name__,
+            }
 
     if max_parallel < 1:
         return {"ok": False, "error": "max_parallel must be positive"}
@@ -476,7 +485,7 @@ def cmd_emergency_compromise(
                 old_revoked=revoked,
                 manual_action=not revoked,
             )
-            return {
+            result = {
                 "ok": revoked,
                 "provider": provider,
                 "mode": "emergency-revoke-only",
@@ -484,6 +493,19 @@ def cmd_emergency_compromise(
                 "old_fingerprint": old_fp,
                 "warning": "No replacement key created — service may be down",
             }
+            if not revoked:
+                # `revoked: false` alone does not say what to do next.
+                result["manual_action_required"] = True
+                result["reason"] = (
+                    f"no admin key is stored at {admin_ref}; seed one "
+                    f"(--provider {provider} --admin-key-stdin) or revoke the key in the "
+                    f"{provider} console"
+                    if admin is None
+                    else f"the {provider} rotator could not revoke the key (it may not "
+                    f"support revocation, or the admin key was rejected); revoke it in "
+                    f"the {provider} console"
+                )
+            return result
 
         # Phase 2: Accept new key
         candidate_key = sys.stdin.read().strip()

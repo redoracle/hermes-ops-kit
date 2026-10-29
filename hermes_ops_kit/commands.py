@@ -12,6 +12,7 @@ import re
 import sys
 
 from .provider_keys import provider_key_env  # noqa: E402
+from .security.redaction import redact  # noqa: E402
 from .ui.output import Table  # noqa: E402
 from .ui.width import display_width, pad  # noqa: E402
 from ._subprocess import run_module  # pyright: ignore[reportMissingImports]
@@ -683,6 +684,16 @@ def _handle_route_test(args: list[str]) -> int:
 
 def _handle_mcp(args: list[str]) -> int:
     """Handle `hermes-ops-kit mcp ...` subcommands."""
+    try:
+        return _run_mcp(args)
+    except RuntimeError as exc:
+        # The auditor raises RuntimeError with a readable cause for unreadable
+        # config.yaml / policy state; show it instead of a traceback.
+        print(f"ERROR: {redact(str(exc))}")
+        return 1
+
+
+def _run_mcp(args: list[str]) -> int:
     sub = args[0] if args else "audit"
     rest = args[1:] if len(args) > 1 else []
     try:
@@ -786,8 +797,6 @@ def _mcp_approve(
         except Exception as exc:
             # An unreadable inventory is not an empty one: say so and fail, instead of
             # reporting "nothing to approve" with exit 0.
-            from .security.redaction import redact
-
             print(f"Cannot read the MCP server inventory: {redact(str(exc))}")
             return 1
         if not server_ids:

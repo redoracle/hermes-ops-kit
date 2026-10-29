@@ -486,3 +486,40 @@ def test_image_routes_status_column_aligns_despite_colour(monkeypatch, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert _col(lines, "l1") == _col(lines, "l2")
     assert _col(lines, "READY") == _col(lines, "NO KEY")
+
+
+def test_cached_results_say_where_their_findings_went():
+    def run(detail, cached):
+        results = [_result("p", "medium", 0, cached)]
+        results[0].findings = [
+            SimpleNamespace(
+                severity="warning", rule="r", message="m", file_path="", line=0, id="i"
+            )
+        ] * 2
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli._print_scan_results(
+                results,
+                [{"status": "enabled", "reason": "x"}],
+                Console(json_mode=False),
+                detail=detail,
+            )
+        return buf.getvalue()
+
+    assert "use --verbose to list them" in run("default", True)
+    assert "use --verbose to list them" not in run(
+        "default", False
+    )  # listed inline instead
+    assert "use --verbose to list them" not in run(
+        "summary", True
+    )  # summary asks for no detail
+    clean = [_result("p", "none", 0, True)]
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli._print_scan_results(
+            clean,
+            [{"status": "enabled", "reason": "x"}],
+            Console(json_mode=False),
+            detail="default",
+        )
+    assert "--verbose" not in buf.getvalue()  # nothing hidden, no hint

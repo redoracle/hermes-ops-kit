@@ -400,10 +400,14 @@ def _print_scan_results(
     console.print(console.bold(table.header()))
     console.print(console.dim(table.separator()))
 
+    cached_hidden = False
     for r, row in zip(results, rows, strict=True):
         console.print(table.row(row))
 
         if detail == "summary" or (r.cache_hit and detail == "default"):
+            cached_hidden = cached_hidden or (
+                detail == "default" and bool(r.findings)
+            )
             continue
 
         shown = r.findings if detail in ("verbose", "explain") else r.findings[:5]
@@ -429,6 +433,14 @@ def _print_scan_results(
 
         if detail in ("default", "summary") and len(r.findings) > 5:
             console.print(f"{_DETAIL}... and {len(r.findings) - 5} more findings")
+
+    if cached_hidden:
+        console.print(
+            console.dim(
+                "\n  Findings of [cache] results are not listed here: "
+                "use --verbose to list them (--force rescans)."
+            )
+        )
 
 
 def _scan_policy_status(result: Any) -> dict[str, Any]:

@@ -237,11 +237,14 @@ def _restore_direct(
 
     model = hermes_cfg.setdefault("model", {})
     model.update(snap_model)
-    providers = hermes_cfg.get("providers") or {}
     if snap.get("had_headroom_provider") and snap.get("prev_headroom_entry"):
-        providers[PROVIDER_NAME] = snap["prev_headroom_entry"]
+        hermes_cfg.setdefault("providers", {})[PROVIDER_NAME] = snap["prev_headroom_entry"]
     else:
-        providers.pop(PROVIDER_NAME, None)
+        providers = hermes_cfg.get("providers")
+        if isinstance(providers, dict):
+            providers.pop(PROVIDER_NAME, None)
+            if not providers and snap.get("had_providers_key") is False:
+                del hermes_cfg["providers"]  # enable created the key; leave none behind
     for aux_key, prev in (snap.get("aux") or {}).items():
         slot = (hermes_cfg.get("auxiliary") or {}).get(aux_key)
         if isinstance(slot, dict):
@@ -330,6 +333,7 @@ def _reconcile_enable(
                 PROVIDER_NAME in (hermes_cfg.get("providers") or {}) and not ours
             ),
             "prev_headroom_entry": (None if ours else copy.deepcopy(prev_entry)),
+            "had_providers_key": "providers" in hermes_cfg,
             "aux": {},
         }
     else:
