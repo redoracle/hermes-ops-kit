@@ -182,6 +182,7 @@ class ScanResult:
     scanner_version: str = ""
     duration_ms: int = 0
     errors: list[str] = field(default_factory=list)
+    plugin_class: str = "user"  # "system" | "user"
 
     def __post_init__(self):
         if not self.scanned_at:
@@ -211,6 +212,7 @@ class ScanResult:
             "scanner_version": self.scanner_version,
             "duration_ms": self.duration_ms,
             "errors": self.errors,
+            "plugin_class": self.plugin_class,
         }
 
 

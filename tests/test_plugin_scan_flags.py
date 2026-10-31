@@ -127,6 +127,54 @@ def test_unsupported_tool_is_an_error(capsys, no_scan):
     assert "Supported: semgrep, bandit, gitleaks" in capsys.readouterr().out
 
 
+def test_system_scan_flags_mutually_exclusive(capsys):
+    code = cli.handle_plugin(["scan", "--exclude-system", "--system-only"])
+    assert code == 2
+    assert "mutually exclusive" in capsys.readouterr().out
+
+
+def test_system_scan_flags_filter_results(monkeypatch, capsys):
+    from hermes_ops_kit.security.plugin_scanner.findings import ScanResult, RiskLevel
+
+    sys_res = ScanResult(
+        plugin_name="hermes-ops-kit",
+        plugin_path="/tmp/sys",
+        risk_level=RiskLevel.MEDIUM,
+        plugin_class="system",
+    )
+    user_res = ScanResult(
+        plugin_name="user-tool",
+        plugin_path="/tmp/user",
+        risk_level=RiskLevel.LOW,
+        plugin_class="user",
+    )
+
+    monkeypatch.setattr(cli, "scan_all", lambda **_kwargs: [sys_res, user_res])
+
+    # Default scan shows both tables partitioned
+    cli.handle_plugin(["scan", "--summary", "--no-semgrep", "--no-bandit", "--no-gitleaks"])
+    out = capsys.readouterr().out
+    assert "SYSTEM INFRASTRUCTURE" in out
+    assert "INSTALLED PLUGINS" in out
+    assert "hermes-ops-kit (self)" in out
+    assert "user-tool" in out
+    assert "(System: 1 active)" in out
+
+    # --exclude-system omits system plugins
+    cli.handle_plugin(["scan", "--summary", "--exclude-system", "--no-semgrep", "--no-bandit", "--no-gitleaks"])
+    out_exclude = capsys.readouterr().out
+    assert "SYSTEM INFRASTRUCTURE" not in out_exclude
+    assert "hermes-ops-kit" not in out_exclude
+    assert "user-tool" in out_exclude
+
+    # --system-only omits user plugins
+    cli.handle_plugin(["scan", "--summary", "--system-only", "--no-semgrep", "--no-bandit", "--no-gitleaks"])
+    out_sys = capsys.readouterr().out
+    assert "user-tool" not in out_sys
+    assert "hermes-ops-kit (self)" in out_sys
+
+
+
 def test_cache_stats_reports_the_database(leaky_home, capsys):
     import json
 

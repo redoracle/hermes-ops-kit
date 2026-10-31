@@ -69,7 +69,18 @@ def compute_file_tree_sha(plugin_path: str) -> str:
         return ""
 
     file_hashes: list[str] = []
-    skip_dirs = {".git", "__pycache__", "node_modules", ".venv", "venv", ".tox"}
+    skip_dirs = {
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".venv",
+        "venv",
+        ".tox",
+        ".vaultloom",
+        "tests",
+        "test",
+        "spec",
+    }
 
     for root, dirs, files in os.walk(plugin_path):
         # Prune skip directories

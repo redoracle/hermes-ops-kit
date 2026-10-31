@@ -174,6 +174,8 @@ _SCAN_OPTIONS = (
     "--use-bandit|--no-bandit",
     "--use-gitleaks|--no-gitleaks",
     "--tool <semgrep|bandit|gitleaks> (repeatable)",
+    "--exclude-system",
+    "--system-only",
     "--json",
     "--force",
     "--verbose",
@@ -198,6 +200,12 @@ def _cmd_scan(args: list[str]) -> int:
     verbose = "--verbose" in args
     summary = "--summary" in args
     explain = "--explain" in args
+    exclude_system = "--exclude-system" in args
+    system_only = "--system-only" in args
+
+    if exclude_system and system_only:
+        print("ERROR: --exclude-system and --system-only are mutually exclusive")
+        return 2
 
     # Parse arguments
     i = 0
@@ -233,7 +241,15 @@ def _cmd_scan(args: list[str]) -> int:
         elif a == "--tool" and i + 1 < len(args):
             tools.append(args[i + 1])
             i += 2
-        elif a in ("--json", "--force", "--verbose", "--summary", "--explain"):
+        elif a in (
+            "--json",
+            "--force",
+            "--verbose",
+            "--summary",
+            "--explain",
+            "--exclude-system",
+            "--system-only",
+        ):
             i += 1
         else:
             # A security tool must not accept a flag and silently ignore it.
@@ -306,6 +322,11 @@ def _cmd_scan(args: list[str]) -> int:
                 **scan_kwargs,
             )
 
+        if exclude_system:
+            results = [r for r in results if getattr(r, "plugin_class", "user") != "system"]
+        elif system_only:
+            results = [r for r in results if getattr(r, "plugin_class", "user") == "system"]
+
         policy_statuses = [_scan_policy_status(r) for r in results]
 
         if json_mode:
@@ -329,8 +350,10 @@ def _cmd_scan(args: list[str]) -> int:
             enabled_count = statuses.count("enabled")
             disabled_count = statuses.count("disabled")
             blocked_count = statuses.count("blocked")
+            sys_count = sum(1 for r in results if getattr(r, "plugin_class", "user") == "system")
+            sys_note = f"  (System: {sys_count} active)" if sys_count else ""
             console.print(
-                f"\n  Enabled: {enabled_count}  |  Disabled: {disabled_count}  |  Blocked: {blocked_count}"
+                f"\n  Enabled: {enabled_count}  |  Disabled: {disabled_count}  |  Blocked: {blocked_count}{sys_note}"
             )
 
         # Return non-zero if effective scanner policy blocks any plugin.
@@ -373,35 +396,35 @@ def _status_label(policy_status: dict[str, Any]) -> str:
     return policy_status["status"].upper()
 
 
-def _print_scan_results(
-    results: list[Any],
-    policy_statuses: list[dict[str, Any]],
+def _render_plugin_table(
+    pairs: list[tuple[Any, dict[str, Any]]],
     console: Console,
     detail: str = "default",
-) -> None:
-    """Pretty-print scan results as an aligned table.
+    title: str | None = None,
+) -> bool:
+    """Render a table for a set of (result, policy_status) pairs. Returns cached_hidden."""
+    from ...security.plugin_scanner.bootstrap import _SCANNER_PLUGIN_ID
 
-    ``detail``: ``summary`` (one line per plugin), ``default`` (first five findings,
-    none for cached results), ``verbose`` (every finding), ``explain`` (every finding
-    with its remediation and the commands that approve or silence it).
-    """
+    if title:
+        console.print(console.bold(title))
+
     rows = [
         [
             RISK_ICONS.get(r.risk_level.value, _UNKNOWN_ICON),
-            r.plugin_name,
+            f"{r.plugin_name} (self)" if r.plugin_name == _SCANNER_PLUGIN_ID else r.plugin_name,
             r.risk_level.value.upper(),
             _status_label(policy_status),
             str(len(r.findings)),
             "[cache]" if r.cache_hit else "",
         ]
-        for r, policy_status in zip(results, policy_statuses, strict=True)
+        for r, policy_status in pairs
     ]
     table = Table(["", "PLUGIN", "RISK", "STATUS", "FINDINGS", ""], rows, aligns="<<<<>")
     console.print(console.bold(table.header()))
     console.print(console.dim(table.separator()))
 
     cached_hidden = False
-    for r, row in zip(results, rows, strict=True):
+    for (r, _), row in zip(pairs, rows, strict=True):
         console.print(table.row(row))
 
         if detail == "summary" or (r.cache_hit and detail == "default"):
@@ -433,6 +456,39 @@ def _print_scan_results(
 
         if detail in ("default", "summary") and len(r.findings) > 5:
             console.print(f"{_DETAIL}... and {len(r.findings) - 5} more findings")
+
+    return cached_hidden
+
+
+def _print_scan_results(
+    results: list[Any],
+    policy_statuses: list[dict[str, Any]],
+    console: Console,
+    detail: str = "default",
+) -> None:
+    """Pretty-print scan results as an aligned table.
+
+    ``detail``: ``summary`` (one line per plugin), ``default`` (first five findings,
+    none for cached results), ``verbose`` (every finding), ``explain`` (every finding
+    with its remediation and the commands that approve or silence it).
+    """
+    pairs = list(zip(results, policy_statuses, strict=True))
+    sys_pairs = [p for p in pairs if getattr(p[0], "plugin_class", "user") == "system"]
+    user_pairs = [p for p in pairs if getattr(p[0], "plugin_class", "user") != "system"]
+
+    cached_hidden = False
+    if sys_pairs and user_pairs:
+        cached_hidden = _render_plugin_table(
+            sys_pairs, console, detail=detail, title="SYSTEM INFRASTRUCTURE"
+        )
+        console.print()
+        cached_hidden = _render_plugin_table(
+            user_pairs, console, detail=detail, title="INSTALLED PLUGINS"
+        ) or cached_hidden
+    elif sys_pairs:
+        cached_hidden = _render_plugin_table(sys_pairs, console, detail=detail)
+    else:
+        cached_hidden = _render_plugin_table(user_pairs, console, detail=detail)
 
     if cached_hidden:
         console.print(

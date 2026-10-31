@@ -4,6 +4,14 @@ All notable changes to Hermes Ops Kit.
 
 ## [Unreleased]
 
+**Plugin Scanner & System Partitioning**
+
+- Replaced `.obsidian-mcp-vault` with `.vaultloom` in directory exclusions across scanner policy, secrets, cache, and tool staging, preventing search indexes from generating false positive critical findings.
+- Excluded test directories (`tests/`, `test/`, `spec/`) from production plugin security scans and cache hashing so test mocks and fixtures are not evaluated as live plugin vulnerabilities.
+- Added system plugin classification (`plugin_class: "system" | "user"`) identifying core runtime infrastructure (`hermes-ops-kit`).
+- Partitioned `plugin scan` output into distinct `SYSTEM INFRASTRUCTURE` and `INSTALLED PLUGINS` sections.
+- Added `--exclude-system` and `--system-only` options to `plugin scan` with mutual exclusivity enforcement (exit 2).
+
 ### Audit hardening, aligned output and release safeguards — 2026-10-29 (v0.11.3)
 
 **Behavior changes**

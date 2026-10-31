@@ -264,6 +264,8 @@ hermes-ops-kit plugin scan --category secrets,policy          # Specific categor
 hermes-ops-kit plugin scan --force                            # Skip cache
 hermes-ops-kit plugin scan --json                             # Machine-readable output
 hermes-ops-kit plugin scan --summary                          # One line per plugin
+hermes-ops-kit plugin scan --summary --exclude-system         # Exclude core system infrastructure
+hermes-ops-kit plugin scan --summary --system-only            # Inspect system infrastructure only
 hermes-ops-kit plugin scan --verbose                          # Every finding
 hermes-ops-kit plugin scan --explain                          # Findings + fix + the approve/override commands
 hermes-ops-kit plugin scan --tool semgrep --tool bandit       # Only these external tools

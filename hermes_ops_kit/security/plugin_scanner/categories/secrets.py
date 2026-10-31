@@ -393,7 +393,7 @@ def _gitleaks_available() -> bool:
 # scan off. Flags cannot override the ignore file, so the scan runs on a staged copy
 # without them.
 _GITLEAKS_CONTROL_FILES = frozenset({".gitleaks.toml", "gitleaks.toml", ".gitleaksignore"})
-_GITLEAKS_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".venv", "venv"})
+_GITLEAKS_SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".venv", "venv", ".vaultloom", "tests", "test"})
 _GITLEAKS_STAGE_LIMIT = 50 * 1024 * 1024
 
 
@@ -667,11 +667,14 @@ def run(
         ".git",
         ".github",
         "__pycache__",
-        ".obsidian-mcp-vault",  # vault MCP search index (gitignored, never shipped)
+        ".vaultloom",  # vault search index (gitignored, never shipped)
         "node_modules",
         ".venv",
         "venv",
         ".tox",
+        "tests",
+        "test",
+        "spec",
     }
     # Paths to skip entirely (e.g., scanner's own rule definitions)
     _skip_markers = ("security/plugin_scanner/rules/",)

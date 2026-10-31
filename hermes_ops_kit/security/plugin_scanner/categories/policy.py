@@ -587,6 +587,12 @@ def _run_semgrep(plugin_path: str, rules_paths: list[str]) -> list[dict[str, Any
         ".git",
         "--exclude",
         ".tox",
+        "--exclude",
+        ".vaultloom",
+        "--exclude",
+        "tests",
+        "--exclude",
+        "test",
     ]
     for rp in rules_paths:
         if os.path.exists(rp):
@@ -707,7 +713,7 @@ def _run_bandit(plugin_path: str) -> list[dict[str, Any]]:
                 "-ll",  # Low severity threshold
                 "--quiet",
                 "--exclude",
-                ".venv,venv,__pycache__,node_modules,.git,.tox",
+                ".venv,venv,__pycache__,node_modules,.git,.tox,.vaultloom,tests,test",
             ],
             capture_output=True,
             text=True,
@@ -798,11 +804,14 @@ def run(
         ".git",
         ".github",
         "__pycache__",
-        ".obsidian-mcp-vault",  # vault MCP search index (gitignored, never shipped)
+        ".vaultloom",  # vault search index (gitignored, never shipped)
         "node_modules",
         ".venv",
         "venv",
         ".tox",
+        "tests",
+        "test",
+        "spec",
     }
     # Scanner's own rule definitions contain example patterns — skip
     _skip_markers = ("security/plugin_scanner/rules/",)

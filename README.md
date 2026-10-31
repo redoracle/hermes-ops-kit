@@ -474,6 +474,8 @@ disabling unsafe MCP servers before Hermes boots.
 hermes-ops-kit plugin scan                                    # Default startup scan
 hermes-ops-kit plugin scan --plugin <name> --force            # Single plugin, skip cache
 hermes-ops-kit plugin scan --profile manual --json            # Full scan, JSON output
+hermes-ops-kit plugin scan --summary --exclude-system         # Exclude core/system infrastructure
+hermes-ops-kit plugin scan --summary --system-only            # Inspect system infrastructure only
 hermes-ops-kit plugin policy                                  # Show approval policy
 hermes-ops-kit plugin approve <plugin>                        # Approve entire plugin
 hermes-ops-kit plugin override <plugin> <rule> allow          # Whitelist a single rule

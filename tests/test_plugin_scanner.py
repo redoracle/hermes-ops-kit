@@ -1794,6 +1794,7 @@ class TestAdditionalEdgeCases:
         )
         d = sr.to_dict()
         assert d["plugin_name"] == "test"
+        assert d["plugin_class"] == "user"
         assert d["risk_level"] == "critical"
         assert d["score"] == 60.0
         assert len(d["findings"]) == 1

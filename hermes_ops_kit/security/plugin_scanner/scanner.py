@@ -39,6 +39,9 @@ from ... import ops_config_io  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+# Canonical system infrastructure plugins
+SYSTEM_PLUGINS: frozenset[str] = frozenset({"hermes-ops-kit"})
+
 # ── Category Registry ────────────────────────────────────────────────
 
 CATEGORY_RUNNERS: dict[str, Any] = {
@@ -214,6 +217,7 @@ def scan_plugin(
     )
 
     # Normalize path
+    plugin_class = "system" if plugin_name in SYSTEM_PLUGINS else "user"
     plugin_path = os.path.expanduser(plugin_path)
     if not os.path.isdir(plugin_path):
         return ScanResult(
@@ -223,6 +227,7 @@ def scan_plugin(
             categories_skipped=categories_skipped,
             scanner_version=_SCANNER_VERSION,
             errors=[f"Plugin path does not exist: {plugin_path}"],
+            plugin_class=plugin_class,
         )
 
     # ── Cache lookup ────────────────────────────────────────────
@@ -294,6 +299,7 @@ def scan_plugin(
                     scanned_at=cached.get("scanned_at", ""),
                     scanner_version=cached.get("scanner_version", ""),
                     duration_ms=elapsed_ms,
+                    plugin_class=plugin_class,
                 )
 
     # ── Detect plugin type (skill vs code) ──────────────────────
@@ -352,6 +358,7 @@ def scan_plugin(
         scanner_version=_SCANNER_VERSION,
         duration_ms=elapsed_ms,
         errors=errors,
+        plugin_class=plugin_class,
     )
 
     # ── Store in cache ──────────────────────────────────────────
