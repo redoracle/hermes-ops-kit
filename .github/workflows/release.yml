@@ -21,6 +21,8 @@ jobs:
     # reviewers (repository Settings > Environments > release). Without that setting the
     # job runs unattended, as before.
     environment: release
+    outputs:
+      pypi_ready: ${{ steps.pypi_release.outputs.ready }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,21 +66,19 @@ jobs:
           VERSION=$(cat .release-prepared)
           gh release upload "v${VERSION}" dist/* --clobber
 
-      - name: Publish to PyPI
-        # Skipped cleanly until the PYPI_API_TOKEN secret exists (pypi.org →
-        # Account settings → API tokens). Once present, every release also
-        # publishes hermes-ops-kit so remote hosts install as normal users.
-        # The secrets context is not available in `if:` — compare via env.
-        if: env.RELEASE_PREPARED == 'true' && env.HAS_PYPI_TOKEN == 'true'
+      # Build and release happen without access to OIDC publishing credentials.
+      - name: Upload Python distributions for PyPI
+        if: env.RELEASE_PREPARED == 'true'
         env:
           RELEASE_PREPARED: ${{ hashFiles('.release-prepared') != '' }}
-          HAS_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --disable-pip-version-check twine
-          python3 -m twine upload dist/*
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pypi-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Sync version files to repo (4-way invariant)
         if: always()
@@ -108,3 +108,36 @@ jobs:
             echo "  $FILE synced"
           done
           echo "version files synced for ${VERSION}"
+
+      # A rerun without a new semantic-release version must not republish to PyPI.
+      - name: Mark Python distributions ready
+        id: pypi_release
+        if: success()
+        shell: bash
+        run: |
+          if [[ -s .release-prepared ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  pypi-publish:
+    name: Publish to PyPI (OIDC)
+    needs: release
+    if: needs.release.outputs.pypi_ready == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/project/hermes-ops-kit/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download prepared Python distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pypi-distributions
+          path: dist/
+
+      - name: Publish distributions to PyPI with OIDC
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
