@@ -14,7 +14,7 @@ Configure exactly:
 | PyPI field | Value |
 |---|---|
 | Package name | `hermes-ops-kit` |
-| GitHub owner | `redoracle` |
+| GitHub owner | GitHub account that owns this repository (see repository URL) |
 | Repository | `hermes-ops-kit` |
 | Workflow filename | `release.yml` |
 | Environment | `release` |
